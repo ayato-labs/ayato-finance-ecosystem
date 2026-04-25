@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Database and Data
+data/
+*.duckdb
+*.parquet
+
+# Configuration
+.env
+
+# Project specific
+daily_stock_price.egg-info/
+index.egg-info/
+.pytest_cache/
+.ruff_cache/
