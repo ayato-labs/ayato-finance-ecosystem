@@ -1,10 +1,10 @@
-import logging
+from loguru import logger
 from fastapi import FastAPI, HTTPException
 from ..engine import IndexEngine
 from ..fetchers.yf_fetcher import YFinanceFetcher
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Market Index API")
 engine = IndexEngine()
 fetcher = YFinanceFetcher()

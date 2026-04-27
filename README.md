@@ -12,6 +12,14 @@ This is a **Monorepo** consisting of decoupled micro-services, each specialized 
 - **[Market Index API](./index)**: Dedicated service for tracking global benchmarks like S&P 500 and Nikkei 225.
 - **[Macro Economic API](./macro)**: Tracks critical economic indicators such as 10Y Treasury Yields and Fed Funds Rates.
 
+## 🌟 Flagship Features
+
+### Shadow Benchmark & Alpha Analysis
+Stay rational in any market. This ecosystem calculates a **"Parallel Universe Portfolio"** in real-time, showing exactly what your returns would be if you had invested in market benchmarks (like the S&P 500) at the exact same time as your individual stock purchases.
+- **Hyper-Accurate Benchmarking**: Uses OHLC average prices `(O+H+L+C)/4` for the benchmark simulation at the moment of every transaction.
+- **True Alpha Tracking**: Instantly see your performance relative to the market at both the portfolio and individual asset level.
+- **Emotional Intelligence**: Built as a psychological shield—seeing your relative outperformance prevents panic-selling during broader market corrections.
+
 ## 🚀 Key Features
 
 - **Local-First Intelligence**: Uses DuckDB and Parquet for extremely fast local queries without expensive cloud database costs.

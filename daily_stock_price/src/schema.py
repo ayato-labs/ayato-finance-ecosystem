@@ -16,6 +16,7 @@ COLUMNS = [
     "Close",
     "Volume",
     "StockSplits",
+    "SharesOutstanding",
     "Source",
     "LoadTimestamp",
 ]
@@ -65,6 +66,13 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
 
     # 出来高は int64 を採用し、巨大な出来高（21億超）にも対応可能とする
     df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce").fillna(0).astype(np.int64)
+
+    # 発行済株式数も巨大な数値になるため float64 (または int64) で扱う。
+    # 欠損値を許容するため float64 をデフォルトとする。
+    if "SharesOutstanding" in df.columns:
+        df["SharesOutstanding"] = pd.to_numeric(df["SharesOutstanding"], errors="coerce").astype(np.float64)
+    else:
+        df["SharesOutstanding"] = np.nan
 
     # 銘柄名とソース名はカテゴリ型に変更（Parquet Dictionary Encodingを強制）
     df["Ticker"] = df["Ticker"].astype("category")

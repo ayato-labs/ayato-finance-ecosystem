@@ -1,11 +1,9 @@
-import logging
 import os
 from datetime import datetime
 import pandas as pd
 from fredapi import Fred
+from loguru import logger
 from ..schema import enforce_schema
-
-logger = logging.getLogger(__name__)
 
 class FredFetcher:
     """

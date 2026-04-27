@@ -1,10 +1,8 @@
-import logging
 from datetime import datetime
 import pandas as pd
 import yfinance as yf
+from loguru import logger
 from ..schema import enforce_schema
-
-logger = logging.getLogger(__name__)
 
 class YFinanceFetcher:
     """

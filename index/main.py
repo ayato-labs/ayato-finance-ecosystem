@@ -1,12 +1,14 @@
 import argparse
-import logging
+import sys
 import uvicorn
-import coloredlogs
+from loguru import logger
 from src.api.app import app, engine, fetcher
 
-# ログ設定
-coloredlogs.install(level='INFO', fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Configure loguru
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+logger.add("data/index_error.log", level="ERROR", rotation="10 MB")
+logger.add("data/index.log", level="INFO", rotation="10 MB")
 
 def run_sync(ticker: str = "^GSPC"):
     """

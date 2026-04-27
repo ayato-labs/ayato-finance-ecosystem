@@ -1,13 +1,14 @@
-import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from typing import Optional
 
 import pandas as pd
 import yfinance as yf
+from loguru import logger
 
 from ..schema import enforce_schema
 from .base import BaseFetcher
 
-logger = logging.getLogger(__name__)
 
 
 class YFinanceFetcher(BaseFetcher):
@@ -41,6 +42,15 @@ class YFinanceFetcher(BaseFetcher):
 
             if "Stock Splits" in df.columns:
                 df = df.rename(columns={"Stock Splits": "StockSplits"})
+
+            # Fetch SharesOutstanding from info
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                shares = ticker_obj.info.get("sharesOutstanding")
+                df["SharesOutstanding"] = shares
+            except Exception as e:
+                logger.warning(f"Could not fetch sharesOutstanding for {ticker}: {e}")
+                df["SharesOutstanding"] = None
 
             # Internal schema enforcement
             return enforce_schema(df, ticker, self.source_name)

@@ -1,0 +1,6 @@
+batch_fetch
+edgar_fetcher
+edgar_parser
+main
+storage
+translate_for_analysis

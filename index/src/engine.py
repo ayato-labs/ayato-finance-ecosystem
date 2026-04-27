@@ -1,10 +1,10 @@
-import logging
+from loguru import logger
 import os
 from pathlib import Path
 import duckdb
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+
 
 class IndexEngine:
     """
@@ -78,7 +78,9 @@ class IndexEngine:
                 df = conn.execute(sql).df()
                 # 日付を文字列に変換
                 df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-                return df.to_dict(orient="records")
+                records = df.to_dict(orient="records")
+                # Replace NaN with None for JSON compliance
+                return [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
         except Exception as e:
             logger.error(f"Error querying data for {ticker}: {e}")
             return []

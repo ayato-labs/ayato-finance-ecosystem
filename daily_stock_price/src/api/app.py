@@ -1,6 +1,7 @@
-import logging
+import pandas as pd
 from datetime import datetime
 
+from loguru import logger
 import duckdb
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +11,8 @@ from src.engine import MarketDataEngine
 from src.fetchers.yf_fetcher import YFinanceFetcher
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
+
 
 app = FastAPI(
     title="Daily Stock Price API",
@@ -44,6 +45,7 @@ class PriceRecord(BaseModel):
     Close: float
     Volume: int
     StockSplits: float
+    SharesOutstanding: float | None
     Source: str
     LoadTimestamp: datetime
 
@@ -116,7 +118,9 @@ def get_prices(
         if df.empty:
             return []
 
-        return df.to_dict(orient="records")
+        records = df.to_dict(orient="records")
+        # Replace NaN with None for JSON compliance
+        return [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
     except HTTPException:
         raise
     except Exception as e:
@@ -155,7 +159,10 @@ def run_query(request: QueryRequest, engine: MarketDataEngine = Depends(get_engi
             processed_sql += f" LIMIT {request.limit}"
 
         df = db.query(processed_sql).df()
-        return {"columns": df.columns.tolist(), "data": df.to_dict(orient="records")}
+        records = df.to_dict(orient="records")
+        # Replace NaN with None for JSON compliance
+        clean_data = [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
+        return {"columns": df.columns.tolist(), "data": clean_data}
     except Exception as e:
         logger.error(f"Custom query failed: {e}")
         raise HTTPException(status_code=400, detail=str(e)) from e

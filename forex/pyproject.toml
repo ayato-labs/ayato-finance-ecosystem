@@ -1,0 +1,20 @@
+[project]
+name = "forex"
+version = "0.1.0"
+description = "Forex Service for Ayato Finance Ecosystem"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "yfinance",
+    "pandas",
+    "duckdb",
+    "pyarrow",
+    "python-dotenv",
+    "coloredlogs",
+    "loguru>=0.7.3",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+]

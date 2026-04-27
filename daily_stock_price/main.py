@@ -1,6 +1,6 @@
 import argparse
-import logging
 import sys
+from loguru import logger
 
 import duckdb
 
@@ -8,13 +8,11 @@ from src.engine import MarketDataEngine
 from src.fetchers.yf_fetcher import YFinanceFetcher
 from src.universe import UniverseManager
 
-# ロギングの設定
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger(__name__)
+# Configure loguru
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+logger.add("data/logs/stock_price_error.log", level="ERROR", rotation="10 MB")
+logger.add("data/logs/stock_price.log", level="INFO", rotation="10 MB")
 
 
 def check_api_health(port: int) -> str:

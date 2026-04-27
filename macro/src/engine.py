@@ -1,9 +1,9 @@
-import logging
+from loguru import logger
 from pathlib import Path
 import duckdb
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+
 
 class MacroEngine:
     """
@@ -62,7 +62,9 @@ class MacroEngine:
             with duckdb.connect(":memory:") as conn:
                 df = conn.execute(sql).df()
                 df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-                return df.to_dict(orient="records")
+                records = df.to_dict(orient="records")
+                # Replace NaN with None for JSON compliance
+                return [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
         except Exception as e:
             logger.error(f"Error querying data for {symbol}: {e}")
             return []

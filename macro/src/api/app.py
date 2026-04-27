@@ -1,10 +1,10 @@
-import logging
+from loguru import logger
 from fastapi import FastAPI, HTTPException
 from ..engine import MacroEngine
 from ..fetchers.fred_fetcher import FredFetcher
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Macro Economic API")
 engine = MacroEngine()
 fetcher = FredFetcher()

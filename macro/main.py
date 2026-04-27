@@ -1,7 +1,7 @@
 import argparse
-import logging
+import sys
 import uvicorn
-import coloredlogs
+from loguru import logger
 from dotenv import load_dotenv
 
 # .env ファイルの読み込み（インポートより前に行う）
@@ -9,9 +9,11 @@ load_dotenv()
 
 from src.api.app import app, engine, fetcher
 
-# ログ設定
-coloredlogs.install(level='INFO', fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Configure loguru
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+logger.add("data/macro_error.log", level="ERROR", rotation="10 MB")
+logger.add("data/macro.log", level="INFO", rotation="10 MB")
 
 def run_sync(symbol: str):
     """

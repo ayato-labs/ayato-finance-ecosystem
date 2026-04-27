@@ -1,18 +1,19 @@
-import logging
-import random
-import time
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional
 
 import duckdb
 import pandas as pd
+from loguru import logger
 
 from .fetchers.base import BaseFetcher
 from .logger import SyncLogger
 from .catalog import CatalogManager
 
-logger = logging.getLogger(__name__)
+
 
 
 class MarketDataEngine:
