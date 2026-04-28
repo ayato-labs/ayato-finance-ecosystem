@@ -1,8 +1,9 @@
 import requests
-import json
 import time
+import random
 from loguru import logger
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
+from functools import wraps
 
 class EdgarFetcher:
     """
@@ -13,16 +14,52 @@ class EdgarFetcher:
     BASE_URL_SUBMISSIONS = "https://data.sec.gov/submissions/"
     BASE_URL_TICKERS = "https://www.sec.gov/files/company_tickers.json"
 
-    def __init__(self, user_agent: str):
+    def __init__(self, user_agent: str, max_retries: int = 5):
         # User-Agent 例: "YourName yourname@example.com"
         self.headers = {"User-Agent": user_agent}
         self.ticker_to_cik_map = {}
+        self.max_retries = max_retries
+
+    def _request_with_retry(self, url: str) -> Optional[requests.Response]:
+        """SEC APIへのリクエストを指数バックオフ付きで実行"""
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, timeout=15)
+                
+                if response.status_code == 200:
+                    return response
+                
+                if response.status_code == 429:
+                    # SECの制限に達した場合
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"SEC Rate Limit (429). Retrying in {wait_time:.2f}s... (Attempt {attempt+1}/{self.max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                
+                if response.status_code >= 500:
+                    # サーバーエラー
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.error(f"SEC Server Error ({response.status_code}). Retrying in {wait_time:.2f}s...")
+                    time.sleep(wait_time)
+                    continue
+                
+                # その他のエラー (404, 403等) はリトライせず終了
+                logger.error(f"SEC API Error: {response.status_code} for {url}")
+                return None
+                
+            except requests.RequestException as e:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                logger.error(f"Network error: {e}. Retrying in {wait_time:.2f}s...")
+                time.sleep(wait_time)
+        
+        logger.error(f"Max retries reached for {url}")
+        return None
 
     def _refresh_ticker_map(self):
         """ティッカーからCIKを変換するためのマスターリストを取得"""
         logger.info("Refreshing SEC ticker-to-cik map...")
-        response = requests.get(self.BASE_URL_TICKERS, headers=self.headers)
-        if response.status_code == 200:
+        response = self._request_with_retry(self.BASE_URL_TICKERS)
+        if response and response.status_code == 200:
             data = response.json()
             # dataは "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."} という形式
             for key in data:
@@ -31,7 +68,8 @@ class EdgarFetcher:
                 cik = str(entry["cik_str"]).zfill(10)
                 self.ticker_to_cik_map[ticker] = cik
         else:
-            logger.error(f"Failed to fetch ticker map: {response.status_code}")
+            status = response.status_code if response else "N/A"
+            logger.error(f"Failed to fetch ticker map: {status}")
 
     def get_cik(self, ticker: str) -> Optional[str]:
         """ティッカーから10桁のCIKを取得"""
@@ -50,12 +88,10 @@ class EdgarFetcher:
         url = f"{self.BASE_URL_SUBMISSIONS}CIK{cik}.json"
         logger.info(f"Fetching submissions for {ticker} (CIK: {cik})...")
         
-        response = requests.get(url, headers=self.headers)
-        if response.status_code == 200:
+        response = self._request_with_retry(url)
+        if response and response.status_code == 200:
             return response.json()
-        else:
-            logger.error(f"Failed to fetch submissions for {ticker}: {response.status_code}")
-            return None
+        return None
 
     def filter_relevant_filings(self, submissions_data: Dict, doc_types: List[str] = ["10-K", "10-Q"]) -> List[Dict]:
         """10-Kや10-Qなどの特定の書類のみを抽出"""

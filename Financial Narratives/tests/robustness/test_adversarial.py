@@ -27,6 +27,16 @@ def test_fetcher_network_error(mocker):
     subs = fetcher.get_latest_submissions("AAPL")
     assert subs is None
 
+def test_fetcher_rate_limit_error(mocker):
+    """SECから429 (Rate Limit) エラーが返された場合の挙動"""
+    fetcher = EdgarFetcher("TestAgent")
+    mock_get = mocker.patch("requests.get")
+    mock_get.return_value.status_code = 429
+    
+    # クラッシュせずにNoneを返すことを確認
+    subs = fetcher.get_latest_submissions("AAPL")
+    assert subs is None
+
 def test_fetcher_with_invalid_ticker():
     fetcher = EdgarFetcher("TestAgent")
     cik = fetcher.get_cik("INVALID_TICKER_99999")

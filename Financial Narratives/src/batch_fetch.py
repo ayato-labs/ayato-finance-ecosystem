@@ -1,15 +1,22 @@
 import time
 import requests
+import json
 from pathlib import Path
 from loguru import logger
 from edgar_fetcher import EdgarFetcher
 from edgar_parser import EdgarParser
 from storage import FinancialNarrativeStorage
+from analyzer import EdgarAnalyzer
+import os
+import asyncio
 
 USER_AGENT = "SampleAgent yourname@example.com"
 TICKERS = ["AAPL", "NVDA", "GOOGL", "AMZN", "META"]
 
-def batch_fetch():
+async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
+    if tickers is None:
+        tickers = TICKERS
+        
     fetcher = EdgarFetcher(USER_AGENT)
     parser = EdgarParser()
     storage = FinancialNarrativeStorage()
@@ -18,7 +25,7 @@ def batch_fetch():
     raw_dir = Path("data/raw_json")
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    for ticker in TICKERS:
+    for ticker in tickers:
         try:
             logger.info(f"=== Processing {ticker} ===")
             
@@ -35,43 +42,62 @@ def batch_fetch():
             latest = filings[0]
             acc_no = latest['accessionNumber']
 
-            # 差分更新チェック: 既にDBに存在すればスキップ
+            # 差分更新チェック
             if storage.filing_exists(acc_no):
-                logger.info(f"Filing {acc_no} already exists in DB. Skipping {ticker}.")
-                continue
-
-            cik = fetcher.get_cik(ticker).lstrip('0')
-            acc_no_clean = acc_no.replace("-", "")
-            doc = latest['primaryDocument']
-            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
-            
-            # 3. ダウンロード
-            logger.info(f"Downloading {ticker} 10-K: {url}")
-            resp = requests.get(url, headers={"User-Agent": USER_AGENT})
-            time.sleep(0.1) # SEC制限配慮
-            
-            if resp.status_code != 200:
-                logger.error(f"Failed to download {ticker}: {resp.status_code}")
-                continue
-            
-            # 4. パース (複数セクション抽出)
-            sections = parser.extract_all_sections(resp.text, "10-K")
-            
-            if sections:
-                # メタデータの整備
-                filing_metadata = latest.copy()
-                filing_metadata["ticker"] = ticker
-                filing_metadata["cik"] = cik
-                
-                # DuckDBへ保存
-                storage.save_filing(filing_metadata, sections)
-                
-                # セクションごとの抽出状況をログ出力
-                found_keys = [k for k, v in sections.items() if v]
-                logger.success(f"Extracted {len(found_keys)} sections for {ticker}: {', '.join(found_keys)}")
+                logger.info(f"Filing {acc_no} already exists in DB. Skipping {ticker} fetch.")
             else:
-                logger.warning(f"No sections extracted for {ticker}")
-            
+                cik = fetcher.get_cik(ticker).lstrip('0')
+                acc_no_clean = acc_no.replace("-", "")
+                doc = latest['primaryDocument']
+                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
+                
+                # 3. ダウンロード
+                logger.info(f"Downloading {ticker} 10-K: {url}")
+                resp = requests.get(url, headers={"User-Agent": USER_AGENT})
+                time.sleep(0.1) # SEC制限配慮
+                
+                if resp.status_code != 200:
+                    logger.error(f"Failed to download {ticker}: {resp.status_code}")
+                    continue
+                
+                # 4. パース (複数セクション抽出)
+                sections = parser.extract_all_sections(resp.text, "10-K")
+                
+                if sections:
+                    # メタデータの整備
+                    filing_metadata = latest.copy()
+                    filing_metadata["ticker"] = ticker
+                    filing_metadata["cik"] = cik
+                    
+                    # DuckDBへ保存
+                    storage.save_filing(filing_metadata, sections)
+                else:
+                    logger.warning(f"No sections extracted for {ticker}")
+                    continue
+
+            # 5. 分析の実行（オプション）
+            # ファイルが存在していても、分析がまだなら実行する
+            if run_analysis:
+                # すでに分析済みかチェック
+                existing_analysis = storage.get_analysis_by_ticker(ticker)
+                if not existing_analysis:
+                    api_key = os.environ.get("GOOGLE_API_KEY")
+                    if api_key:
+                        # DBからセクションを再取得（保存直後、または以前保存されたもの）
+                        rows = storage.get_filings_by_ticker(ticker)
+                        if rows:
+                            latest_row = rows[0]
+                            sections = json.loads(latest_row[3])
+                            
+                            analyzer = EdgarAnalyzer(api_key=api_key)
+                            analysis = await analyzer.analyze_narratives(sections)
+                            if analysis:
+                                storage.save_analysis(acc_no, ticker, analysis)
+                    else:
+                        logger.warning("GOOGLE_API_KEY not set, skipping analysis.")
+                else:
+                    logger.info(f"Analysis already exists for {ticker}. Skipping.")
+
             # SECレート制限(10 req/sec)を守るため待機
             time.sleep(0.5)
 
@@ -79,4 +105,5 @@ def batch_fetch():
             logger.error(f"Error processing {ticker}: {e}")
 
 if __name__ == "__main__":
-    batch_fetch()
+    import json # ensure json is available for the script if needed, though it's inside methods
+    asyncio.run(batch_fetch())
