@@ -1,14 +1,17 @@
 import json
-from datetime import datetime
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
+import os
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from src.storage import FinancialNarrativeStorage
-from src.batch_fetch import batch_fetch
 from src.analyzer import EdgarAnalyzer
-from src.api.models import FilingRecord, StatsResponse, AnalysisRecord
-import os
+from src.api.models import AnalysisRecord, FilingRecord, StatsResponse
+from src.batch_fetch import batch_fetch
+from src.logging_utils import setup_logging
+from src.storage import FinancialNarrativeStorage
+
+# Logging初期化
+setup_logging("api")
 
 app = FastAPI(
     title="Financial Narratives API",

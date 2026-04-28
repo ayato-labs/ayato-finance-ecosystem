@@ -1,14 +1,16 @@
+import asyncio
+import os
 import time
-import requests
 import json
 from pathlib import Path
+
+import requests
 from loguru import logger
-from edgar_fetcher import EdgarFetcher
-from edgar_parser import EdgarParser
-from storage import FinancialNarrativeStorage
-from analyzer import EdgarAnalyzer
-import os
-import asyncio
+
+from src.analyzer import EdgarAnalyzer
+from src.edgar_fetcher import EdgarFetcher
+from src.edgar_parser import EdgarParser
+from src.storage import FinancialNarrativeStorage
 
 USER_AGENT = "SampleAgent yourname@example.com"
 TICKERS = ["AAPL", "NVDA", "GOOGL", "AMZN", "META"]
@@ -105,5 +107,6 @@ async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
             logger.error(f"Error processing {ticker}: {e}")
 
 if __name__ == "__main__":
-    import json # ensure json is available for the script if needed, though it's inside methods
+    from src.logging_utils import setup_logging
+    setup_logging("batch")
     asyncio.run(batch_fetch())
