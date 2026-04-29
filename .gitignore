@@ -1,4 +1,6 @@
-# Python
+# --- AI Agent Git Rules Compliant .gitignore ---
+
+# Python & Build
 __pycache__/
 *.py[cod]
 *$py.class
@@ -12,20 +14,44 @@ dist/
 .coverage
 htmlcov/
 
-# Data & Secrets
-.env
-.env.*
-*.pem
-*.key
+# A. Generated Artifacts
+*.pdf
+*.docx
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.log
+*.txt
+# Exception: allow technical markdown docs
+!*.md
+
+# B. Large Datasets (Exclusion List)
+*.csv
+*.json
+# Exception: allow config JSON files at project roots
+!**/package.json
+!**/tsconfig.json
+!**/next.config.json
+!**/protect-*.json
+!**/company_tickers.json
 *.parquet
+*.pkl
+*.pt
+*.h5
+*.ckpt
+*.gguf
 *.duckdb
 *.db
 data/
 **/data/
-*.log
 **/logs/
 
-# Node.js
+# C. Environment & Secrets
+.env
+.env.*
+apikey.txt
+id_rsa
 node_modules/
 **/node_modules/
 .next/

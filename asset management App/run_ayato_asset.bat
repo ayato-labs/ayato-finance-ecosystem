@@ -8,8 +8,8 @@ echo [INFO] Ensure Ports 5005 and 5006 are running.
 echo.
 
 :: Start Backend
-echo Starting Backend (Port 8000)...
-start "Ayato-Backend" cmd /k "cd src\backend && uv run python main.py"
+echo Starting Backend (Port 5007)...
+start "Ayato-Backend" cmd /k "uv run python main.py"
 
 :: Start Crypto Price Service
 echo Starting Crypto Price Service (Port 5012)...
