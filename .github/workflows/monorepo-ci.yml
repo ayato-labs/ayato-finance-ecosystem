@@ -32,7 +32,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: "${{ matrix.module }}/.python-version"
+          python-version: "3.12" # Fixed version for stability across modules
       
       - name: Install dependencies
         run: |
@@ -65,6 +65,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # Use a relative path without leading space issues if possible, or ensure correct quoting
           cache-dependency-path: 'asset management App/src/frontend/package-lock.json'
       
       - name: Install dependencies
@@ -80,8 +81,6 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
-  # Final status check job that depends on all matrix jobs
-  # This is the one we use for the Branch Ruleset
   final-status:
     name: CI / Build
     needs: [python-tests, frontend-build]
@@ -90,10 +89,11 @@ jobs:
     steps:
       - name: Check overall status
         run: |
+          # Check if any of the needed jobs failed or were cancelled
           if [[ "${{ needs.python-tests.result }}" == "success" && "${{ needs.frontend-build.result }}" == "success" ]]; then
             echo "All tests passed!"
             exit 0
           else
-            echo "One or more tests failed."
+            echo "One or more tests failed. Results: python-tests=${{ needs.python-tests.result }}, frontend-build=${{ needs.frontend-build.result }}"
             exit 1
           fi
