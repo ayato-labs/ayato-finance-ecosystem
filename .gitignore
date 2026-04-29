@@ -6,21 +6,34 @@ __pycache__/
 env/
 build/
 dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Data & Secrets
 .env
-.env.local
+.env.*
+*.pem
+*.key
 *.parquet
+*.duckdb
+*.db
 data/
-database.db
+**/data/
 *.log
+**/logs/
 
 # Node.js
 node_modules/
+**/node_modules/
 .next/
 out/
 npm-debug.log*
+yarn-error.log*
 
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
