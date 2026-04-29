@@ -1,9 +1,11 @@
+from datetime import datetime
+
 import pandas as pd
 import pytest
-from pathlib import Path
-from datetime import datetime
-from src.engine import MarketDataEngine
+
 from src.catalog import CatalogManager
+from src.engine import MarketDataEngine
+
 
 class FakeFetcher:
     """A deterministic, zero-dependency source for unit testing. No MagicMock used."""
@@ -15,7 +17,7 @@ class FakeFetcher:
     def fetch(self, ticker, start_date=None):
         if ticker in self.data_map:
             return self.data_map[ticker]
-        
+
         # Default mock-like but concrete data
         dates = pd.date_range(start="2024-01-01", periods=5, freq="D")
         data = {
@@ -54,6 +56,6 @@ def temp_catalog(temp_data_dir):
 def engine(temp_data_dir, fake_fetcher):
     """Provides an isolated MarketDataEngine instance using the FakeFetcher."""
     return MarketDataEngine(
-        fetcher=fake_fetcher, 
+        fetcher=fake_fetcher,
         base_dir=str(temp_data_dir / "market_data")
     )

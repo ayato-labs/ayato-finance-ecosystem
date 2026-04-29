@@ -1,7 +1,8 @@
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Any
 
 from dotenv import load_dotenv
@@ -45,7 +46,7 @@ class AIMapper:
             MARKET CONTEXT: JAPAN (EDINET / J-Quants)
             - You are mapping raw Japanese EDINET XBRL tags to J-Quants V2 schema fields.
             - Focus on the Japanese name and the Taxonomy ID (e.g., jppfs_cor:NetSales).
-            - J-Quants V2 fields (e.g., NetSales, OperatingProfit, Profit) are specific. Use them exactly.
+            - J-Quants V2 fields (e.g., NetSales, OperatingProfit) are specific. Use them exactly.
             - If the tag represents 'Net Income' or 'Profit for the year', map it to 'Profit'.
             - If the tag represents 'EPS', map it to 'EarningsPerShare'.
             """
@@ -60,9 +61,8 @@ class AIMapper:
         You are a professional financial data analyst specializing in XBRL and GAAP standards.
         Your task is to map a market-specific financial tag to a standardized target label.
         {market_context}
-        
         Target Labels: {", ".join(target_labels)}
-        
+
         CRITICAL INSTRUCTIONS:
         1. OUTPUT ONLY A VALID JSON OBJECT.
         2. DO NOT INCLUDE ANY CONVERSATIONAL TEXT, EXPLANATIONS, OR REPETITIONS.
@@ -156,9 +156,10 @@ class AIMapper:
                 batch_results = batch_data.get("mappings", [])
             except Exception as jse:
                 # Sanitize log: truncate long output
-                display_text = raw_text[:500] + "..." if len(raw_text) > 500 else raw_text
+                preview_len = 500
+                display_text = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
                 logger.error(f"JSON Parsing failed for {model_name}. Preview: {display_text}")
-                raise AIMappingError(f"JSON Parse Failure: {jse}", is_retryable=True)
+                raise AIMappingError(f"JSON Parse Failure: {jse}", is_retryable=True) from jse
 
             final_results = []
             for i, res in enumerate(batch_results):
@@ -174,11 +175,12 @@ class AIMapper:
                 )
                 if mapped_label not in valid_labels and mapped_label != "Other":
                     logger.warning(
-                        f"AI returned invalid label '{mapped_label}' for market '{market}' tag '{tags[i][0]}'. Normalizing to 'Other'."
+                        f"AI returned invalid label '{mapped_label}' for market '{market}' "
+                        f"tag '{tags[i][0]}'. Normalizing to 'Other'."
                     )
                     mapped_label = "Other"
 
-                tag_orig, desc_orig = tags[i]
+                tag_orig, _ = tags[i]
                 final_results.append(
                     {
                         "source_tag": f"{market}:{tag_orig}",
@@ -195,7 +197,9 @@ class AIMapper:
             # Detect 500 or 429 and specifically flag as retryable
             error_str = str(e).upper()
             is_retryable = any(term in error_str for term in ["500", "INTERNAL", "429", "RATE"])
-            raise AIMappingError(f"API Failure ({model_name}): {e}", is_retryable=is_retryable)
+            raise AIMappingError(
+                f"API Failure ({model_name}): {e}", is_retryable=is_retryable
+            ) from e
 
     def map_tags_bulk(
         self,
@@ -221,8 +225,6 @@ class AIMapper:
 
         available_models = settings.LIGHT_GOOGLE_AI_MODELS
         results = []
-        from collections import deque
-        from concurrent.futures import wait
 
         work_queue = deque(
             [tags_with_desc[i : i + batch_size] for i in range(0, len(tags_with_desc), batch_size)]

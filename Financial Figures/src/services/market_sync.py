@@ -1,3 +1,4 @@
+import datetime
 import queue
 import threading
 import time
@@ -158,6 +159,63 @@ class BatchSyncService:
                 logger.error(f"Critical error in DB Writer main loop: {e}", exc_info=True)
                 if task:
                     self.db_queue.task_done()
+
+    def _process_db_task(self, task):
+        """Processes a single database task based on its type."""
+        task_type = task[0]
+        if task_type == "US_INGEST":
+            _, ticker, data, session_id = task
+            logger.info(f"[DBWriter] Ingesting US facts for {ticker}...")
+            self.us_engine.ingest_facts(ticker, data, session_id)
+            audit_manager.log_ticker_sync("US", ticker, 1, "SUCCESS")
+            self._increment_stat("SUCCESS")
+            self._queue_unmapped_tags("US", ticker, session_id)
+
+        elif task_type == "JP_INGEST":
+            _, code, df, session_id = task
+            logger.info(f"[DBWriter] Ingesting JP facts for {code}...")
+            self.jp_engine.ingest_facts(code, df, session_id)
+            audit_manager.log_ticker_sync("JP", code, 1, "SUCCESS")
+            self._increment_stat("SUCCESS")
+            self._queue_unmapped_tags("JP", code, session_id)
+
+        elif task_type == "JP_INGEST_BULK":
+            self._process_jp_bulk_ingest(task)
+
+        elif task_type == "LOG_ERROR":
+            _, market, symbol, err_msg = task
+            audit_manager.log_ticker_sync(market, symbol, 0, f"ERROR: {err_msg}")
+            self._increment_stat("ERROR")
+
+        elif task_type == "SAVE_MAPPING":
+            _, s_id, source_tag, mapped_label, model, reasoning, conf = task
+            audit_manager.log_mapping(s_id, source_tag, mapped_label, reasoning, conf, model)
+
+        elif task_type == "LOG_SKIP":
+            _, market, symbol, reason = task
+            logger.info(f"Recording skip for {market}:{symbol} (Reason: {reason})")
+            audit_manager.log_ticker_sync(market, symbol, 0, "SKIPPED_NOT_FOUND")
+
+    def _process_jp_bulk_ingest(self, task):
+        _, date_str, df, session_id = task
+        if "LocalCode" in df.columns:
+            code_col = "LocalCode"
+        elif "Code" in df.columns:
+            code_col = "Code"
+        else:
+            code_col = "code"
+
+        unique_codes = df[code_col].unique()
+        logger.info(
+            f"[DBWriter] Ingesting bulk JP data for {len(unique_codes)} tickers from {date_str}..."
+        )
+
+        for code in unique_codes:
+            ticker_df = df[df[code_col] == code]
+            ticker_code = str(code)
+            self.jp_engine.ingest_facts(ticker_code, ticker_df, session_id)
+            audit_manager.log_ticker_sync("JP", ticker_code, 1, "SUCCESS")
+            self._increment_stat("SUCCESS")
 
     def _ai_mapper_worker(self):
         """【Thread 2: AI Mapper】 未知のタグをキューから受け取り、非同期でGeminiにマッピングさせるスレッド"""
@@ -343,8 +401,6 @@ class BatchSyncService:
 
     def _sync_jp_market_by_date(self, session_id: str, dry_run: bool = False):
         """Fetch all available JP disclosures day-by-day (optimized for 5 req/min limit)."""
-        import datetime
-
         # Free plan has a 12-week window (~84 days). We scan 90 days to be thorough.
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=90)
@@ -354,7 +410,8 @@ class BatchSyncService:
 
         while current_date <= end_date:
             # Skip weekends
-            if current_date.weekday() < 5:
+            weekend_start_idx = 5
+            if current_date.weekday() < weekend_start_idx:
                 date_str = current_date.strftime("%Y-%m-%d")
 
                 if dry_run:
@@ -362,9 +419,8 @@ class BatchSyncService:
                 else:
                     try:
                         # STRICT RATE LIMIT: 12.5s per request (Free Plan: 5 req/min)
-                        logger.info(
-                            f"Fetching JP disclosures for {date_str} (Waiting 12.5s to respect rate limits)..."
-                        )
+                        msg = f"Fetching JP disclosures for {date_str} (Respecting rate limits)..."
+                        logger.info(msg)
                         time.sleep(12.5)
 
                         df = self.jp_engine.cli.get_fin_summary(
@@ -372,9 +428,8 @@ class BatchSyncService:
                         )
 
                         if df is not None and not df.empty:
-                            logger.info(
-                                f"Received {len(df)} disclosures for {date_str}. Sending to DB Writer..."
-                            )
+                            msg = f"Received {len(df)} disclosures for {date_str}. Sending to DB..."
+                            logger.info(msg)
                             self.db_queue.put(("JP_INGEST_BULK", date_str, df, session_id))
                         else:
                             logger.info(f"No disclosures found for {date_str}.")
@@ -386,9 +441,8 @@ class BatchSyncService:
                             or "subscription" in err_str.lower()
                             or "400" in err_str
                         ):
-                            logger.debug(
-                                f"Date {date_str} is outside of your subscription plan bounds. Skipping safely."
-                            )
+                            msg = f"Date {date_str} is outside of subscription plan. Skipping."
+                            logger.debug(msg)
                         elif "429" in err_str:
                             logger.warning(
                                 f"Rate limit exceeded for {date_str}. Cooling down for 60s..."

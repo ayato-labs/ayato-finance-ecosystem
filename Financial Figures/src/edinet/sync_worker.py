@@ -1,7 +1,9 @@
 import time
 from datetime import date, timedelta
 from pathlib import Path
+from typing import ClassVar
 
+import duckdb
 from loguru import logger
 
 from src.core.config import settings
@@ -20,7 +22,7 @@ class EDINETSyncWorker:
     """
 
     # docTypeCode: 120 (Annual), 130 (Quarterly), 140 (Semi-annual), 150 (Extraordinary)
-    RELEVANT_DOC_TYPES = {"120", "130", "140", "150"}
+    RELEVANT_DOC_TYPES: ClassVar[set[str]] = {"120", "130", "140", "150"}
 
     def __init__(self):
         self.client = EDINETClient()
@@ -145,10 +147,12 @@ class EDINETSyncWorker:
         ticker = doc.get("secCode")
         if ticker:
             ticker = str(ticker)
-            if len(ticker) == 5 and ticker.endswith("0"):
+            ticker_len_full = 5
+            if len(ticker) == ticker_len_full and ticker.endswith("0"):
                 ticker = ticker[:4]
-            elif len(ticker) == 5:
-                ticker = ticker[:4] # Still fallback to 4 digits for JP market consistency if 5th is non-zero?
+            elif len(ticker) == ticker_len_full:
+                # Still fallback to 4 digits for JP market consistency if 5th is non-zero?
+                ticker = ticker[:4]
                 # Actually, EDINET secCode 72030 is 7203. 
                 # Let's stick to the common pattern.
 
@@ -200,11 +204,13 @@ class EDINETSyncWorker:
             if normalized_facts:
                 self.storage.save_normalized_facts(normalized_facts)
                 logger.info(
-                    f"[MAP] Successfully saved {len(normalized_facts)} standardized facts for {ticker}."
+                    f"[MAP] Successfully saved {len(normalized_facts)} facts for {ticker}."
                 )
             else:
+                mapping_preview = list(tag_to_label.values())[:5]
                 logger.warning(
-                    f"[MAP] No facts could be mapped to standard labels for {ticker}. (Found: {list(tag_to_label.values())[:5]}...)"
+                    f"[MAP] No facts mapped to standard labels for {ticker}. "
+                    f"(Found: {mapping_preview}...)"
                 )
 
         except Exception as e:
@@ -245,8 +251,6 @@ class EDINETSyncWorker:
         if not settings.DB_PATH_JP.exists():
             return False
         try:
-            import duckdb
-
             conn = duckdb.connect(str(settings.DB_PATH_JP), read_only=True)
             # Use disclosed_date to match submissionPeriod
             res = conn.execute(

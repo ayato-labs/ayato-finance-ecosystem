@@ -1,13 +1,11 @@
 import io
-import logging
-import os
+import re
 import time
 from pathlib import Path
 
 import pandas as pd
 import requests
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class UniverseManager:
@@ -32,19 +30,23 @@ class UniverseManager:
             return df["Ticker"].tolist()
 
         logger.info("Fetching JPX ticker list...")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-        }
+        agent_str = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/119.0.0.0 Safari/537.36"
+        )
+        headers = {"User-Agent": agent_str}
 
         index_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
         try:
-            import re
             resp = requests.get(index_url, headers=headers)
             matches = re.findall(r"href=\"(.*?data_j.xls)\"", resp.text)
-            if not matches: raise ValueError("Could not find data_j.xls link.")
+            if not matches:
+                raise ValueError("Could not find data_j.xls link.")
 
             xls_url = matches[0]
-            if xls_url.startswith("/"): xls_url = "https://www.jpx.co.jp" + xls_url
+            if xls_url.startswith("/"):
+                xls_url = "https://www.jpx.co.jp" + xls_url
 
             logger.info(f"Downloading JPX list from: {xls_url}")
             resp = requests.get(xls_url, headers=headers)
@@ -74,16 +76,19 @@ class UniverseManager:
         ]
         headers = {"User-Agent": "Mozilla/5.0"}
         all_tickers = []
-        
+
         try:
             for url in urls:
                 resp = requests.get(url, headers=headers, timeout=15)
                 resp.raise_for_status()
-                
-                # 文字列として読み込み、最後のフッター（File Creation Time等）を除去
+
+                # 文字列として読み込み、最後のフッター (File Creation Time等) を除去
                 lines = resp.text.splitlines()
-                clean_lines = [line for line in lines if "|" in line and not line.startswith("File Creation Time")]
-                
+                clean_lines = [
+                    line for line in lines
+                    if "|" in line and not line.startswith("File Creation Time")
+                ]
+
                 df = pd.read_csv(io.StringIO("\n".join(clean_lines)), sep="|")
                 # カラム名がSymbolになっているものを抽出
                 col_name = "Symbol" if "Symbol" in df.columns else "NASDAQ Symbol"
@@ -92,10 +97,11 @@ class UniverseManager:
 
             # 重複削除とクリーンアップ (TEST銘柄等を除去)
             # 2026-04-17: BRK.B や BRK-A などの記号も許可するように正規表現でフィルタリング
-            import re
             valid_pattern = re.compile(r"^[A-Z.\-]+$")
-            unique_tickers = sorted(list(set(t for t in all_tickers if t and valid_pattern.match(str(t)))))
-            
+            unique_tickers = sorted(
+                list(set(t for t in all_tickers if t and valid_pattern.match(str(t))))
+            )
+
             # キャッシュ保存
             df_save = pd.DataFrame({"Ticker": unique_tickers})
             df_save.to_csv(cache_file, index=False)
@@ -103,7 +109,7 @@ class UniverseManager:
             return unique_tickers
         except Exception as e:
             logger.error(f"Failed to fetch US tickers from NasdaqTrader: {e}")
-            # もし古いキャッシュがあればそれを返す（安全のため）
+            # もし古いキャッシュがあればそれを返す (安全のため)
             if cache_file.exists():
                 return pd.read_csv(cache_file)["Ticker"].tolist()
             return []

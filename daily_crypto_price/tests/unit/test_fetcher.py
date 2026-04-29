@@ -1,5 +1,6 @@
 from src.fetchers.crypto_fetcher import CryptoPriceFetcher
 
+
 def test_fetcher_standardizes_ticker():
     fetcher = CryptoPriceFetcher()
     # No network call here, just testing the logic if we were to call it

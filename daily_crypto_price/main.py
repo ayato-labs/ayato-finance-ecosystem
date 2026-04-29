@@ -42,7 +42,7 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
         raise HTTPException(status_code=400, detail="Invalid ticker format")
 
     logger.info(f"Request for {clean_ticker} (sync={sync})")
-    
+
     # Standardize ticker for crypto
     clean_ticker = clean_ticker.replace("-USD", "")
     
@@ -57,13 +57,13 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
             meta = fetcher.fetch_metadata(clean_ticker)
             if meta:
                 db.save_metadata(clean_ticker, meta)
-                
+
         except Exception as e:
             logger.error(f"Sync failed for {clean_ticker}: {e}")
 
     prices = db.get_prices(clean_ticker)
     metadata = db.get_metadata(clean_ticker)
-    
+
     if not prices:
         raise HTTPException(status_code=404, detail=f"Ticker {clean_ticker} not found")
     

@@ -16,9 +16,9 @@ class CryptoPriceFetcher:
         yf_symbol = f"{symbol}-USD" if "-" not in symbol else symbol
 
         logger.info(f"Fetching {days} days of data for {yf_symbol}...")
-        
+
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        
+
         try:
             df = yf.download(yf_symbol, start=start_date, progress=False)
             if df.empty:
@@ -26,29 +26,28 @@ class CryptoPriceFetcher:
                 return pd.DataFrame()
             
             # Clean columns (Handle MultiIndex if necessary)
-            # Clean columns (Handle MultiIndex if necessary)
             if isinstance(df.columns, pd.MultiIndex):
                 # If yfinance returned multiple tickers (e.g. from space-separated input)
                 # we just want to flatten and take the first set of columns
                 df = df.stack(level=1, future_stack=True).reset_index(level=1, drop=True)
-            
+
             df = df.reset_index()
             # Ensure standard names
             df = df.rename(columns={
-                "Date": "Date", "Close": "Close", "Open": "Open", 
+                "Date": "Date", "Close": "Close", "Open": "Open",
                 "High": "High", "Low": "Low", "Volume": "Volume"
             })
             
             # Convert Date to string YYYY-MM-DD
             df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-            
+
             # Clean NaNs for JSON compliance
-            df = df.dropna(subset=["Close"]) # Must have at least Close
-            df = df.fillna(0.0) # Fill other NaNs with 0
-            
+            df = df.dropna(subset=["Close"])  # Must have at least Close
+            df = df.fillna(0.0)  # Fill other NaNs with 0
+
             # Drop rows where Close is 0 (invalid data)
             df = df[df["Close"] > 0]
-            
+
             return df[["Date", "Open", "High", "Low", "Close", "Volume"]]
         except Exception as e:
             logger.exception(f"Unexpected error fetching data for {yf_symbol}: {e}")
@@ -64,7 +63,7 @@ class CryptoPriceFetcher:
         try:
             ticker = yf.Ticker(yf_symbol)
             info = ticker.info
-            
+
             return {
                 "circulating_supply": info.get("circulatingSupply"),
                 "total_supply": info.get("totalSupply"),

@@ -1,6 +1,4 @@
-import time
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
 import pandas as pd
 import yfinance as yf
@@ -8,7 +6,6 @@ from loguru import logger
 
 from ..schema import enforce_schema
 from .base import BaseFetcher
-
 
 
 class YFinanceFetcher(BaseFetcher):
@@ -27,9 +24,9 @@ class YFinanceFetcher(BaseFetcher):
         logger.info(f"Downloading {ticker} via yfinance starting from {start_date.date()}...")
         try:
             df = yf.download(
-                ticker, 
-                start=start_date.strftime("%Y-%m-%d"), 
-                progress=False, 
+                ticker,
+                start=start_date.strftime("%Y-%m-%d"),
+                progress=False,
                 actions=True
             )
             if df.empty:
@@ -66,14 +63,15 @@ class YFinanceFetcher(BaseFetcher):
             return pd.DataFrame()
 
         logger.info(
-            f"Downloading batch of {len(tickers)} tickers via yfinance starting from {start_date.date()}..."
+            f"Downloading batch of {len(tickers)} tickers via yfinance "
+            f"starting from {start_date.date()}..."
         )
         try:
             # yfinance returns MultiIndex (Metric, Ticker) when multiple tickers are passed
             df = yf.download(
-                tickers, 
-                start=start_date.strftime("%Y-%m-%d"), 
-                progress=False, 
+                tickers,
+                start=start_date.strftime("%Y-%m-%d"),
+                progress=False,
                 group_by="column",
                 actions=True
             )

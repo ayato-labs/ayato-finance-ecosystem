@@ -1,19 +1,16 @@
-import os
-import sys
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
 
 import duckdb
 import pandas as pd
 from loguru import logger
 
+from .catalog import CatalogManager
 from .fetchers.base import BaseFetcher
 from .logger import SyncLogger
-from .catalog import CatalogManager
-
-
 
 
 class MarketDataEngine:
@@ -21,7 +18,7 @@ class MarketDataEngine:
         self,
         fetcher: BaseFetcher,
         base_dir: str = "./data/market_data",
-        log_dir: str = None,
+        log_dir: str | None = None,
     ):
         self.fetcher = fetcher
         self.base_dir = Path(base_dir)
@@ -65,7 +62,7 @@ class MarketDataEngine:
 
         return datetime(2000, 1, 1)
 
-    def sync_ticker(self, ticker: str, lookback_days: int = None):
+    def sync_ticker(self, ticker: str, lookback_days: int | None = None):
         """
         差分更新 + 3日間上書きロジック。
         lookback_days が指定された場合は、DBの状態に関わらずその日数分を遡る。
@@ -76,8 +73,8 @@ class MarketDataEngine:
             max_date = self.get_max_date(ticker)
             fetch_start = max_date - timedelta(days=3)
 
-        if fetch_start < datetime(2000, 1, 1):
-            fetch_start = datetime(2000, 1, 1)
+        min_date = datetime(2000, 1, 1)
+        fetch_start = max(fetch_start, min_date)
 
         print(f"Syncing {ticker}: fetch starting from {fetch_start.date()}")
         fetch_end = datetime.now()
@@ -109,7 +106,7 @@ class MarketDataEngine:
         self,
         tickers: list[str],
         max_workers: int = 3,
-        lookback_days: int = None,
+        lookback_days: int | None = None,
         batch_size: int = 50,
     ):
         """
@@ -118,9 +115,8 @@ class MarketDataEngine:
         total = len(tickers)
         processed_count = 0
 
-        print(
-            f"Starting bulk sync for {total} tickers with {max_workers} workers (Batch Size: {batch_size})..."
-        )
+        msg = f"Starting bulk sync for {total} tickers with {max_workers} workers..."
+        print(msg)
 
         # 銘柄をチャンクに分割
         chunks = [tickers[i : i + batch_size] for i in range(0, len(tickers), batch_size)]
@@ -133,8 +129,8 @@ class MarketDataEngine:
                 else:
                     fetch_start = datetime.now() - timedelta(days=3)
 
-                if fetch_start < datetime(2000, 1, 1):
-                    fetch_start = datetime(2000, 1, 1)
+                min_date = datetime(2000, 1, 1)
+                fetch_start = max(fetch_start, min_date)
 
                 if hasattr(self.fetcher, "fetch_batch"):
                     future_to_chunk[

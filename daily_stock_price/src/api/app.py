@@ -1,10 +1,10 @@
-import pandas as pd
 from datetime import datetime
 
-from loguru import logger
 import duckdb
-from fastapi import FastAPI, HTTPException, Query
+import pandas as pd
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 from pydantic import BaseModel
 
 from src.engine import MarketDataEngine
@@ -59,7 +59,6 @@ class SyncResponse(BaseModel):
     message: str | None = None
 
 # --- Endpoints ---
-from fastapi import Depends
 
 @app.get("/")
 def read_root():
@@ -75,7 +74,7 @@ def read_root():
     }
 
 @app.get("/status")
-async def get_status(engine: MarketDataEngine = Depends(get_engine)):
+async def get_status(engine: MarketDataEngine = Depends(get_engine)):  # noqa: B008
     """Returns database overview metrics using the metadata catalog."""
     try:
         stats = engine.catalog.get_stats()
@@ -90,10 +89,10 @@ async def get_status(engine: MarketDataEngine = Depends(get_engine)):
 
 @app.get("/prices/{ticker}", response_model=list[PriceRecord])
 def get_prices(
-    ticker: str, 
-    start_date: str | None = None, 
+    ticker: str,
+    start_date: str | None = None,
     end_date: str | None = None,
-    engine: MarketDataEngine = Depends(get_engine)
+    engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
 ):
     """Retrieves price history for a specific ticker using the deduplicated view."""
     try:
@@ -129,9 +128,9 @@ def get_prices(
 
 @app.post("/sync/{ticker}", response_model=SyncResponse)
 def sync_ticker(
-    ticker: str, 
+    ticker: str,
     days: int | None = Query(None, description="Number of days to look back"),
-    engine: MarketDataEngine = Depends(get_engine)
+    engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
 ):
     """Triggers an on-demand synchronization for a specific ticker."""
     try:
@@ -143,7 +142,9 @@ def sync_ticker(
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}") from e
 
 @app.post("/query")
-def run_query(request: QueryRequest, engine: MarketDataEngine = Depends(get_engine)):
+def run_query(
+    request: QueryRequest, engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
+):
     """
     Executes raw analytical SQL against the data lake.
     Use {T} placeholder for the parquet files.

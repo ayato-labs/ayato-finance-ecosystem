@@ -23,7 +23,7 @@ def map_jp_tags():
         # get_fin_summary returns cols as tags. We pick the most frequent ones.
         tags = conn.execute("""
             SELECT taxonomy, tag, count(*) as freq
-            FROM company_facts 
+            FROM company_facts
             GROUP BY taxonomy, tag
             ORDER BY count(*) DESC
             LIMIT 30
@@ -41,7 +41,7 @@ def map_jp_tags():
     # 4. Process unknown tags
     mapped_count = 0
     errors_count = 0
-    for taxonomy, tag, freq in tags:
+    for taxonomy, tag, _freq in tags:
         source_key = f"JP:{tag}"
         if source_key in mapped_tags:
             continue

@@ -38,7 +38,7 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     elif "date" in df.columns:
         df = df.rename(columns={"date": "Date"})
 
-    # 一旦コピーを作成して作業（破壊的変更を避ける）
+    # 一旦コピーを作成して作業 (破壊的変更を避ける)
     df = df.copy()
 
     # 欠損カラムの補完
@@ -55,8 +55,8 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
 
     df = df[COLUMNS].copy()
 
-    # 型変換（ストレージ節約と整合性）
-    # 日付から時刻情報を排除（Date32最適化）
+    # 型変換 (ストレージ節約と整合性)
+    # 日付から時刻情報を排除 (Date32最適化)
     df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
     df["LoadTimestamp"] = pd.to_datetime(df["LoadTimestamp"])
 
@@ -64,17 +64,19 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     for col in ["Open", "High", "Low", "Close", "StockSplits"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.float32)
 
-    # 出来高は int64 を採用し、巨大な出来高（21億超）にも対応可能とする
+    # 出来高は int64 を採用し、巨大な出来高 (21億超) にも対応可能とする
     df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce").fillna(0).astype(np.int64)
 
     # 発行済株式数も巨大な数値になるため float64 (または int64) で扱う。
     # 欠損値を許容するため float64 をデフォルトとする。
     if "SharesOutstanding" in df.columns:
-        df["SharesOutstanding"] = pd.to_numeric(df["SharesOutstanding"], errors="coerce").astype(np.float64)
+        df["SharesOutstanding"] = pd.to_numeric(
+            df["SharesOutstanding"], errors="coerce"
+        ).astype(np.float64)
     else:
         df["SharesOutstanding"] = np.nan
 
-    # 銘柄名とソース名はカテゴリ型に変更（Parquet Dictionary Encodingを強制）
+    # 銘柄名とソース名はカテゴリ型に変更 (Parquet Dictionary Encodingを強制)
     df["Ticker"] = df["Ticker"].astype("category")
     df["Source"] = df["Source"].astype("category")
 

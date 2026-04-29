@@ -43,18 +43,18 @@ class CryptoDBEngine:
     def save_prices(self, ticker: str, df: pd.DataFrame):
         if df.empty:
             return
-        
+
         df["ticker"] = ticker
-        
+
         with duckdb.connect(self.db_path) as conn:
             # Use UPSERT logic (Delete then Insert)
             conn.execute("CREATE TEMPORARY TABLE temp_prices AS SELECT * FROM df")
             conn.execute("""
-                DELETE FROM prices 
+                DELETE FROM prices
                 WHERE (ticker, date) IN (SELECT ticker, CAST(date AS DATE) FROM temp_prices)
             """)
             conn.execute("""
-                INSERT INTO prices 
+                INSERT INTO prices
                 SELECT ticker, CAST(date AS DATE), open, high, low, close, volume FROM temp_prices
             """)
             logger.info(f"Saved {len(df)} records for {ticker}")
@@ -62,8 +62,8 @@ class CryptoDBEngine:
     def get_prices(self, ticker: str):
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT ticker, CAST(date AS VARCHAR) as Date, 
-                       open as Open, high as High, low as Low, close as Close, volume as Volume 
+                SELECT ticker, CAST(date AS VARCHAR) as Date,
+                       open as Open, high as High, low as Low, close as Close, volume as Volume
                 FROM prices WHERE ticker = ? ORDER BY date ASC
             """
             df = conn.execute(query, [ticker]).df()
@@ -72,16 +72,16 @@ class CryptoDBEngine:
     def save_metadata(self, ticker: str, meta: dict):
         with duckdb.connect(self.db_path) as conn:
             conn.execute("""
-                INSERT OR REPLACE INTO metadata 
-                (ticker, circulating_supply, total_supply, max_supply, market_cap, 
+                INSERT OR REPLACE INTO metadata
+                (ticker, circulating_supply, total_supply, max_supply, market_cap,
                  description, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, [
-                ticker, 
-                meta.get("circulating_supply"), 
-                meta.get("total_supply"), 
-                meta.get("max_supply"), 
-                meta.get("market_cap"), 
+                ticker,
+                meta.get("circulating_supply"),
+                meta.get("total_supply"),
+                meta.get("max_supply"),
+                meta.get("market_cap"),
                 meta.get("description")
             ])
             logger.info(f"Saved metadata for {ticker}")
