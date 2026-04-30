@@ -240,11 +240,15 @@ class AuditManager:
             with self._get_conn() as conn:
                 res = conn.execute(
                     """
-                    SELECT * FROM sync_sessions ORDER BY started_at DESC LIMIT ?
+                    SELECT session_id, market, status, started_at FROM sync_sessions
+                    ORDER BY started_at DESC LIMIT ?
                     """,
                     [limit],
                 ).fetchall()
-                return res
+
+                return [
+                    {"id": r[0], "market": r[1], "status": r[2], "start_time": r[3]} for r in res
+                ]
 
 
 # Global instance for easy use
