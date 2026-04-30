@@ -1,0 +1,29 @@
+# Financial Narratives - Implementation Plan
+
+## Project Overview
+`Financial Narratives` は、企業の公式開示書類（有価証券報告書、決算短信、10-K, 10-Q 等）から、意思決定に直結する**定性情報（テキストデータ）**を専門に取得・構造化して提供する API サーバーである。
+`Financial Figures`（数値データ）と対になり、企業の「数字」の背景にある「物語と規律」を明らかにする。
+
+## Target Documents
+- **Japan**: EDINET (有価証券報告書、四半期報告書), 決算短信 (TDnet)
+- **US**: SEC EDGAR (10-K, 10-Q)
+
+## Focused Extraction Areas (Scope)
+意思決定支援、特に DCF モデルの精度向上と企業の質（ガバナンス）判定に特化する。
+
+### 1. 投資・成長の見通し (Investment & Growth)
+- **設備投資 (Capex)**: 将来の投資計画、既存設備の更新予定、投資の意図。
+- **研究開発 (R&D)**: 重点研究項目、技術的優位性の説明、将来の成長エンジンの特定。
+
+### 2. ガバナンスと規律 (Governance & Discipline)
+- **資本配分の方針**: キャッシュの使い道に関する経営者のコミットメント。
+- **ガバナンス体制**: 取締役会の構成、役員報酬の設計（インセンティブ）、株主還元の方針。
+
+## System Architecture
+1. **Collector**: EDINET API / SEC API (RSS) を監視し、最新書類を取得。
+2. **Parser**: HTML/XBRL/PDF から特定のセクション（MD&A, 事業等のリスク等）を抽出。
+3. **Normalizer**: 国やフォーマットを問わず、統一された JSON 形式で API 経由で提供。
+
+## Future Considerations (Out of Scope)
+- 一般的な「事業等のリスク」セクション（ニュース API で代替可能なため保留）。
+- リアルタイム・ニュース解析（専門のニュース API に任せる）。

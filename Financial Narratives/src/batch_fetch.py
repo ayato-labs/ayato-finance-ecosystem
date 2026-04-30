@@ -1,0 +1,112 @@
+import asyncio
+import os
+import time
+import json
+from pathlib import Path
+
+import requests
+from loguru import logger
+
+from src.analyzer import EdgarAnalyzer
+from src.edgar_fetcher import EdgarFetcher
+from src.edgar_parser import EdgarParser
+from src.storage import FinancialNarrativeStorage
+
+USER_AGENT = "SampleAgent yourname@example.com"
+TICKERS = ["AAPL", "NVDA", "GOOGL", "AMZN", "META"]
+
+async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
+    if tickers is None:
+        tickers = TICKERS
+        
+    fetcher = EdgarFetcher(USER_AGENT)
+    parser = EdgarParser()
+    storage = FinancialNarrativeStorage()
+    
+    # 中間保存用ディレクトリ（オプション）
+    raw_dir = Path("data/raw_json")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    for ticker in tickers:
+        try:
+            logger.info(f"=== Processing {ticker} ===")
+            
+            # 1. 提出書類リスト取得
+            subs = fetcher.get_latest_submissions(ticker)
+            if not subs: continue
+            
+            # 2. 最新10-K特定
+            filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K"])
+            if not filings:
+                logger.warning(f"No 10-K for {ticker}")
+                continue
+            
+            latest = filings[0]
+            acc_no = latest['accessionNumber']
+
+            # 差分更新チェック
+            if storage.filing_exists(acc_no):
+                logger.info(f"Filing {acc_no} already exists in DB. Skipping {ticker} fetch.")
+            else:
+                cik = fetcher.get_cik(ticker).lstrip('0')
+                acc_no_clean = acc_no.replace("-", "")
+                doc = latest['primaryDocument']
+                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
+                
+                # 3. ダウンロード
+                logger.info(f"Downloading {ticker} 10-K: {url}")
+                resp = requests.get(url, headers={"User-Agent": USER_AGENT})
+                time.sleep(0.1) # SEC制限配慮
+                
+                if resp.status_code != 200:
+                    logger.error(f"Failed to download {ticker}: {resp.status_code}")
+                    continue
+                
+                # 4. パース (複数セクション抽出)
+                sections = parser.extract_all_sections(resp.text, "10-K")
+                
+                if sections:
+                    # メタデータの整備
+                    filing_metadata = latest.copy()
+                    filing_metadata["ticker"] = ticker
+                    filing_metadata["cik"] = cik
+                    
+                    # DuckDBへ保存
+                    storage.save_filing(filing_metadata, sections)
+                else:
+                    logger.warning(f"No sections extracted for {ticker}")
+                    continue
+
+            # 5. 分析の実行（オプション）
+            # ファイルが存在していても、分析がまだなら実行する
+            if run_analysis:
+                # すでに分析済みかチェック
+                existing_analysis = storage.get_analysis_by_ticker(ticker)
+                if not existing_analysis:
+                    api_key = os.environ.get("GOOGLE_API_KEY")
+                    if api_key:
+                        # DBからセクションを再取得（保存直後、または以前保存されたもの）
+                        rows = storage.get_filings_by_ticker(ticker)
+                        if rows:
+                            latest_row = rows[0]
+                            sections = json.loads(latest_row[3])
+                            
+                            analyzer = EdgarAnalyzer(api_key=api_key)
+                            analysis = await analyzer.analyze_narratives(sections)
+                            if analysis:
+                                storage.save_analysis(acc_no, ticker, analysis)
+                    else:
+                        logger.warning("GOOGLE_API_KEY not set, skipping analysis.")
+                else:
+                    logger.info(f"Analysis already exists for {ticker}. Skipping.")
+
+            # SECレート制限(10 req/sec)を守るため待機
+            time.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"Error processing {ticker}: {e}")
+
+if __name__ == "__main__":
+    from src.logging_utils import setup_logging
+    setup_logging("batch")
+    asyncio.run(batch_fetch())

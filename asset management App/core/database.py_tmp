@@ -1,0 +1,41 @@
+    def update_transaction(self, tx_id: int, tx: Transaction) -> bool:
+        logger.info(f"Attempting to update transaction {tx_id} for {tx.ticker}...")
+        try:
+            with duckdb.connect(str(self.db_path)) as conn:
+                params = (
+                    tx.ticker,
+                    tx.transaction_type.value,
+                    tx.price,
+                    tx.quantity,
+                    tx.fee,
+                    tx.timestamp,
+                    tx.asset_type.value,
+                    tx.memo,
+                    tx_id,
+                )
+                logger.info(f"Executing SQL UPDATE with params: {params}")
+                res = conn.execute(
+                    """
+                    UPDATE transactions SET 
+                        ticker = ?, 
+                        type = ?, 
+                        price = ?, 
+                        quantity = ?, 
+                        fee = ?, 
+                        timestamp = ?, 
+                        asset_type = ?, 
+                        memo = ?
+                    WHERE id = ?
+                    RETURNING id
+                """,
+                    params,
+                ).fetchone()
+                success = res is not None
+                if success:
+                    logger.info(f"Transaction {tx_id} updated successfully.")
+                else:
+                    logger.warning(f"Transaction {tx_id} could not be updated (not found).")
+                return success
+        except Exception as e:
+            logger.exception(f"Error updating transaction {tx_id}: {e}")
+            raise

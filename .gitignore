@@ -1,0 +1,65 @@
+# --- AI Agent Git Rules Compliant .gitignore ---
+
+# Python & Build
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# A. Generated Artifacts
+*.pdf
+*.docx
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.log
+*.txt
+# Exception: allow technical markdown docs
+!*.md
+
+# B. Large Datasets (Exclusion List)
+*.csv
+*.json
+# Exception: allow config JSON files at project roots
+!**/package.json
+!**/tsconfig.json
+!**/next.config.json
+!**/protect-*.json
+!**/company_tickers.json
+*.parquet
+*.pkl
+*.pt
+*.h5
+*.ckpt
+*.gguf
+*.duckdb
+*.db
+data/
+**/data/
+**/logs/
+
+# C. Environment & Secrets
+.env
+.env.*
+apikey.txt
+id_rsa
+node_modules/
+**/node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
