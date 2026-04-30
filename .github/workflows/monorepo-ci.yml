@@ -7,20 +7,60 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  python-tests:
-    name: Test Python - ${{ matrix.module }}
+  changes:
+    name: Check for Changes
+    runs-on: ubuntu-latest
+    outputs:
+      daily_stock_price: ${{ steps.filter.outputs.daily_stock_price }}
+      daily_crypto_price: ${{ steps.filter.outputs.daily_crypto_price }}
+      financial_figures: ${{ steps.filter.outputs.financial_figures }}
+      financial_narratives: ${{ steps.filter.outputs.financial_narratives }}
+      asset_app: ${{ steps.filter.outputs.asset_app }}
+      forex: ${{ steps.filter.outputs.forex }}
+      index: ${{ steps.filter.outputs.index }}
+      macro: ${{ steps.filter.outputs.macro }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            daily_stock_price: 'daily_stock_price/**'
+            daily_crypto_price: 'daily_crypto_price/**'
+            financial_figures: 'Financial Figures/**'
+            financial_narratives: 'Financial Narratives/**'
+            asset_app: 'asset management App/**'
+            forex: 'forex/**'
+            index: 'index/**'
+            macro: 'macro/**'
+            frontend: 'asset management App/src/frontend/**'
+
+  python-ci:
+    needs: changes
+    name: CI - ${{ matrix.module }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: 
-          - "Financial Figures"
-          - "daily_stock_price"
-          - "asset management App"
-          - "macro"
-          - "index"
-          - "daily_crypto_price"
-    
+        include:
+          - module: "daily_stock_price"
+            id: daily_stock_price
+          - module: "daily_crypto_price"
+            id: daily_crypto_price
+          - module: "Financial Figures"
+            id: financial_figures
+          - module: "Financial Narratives"
+            id: financial_narratives
+          - module: "asset management App"
+            id: asset_app
+          - module: "forex"
+            id: forex
+          - module: "index"
+            id: index
+          - module: "macro"
+            id: macro
+    if: ${{ needs.changes.outputs[matrix.id] == 'true' }}
     steps:
       - uses: actions/checkout@v4
       
@@ -32,7 +72,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12" # Fixed version for stability across modules
+          python-version: "3.13"
       
       - name: Install dependencies
         run: |
@@ -47,32 +87,29 @@ jobs:
       - name: Run Pytest
         run: |
           cd "${{ matrix.module }}"
-          # Skip if no tests directory exists
           if [ -d "tests" ]; then
             uv run pytest tests
           else
             echo "No tests directory found, skipping pytest."
           fi
 
-  frontend-build:
-    name: Build Frontend - Asset App
+  frontend-ci:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    name: CI - Asset App Frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          # Use a relative path without leading space issues if possible, or ensure correct quoting
           cache-dependency-path: 'asset management App/src/frontend/package-lock.json'
-      
       - name: Install dependencies
         run: |
           cd "asset management App/src/frontend"
           npm ci
-      
       - name: Lint and Build
         run: |
           cd "asset management App/src/frontend"
@@ -81,19 +118,23 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
-  final-status:
+  gatekeeper:
     name: CI / Build
-    needs: [python-tests, frontend-build]
+    needs: [python-ci, frontend-ci]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check overall status
         run: |
-          # Check if any of the needed jobs failed or were cancelled
-          if [[ "${{ needs.python-tests.result }}" == "success" && "${{ needs.frontend-build.result }}" == "success" ]]; then
-            echo "All tests passed!"
+          # Job result can be 'success', 'failure', 'cancelled', or 'skipped'
+          # We treat 'success' and 'skipped' as passing for the monorepo logic
+          PYTHON_RES="${{ needs.python-ci.result }}"
+          FRONTEND_RES="${{ needs.frontend-ci.result }}"
+          
+          if [[ ($PYTHON_RES == "success" || $PYTHON_RES == "skipped") && ($FRONTEND_RES == "success" || $FRONTEND_RES == "skipped") ]]; then
+            echo "CI Passed."
             exit 0
           else
-            echo "One or more tests failed. Results: python-tests=${{ needs.python-tests.result }}, frontend-build=${{ needs.frontend-build.result }}"
+            echo "CI Failed. Python: $PYTHON_RES, Frontend: $FRONTEND_RES"
             exit 1
           fi

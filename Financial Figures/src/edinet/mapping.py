@@ -91,8 +91,8 @@ class EDINETMapper:
                 # Use a temp table for upsert
                 conn.execute("CREATE TEMP TABLE tmp_edinet AS SELECT * FROM listed_df")
                 conn.execute("""
-                    INSERT OR REPLACE INTO edinet_tickers 
-                    SELECT edinet_code, ticker, company_name, submitter_type, industry, CURRENT_TIMESTAMP 
+                    INSERT OR REPLACE INTO edinet_tickers
+                    SELECT edinet_code, ticker, company_name, submitter_type, industry, CURRENT_TIMESTAMP
                     FROM tmp_edinet
                 """)
                 logger.info("Successfully updated edinet_tickers master table.")

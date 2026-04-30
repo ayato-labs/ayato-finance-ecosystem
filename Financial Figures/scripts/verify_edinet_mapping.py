@@ -9,7 +9,7 @@ from src.mappers.ai_mapper import AIMapper
 def verify_mapping():
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logging.getLogger(__name__)
 
     mapper = AIMapper()
 

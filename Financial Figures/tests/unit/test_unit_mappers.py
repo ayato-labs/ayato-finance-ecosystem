@@ -48,12 +48,12 @@ def test_map_tags_batch_resilience_split():
     # Use a short timeout to trigger the 'HUNG' logic quickly in tests
     results = mapper.map_tags_bulk("US", tags, "session-res", batch_size=2, timeout=0.1)
 
-    assert len(results) == 2
+    assert len(results) == 2  # noqa: PLR2004
     mapped_labels = [r["mapped_label"] for r in results]
     assert "NetSales" in mapped_labels
     assert "OperatingProfit" in mapped_labels
     # Call count: 1 (hang) + 1 (split part 1) + 1 (split part 2) = 3
-    assert fake_client.models.call_count == 3
+    assert fake_client.models.call_count == 3  # noqa: PLR2004
 
 
 def test_map_tags_batch_invalid_json_chaos():
@@ -73,4 +73,4 @@ def test_map_tags_batch_invalid_json_chaos():
 
     assert len(results) == 1
     assert results[0]["mapped_label"] == "Other"
-    assert fake_client.models.call_count == 2
+    assert fake_client.models.call_count == 2  # noqa: PLR2004

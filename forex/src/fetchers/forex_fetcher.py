@@ -1,7 +1,8 @@
 import logging
+from datetime import datetime, timedelta
+
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,14 @@ class ForexFetcher:
             return pd.DataFrame()
 
         ticker_symbol, is_inverse = self.tickers[symbol]
-        
+
         # Adjust start date to ensure we get some data (yfinance sometimes misses the exact start)
         fetch_start = start_date - timedelta(days=5)
-        
+
         try:
             ticker = yf.Ticker(ticker_symbol)
             df = ticker.history(start=fetch_start.strftime("%Y-%m-%d"), interval="1d")
-            
+
             if df.empty:
                 logger.warning(f"No data returned for {ticker_symbol}")
                 return pd.DataFrame()
@@ -58,17 +59,17 @@ class ForexFetcher:
             df = df[["Date", "Close"]].rename(columns={"Close": "Rate"})
             df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
             df["Symbol"] = symbol
-            
+
             # Normalize to '1 ForeignUnit = X USD'
             if is_inverse:
                 # USD/JPY -> 1 JPY = 1 / X USD
                 df["Rate"] = 1.0 / df["Rate"]
-            
+
             df["LoadTimestamp"] = datetime.now()
-            
+
             # Filter to requested period
             df = df[df["Date"] >= pd.to_datetime(start_date)]
-            
+
             return df
         except Exception as e:
             logger.error(f"Error fetching forex data for {symbol}: {e}")

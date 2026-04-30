@@ -28,13 +28,13 @@ def verify_seamless_query():
 
     unified_results = conn.execute("""
         WITH unified_data AS (
-            SELECT 'J-Quants' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value 
+            SELECT 'J-Quants' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value
             FROM jp.company_facts
             UNION ALL
-            SELECT 'EDINET' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value 
+            SELECT 'EDINET' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value
             FROM edinet.company_facts
         )
-        SELECT 
+        SELECT
             label,
             f_year as fiscal_year,
             fiscal_period,

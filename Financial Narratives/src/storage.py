@@ -1,8 +1,9 @@
-import duckdb
 import json
-from loguru import logger
 from pathlib import Path
 from typing import Any
+
+import duckdb
+from loguru import logger
 
 class FinancialNarrativeStorage:
     """
@@ -56,7 +57,7 @@ class FinancialNarrativeStorage:
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
-        
+
         # セクションとメタデータをJSON文字列に変換
         sections_json = json.dumps(sections)
         metadata_json = json.dumps(metadata)
@@ -84,7 +85,8 @@ class FinancialNarrativeStorage:
         with duckdb.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO narrative_analysis (
-                    accession_number, ticker, capex_summary, rd_summary, governance_summary, key_quotes, sentiment_score, analyzed_at
+                    accession_number, ticker, capex_summary, rd_summary,
+                    governance_summary, key_quotes, sentiment_score, analyzed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 accession_number,
@@ -111,16 +113,19 @@ class FinancialNarrativeStorage:
     def get_summary(self):
         """保存されているデータの統計を取得"""
         with duckdb.connect(self.db_path) as conn:
-            res = conn.execute("SELECT ticker, form, filing_date FROM filings ORDER BY ticker, filing_date DESC").fetchall()
+            res = conn.execute(
+                "SELECT ticker, form, filing_date FROM filings ORDER BY ticker, filing_date DESC"
+            ).fetchall()
             return res
 
     def get_filings_by_ticker(self, ticker: str):
         """特定銘柄の提出書類を全て取得"""
         with duckdb.connect(self.db_path) as conn:
-            res = conn.execute(
-                "SELECT ticker, form, filing_date, sections, metadata, updated_at FROM filings WHERE ticker = ? ORDER BY filing_date DESC",
-                (ticker.upper(),)
-            ).fetchall()
+            query = """
+                SELECT ticker, form, filing_date, sections, metadata, updated_at
+                FROM filings WHERE ticker = ? ORDER BY filing_date DESC
+            """
+            res = conn.execute(query, (ticker.upper(),)).fetchall()
             return res
 
     def get_analysis_by_ticker(self, ticker: str):
@@ -135,9 +140,16 @@ class FinancialNarrativeStorage:
     def get_stats(self):
         """データベース全体の統計情報を取得"""
         with duckdb.connect(self.db_path) as conn:
-            counts = conn.execute("SELECT ticker, COUNT(*) as count, MAX(filing_date) as latest FROM filings GROUP BY ticker ORDER BY count DESC").fetchall()
+            query = """
+                SELECT ticker, COUNT(*) as count, MAX(filing_date) as latest
+                FROM filings GROUP BY ticker ORDER BY count DESC
+            """
+            counts = conn.execute(query).fetchall()
             total = conn.execute("SELECT COUNT(*) FROM filings").fetchone()[0]
             return {
                 "total_filings": total,
-                "ticker_stats": [{"ticker": r[0], "count": r[1], "latest_filing": str(r[2])} for r in counts]
+                "ticker_stats": [
+                    {"ticker": r[0], "count": r[1], "latest_filing": str(r[2])}
+                    for r in counts
+                ]
             }

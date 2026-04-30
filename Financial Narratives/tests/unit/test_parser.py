@@ -1,4 +1,3 @@
-import pytest
 from src.edgar_parser import EdgarParser
 
 def test_parser_clean_text():
@@ -9,11 +8,11 @@ def test_parser_clean_text():
 def test_parser_extract_all_sections(sample_html):
     parser = EdgarParser()
     sections = parser.extract_all_sections(sample_html, "10-K")
-    
+
     assert "business" in sections
     assert "risk_factors" in sections
     assert "mda" in sections
-    # 内容が正しく抽出されているか（Markdown化されているか）
+    # 内容が正しく抽出されているか (Markdown化されているか)
     assert "This is the business section content" in sections["business"]
     assert "This is the risk factors content" in sections["risk_factors"]
     assert "This is the MD&A content" in sections["mda"]

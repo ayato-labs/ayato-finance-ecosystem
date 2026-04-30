@@ -18,7 +18,7 @@ def create_view():
     # Note: We filter out 'Other' to show only the mapped standard items.
     view_sql = """
     CREATE OR REPLACE VIEW v_standardized_financials AS
-    SELECT 
+    SELECT
         t.ticker,
         t.name as company_name,
         m.target_label,

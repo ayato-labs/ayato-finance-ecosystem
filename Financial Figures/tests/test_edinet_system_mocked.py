@@ -11,8 +11,12 @@ from src.edinet.sync_worker import EDINETSyncWorker
 def create_mock_zip():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        # Mock EDINET CSV content
-        csv_content = "tag1,name1,ctx1,unit1,100\ntag2,name2,ctx2,unit2,200".encode("utf-16")
+        # Mock EDINET CSV content with Japanese header
+        csv_content = (
+            "要素ID,項目名,コンテキストID,単位,値\n"
+            "tag1,name1,ctx1,unit1,100\n"
+            "tag2,name2,ctx2,unit2,200"
+        ).encode("utf-16")
         z.writestr("test_financial_data.csv", csv_content)
     return buf.getvalue()
 
@@ -50,16 +54,15 @@ def test_edinet_full_system_flow(mock_get, tmp_path):
     # Sequential returns for mock_get
     mock_get.side_effect = [mock_doc_list, mock_zip]
 
-    # Initialize worker with test DB
-    with patch("src.edinet.storage.EDINETStorage.__init__", lambda s, db_path=None: None):
-        from src.edinet.storage import EDINETStorage
-
-        storage = EDINETStorage()
-        storage.db_path = str(test_db)
-        storage._init_db()
+    # Initialize worker with test DB via settings patch
+    with (
+        patch("src.edinet.storage.settings.DB_PATH_EDINET", test_db),
+        patch("src.edinet.sync_worker.AIMapper") as mock_mapper_cls,
+    ):
+        mock_mapper = mock_mapper_cls.return_value
+        mock_mapper.map_tags_bulk.return_value = []  # No mappings needed for this check
 
         worker = EDINETSyncWorker()
-        worker.storage = storage
 
         # Execute Sync
         worker.sync_date(date(2023, 1, 1))
@@ -73,6 +76,6 @@ def test_edinet_full_system_flow(mock_get, tmp_path):
 
             # Should have 2 facts
             facts = con.execute("SELECT amount_value FROM raw_facts").fetchall()
-            assert len(facts) == 2
-            assert facts[0][0] == 100.0
-            assert facts[1][0] == 200.0
+            assert len(facts) == 2  # noqa: PLR2004
+            assert facts[0][0] == 100.0  # noqa: PLR2004
+            assert facts[1][0] == 200.0  # noqa: PLR2004

@@ -1,14 +1,14 @@
-from loguru import logger
 from pathlib import Path
+
 import duckdb
 import pandas as pd
-from datetime import datetime
+from loguru import logger
 
 
 
 class ForexEngine:
     """
-    為替データの保存（Parquet）と抽出（DuckDB）を担当するエンジン。
+    為替データの保存 (Parquet) と抽出 (DuckDB) を担当するエンジン。
     すべてのレートは '1 Unit = X USD' 形式で保存される。
     """
     def __init__(self, base_dir: str = "data/forex"):
@@ -20,14 +20,14 @@ class ForexEngine:
             return
 
         file_path = self.base_dir / f"{symbol}.parquet"
-        
+
         if file_path.exists():
             existing_df = pd.read_parquet(file_path)
             combined_df = pd.concat([existing_df, df], ignore_index=True)
             combined_df.to_parquet(file_path, index=False)
         else:
             df.to_parquet(file_path, index=False)
-        
+
         logger.info(f"Saved {len(df)} rows for {symbol} to {file_path}")
 
     def get_latest_date(self, symbol: str) -> pd.Timestamp:
@@ -43,7 +43,7 @@ class ForexEngine:
 
     def get_rates(self, symbol: str) -> list[dict]:
         """
-        指定された通貨の対米ドルレート（USD基準）を取得する。
+        指定された通貨の対米ドルレート (USD基準) を取得する。
         """
         file_path = self.base_dir / f"{symbol}.parquet"
         if not file_path.exists():
@@ -73,18 +73,19 @@ class ForexEngine:
 
     def get_latest_rate(self, symbol: str) -> float:
         """
-        最新の為替レート（1 Unit = X USD）を取得する。
+        最新の為替レート (1 Unit = X USD) を取得する。
         """
         if symbol == "USD":
             return 1.0
-            
+
         file_path = self.base_dir / f"{symbol}.parquet"
         if not file_path.exists():
             return None
             
         try:
             with duckdb.connect(":memory:") as conn:
-                res = conn.execute(f"SELECT Rate FROM read_parquet('{file_path}') ORDER BY Date DESC LIMIT 1").fetchone()
+                query = f"SELECT Rate FROM read_parquet('{file_path}') ORDER BY Date DESC LIMIT 1"
+                res = conn.execute(query).fetchone()
                 val = res[0] if res else None
                 return None if pd.isna(val) else val
         except Exception:

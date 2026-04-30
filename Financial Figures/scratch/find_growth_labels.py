@@ -8,10 +8,10 @@ def find_labels():
     print("\n--- US Market Growth Tags ---")
     conn_us = duckdb.connect(str(settings.DB_PATH_US), read_only=True)
     q_us = """
-    SELECT DISTINCT tag, label 
-    FROM company_facts 
-    WHERE tag ILIKE '%Research%' 
-       OR tag ILIKE '%Development%' 
+    SELECT DISTINCT tag, label
+    FROM company_facts
+    WHERE tag ILIKE '%Research%'
+       OR tag ILIKE '%Development%'
        OR tag ILIKE '%CapitalExpenditure%'
        OR tag ILIKE '%PropertyPlant%'
     LIMIT 20
@@ -23,9 +23,9 @@ def find_labels():
     conn_jp = duckdb.connect(str(settings.DB_PATH_JP), read_only=True)
     # J-Quants V2 might use different conventions. Let's look for anything with "Research" or "Expenditure" in English.
     q_jp = """
-    SELECT DISTINCT tag, label 
-    FROM company_facts 
-    WHERE tag ILIKE '%Research%' 
+    SELECT DISTINCT tag, label
+    FROM company_facts
+    WHERE tag ILIKE '%Research%'
        OR tag ILIKE '%Development%'
        OR tag ILIKE '%Expenditure%'
        OR tag ILIKE '%Acquisition%'

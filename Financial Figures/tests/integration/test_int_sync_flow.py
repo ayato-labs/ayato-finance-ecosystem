@@ -74,7 +74,7 @@ def test_full_sync_flow_us(sync_service, mocker):
         audit_db_posix = settings.DB_PATH_TRACEABILITY.as_posix()
         conn.execute(f"ATTACH '{audit_db_posix}' AS audit")
         res = conn.execute("""
-            SELECT m.mapped_label, f.value 
+            SELECT m.mapped_label, f.value
             FROM main.company_facts f
             JOIN audit.mapping_audit m ON m.source_tag = 'US:' || f.tag
             WHERE f.cik = '0000012345'

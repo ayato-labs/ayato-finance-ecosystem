@@ -29,7 +29,7 @@ def test_growth_mapping():
     # This is safe because it's in memory.
     from src.core.config import settings
 
-    growth_labels = settings.TARGET_LABELS + ["ResearchAndDevelopment", "CapitalExpenditure"]
+    growth_labels = [*settings.TARGET_LABELS, "ResearchAndDevelopment", "CapitalExpenditure"]
 
     print("\n>>> Testing AI Mapping for GROWTH INVESTMENTS (US)...")
     # map_tags_batch expects (market, tags, model_name, session_id)

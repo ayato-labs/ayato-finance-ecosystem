@@ -36,7 +36,7 @@ def test_full_pipeline_integration(integration_env):
 
     with (
         patch("src.engines.us_engine.httpx.Client") as mock_httpx_cls,
-        patch("src.engines.jp_engine.jquantsapi.ClientV2") as mock_jp_client_cls,
+        patch("src.engines.jp_engine.jquantsapi.ClientV2"),
         patch("src.core.audit_manager.audit_manager", test_audit_manager),
         patch("src.services.market_sync.audit_manager", test_audit_manager),
         patch("src.engines.us_engine.settings") as mock_settings_us,
@@ -46,6 +46,7 @@ def test_full_pipeline_integration(integration_env):
             s.DB_PATH_US = integration_env["us"]
             s.DB_PATH_JP = integration_env["jp"]
             s.DATA_DIR = integration_env["data_dir"]
+            s.db_read_only = False
 
         mock_us_client = mock_httpx_cls.return_value
         mock_us_client.get.return_value = MagicMock(

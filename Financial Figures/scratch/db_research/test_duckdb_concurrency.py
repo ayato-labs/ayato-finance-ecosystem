@@ -21,7 +21,7 @@ def write_db():
 t = threading.Thread(target=write_db)
 t.start()
 
-for i in range(5):
+for _i in range(5):
     res = conn1.execute("SELECT count(*) FROM test").fetchone()
     print(f"Count: {res[0]}")
     time.sleep(0.1)

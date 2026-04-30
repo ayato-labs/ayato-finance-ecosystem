@@ -39,7 +39,7 @@ def test_integration_full_sync_flow(test_settings, mocker):
         [
             {
                 "tag_id": "T0",
-                "mapped_label": "NetProfit",
+                "mapped_label": "Profit",
                 "reasoning": "Direct match",
                 "confidence": 1.0,
             }
@@ -76,7 +76,7 @@ def test_integration_full_sync_flow(test_settings, mocker):
             "SELECT mapped_label FROM mapping_audit WHERE source_tag = 'US:NetIncomeLoss'"
         ).fetchone()
         assert mapping is not None
-        assert mapping[0] == "NetProfit"
+        assert mapping[0] == "Profit"
 
 
 def test_integration_error_resilience(test_settings, mocker):

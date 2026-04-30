@@ -1,18 +1,20 @@
 import os
 import time
 from pathlib import Path
+
 from google import genai
 from loguru import logger
 
 def translate_mda(ticker: str):
-    raw_path = Path(f"C:/Users/saiha/My_Service/programing/finance/Financial Narratives/data/raw/{ticker}_mda.txt")
-    output_path = Path(f"C:/Users/saiha/My_Service/programing/finance/Financial Narratives/data/translated_analysis/{ticker}_mda_jp.md")
-    
+    base_path = Path("C:/Users/saiha/My_Service/programing/finance/Financial Narratives/data")
+    raw_path = base_path / f"raw/{ticker}_mda.txt"
+    output_path = base_path / f"translated_analysis/{ticker}_mda_jp.md"
+
     if not raw_path.exists():
         logger.error(f"Raw file not found for {ticker}")
         return
 
-    with open(raw_path, "r", encoding="utf-8") as f:
+    with open(raw_path, encoding="utf-8") as f:
         text = f.read()
 
     # API設定
@@ -22,13 +24,13 @@ def translate_mda(ticker: str):
         return
 
     client = genai.Client(api_key=api_key)
-    
+
     logger.info(f"Translating MD&A for {ticker} ({len(text)} characters)...")
-    
-    # 長いテキストを分割（Geminiのコンテキスト制限に配慮）
+
+    # 長いテキストを分割 (Geminiのコンテキスト制限に配慮)
     chunk_size = 10000
     chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-    
+
     translated_chunks = []
     for i, chunk in enumerate(chunks):
         logger.info(f"Translating chunk {i+1}/{len(chunks)}...")
@@ -39,7 +41,7 @@ def translate_mda(ticker: str):
             "Do not summarize. Do not skip any sentences. "
             "Original Text:\n" + chunk
         )
-        
+
         try:
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
@@ -55,7 +57,7 @@ def translate_mda(ticker: str):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"# {ticker} MD&A - 日本語直訳全文\n\n")
         f.write("".join(translated_chunks))
-    
+
     logger.success(f"Saved translated MD&A for {ticker} to {output_path}")
 
 if __name__ == "__main__":

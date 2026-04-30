@@ -1,8 +1,10 @@
 import os
 from datetime import datetime
+
 import pandas as pd
 from fredapi import Fred
 from loguru import logger
+
 from ..schema import enforce_schema
 
 class FredFetcher:
@@ -31,10 +33,10 @@ class FredFetcher:
         try:
             # Seriesが返ってくる
             series = self.fred.get_series(
-                symbol, 
+                symbol,
                 observation_start=start_date.strftime("%Y-%m-%d")
             )
-            
+
             if series.empty:
                 logger.warning(f"FRED returned no data for {symbol}")
                 return pd.DataFrame()

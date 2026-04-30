@@ -34,6 +34,9 @@ sec_limiter = SECRateLimiter(10)
 
 
 class USEngine:
+    HTTP_NOT_FOUND = 404
+    HTTP_TOO_MANY_REQUESTS = 429
+
     def __init__(self):
         self.db_path = settings.DB_PATH_US
         self._init_db()
@@ -150,11 +153,11 @@ class USEngine:
             sec_limiter.wait()
             response = self.client.get(url)
 
-            if response.status_code == 404:
+            if response.status_code == self.HTTP_NOT_FOUND:
                 logger.warning(f"CIK {cik} ({ticker}) facts not found (404) at SEC.")
                 return None
 
-            if response.status_code == 429:
+            if response.status_code == self.HTTP_TOO_MANY_REQUESTS:
                 logger.warning(f"SEC Rate Limit Hit (429) for {ticker}. Backing off...")
                 response.raise_for_status()
 
@@ -223,12 +226,12 @@ class USEngine:
             # Generate fact_id MD5 hash inside DuckDB for collision-free uniqueness
             conn.execute("""
                 INSERT OR IGNORE INTO company_facts (
-                    fact_id, cik, taxonomy, tag, label, unit, value, end_date, 
+                    fact_id, cik, taxonomy, tag, label, unit, value, end_date,
                     fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
                 )
-                SELECT 
+                SELECT
                     md5(concat_ws('|', cik, taxonomy, tag, end_date, accession_number)) as fact_id,
-                    cik, taxonomy, tag, label, unit, value, end_date, 
+                    cik, taxonomy, tag, label, unit, value, end_date,
                     fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
                 FROM df
             """)

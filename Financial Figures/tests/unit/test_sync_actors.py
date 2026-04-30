@@ -1,3 +1,5 @@
+import duckdb
+
 from src.services.market_sync import BatchSyncService
 from tests.utils.fake_gemini import FakeGeminiClient, create_mapping_response
 
@@ -46,7 +48,6 @@ def test_unit_queue_unmapped_tags(test_settings):
     cik = "0000000001"
 
     # Pre-populate tickers to match the logic in _queue_unmapped_tags
-    import duckdb
 
     with duckdb.connect(str(service.us_engine.db_path)) as conn:
         conn.execute(

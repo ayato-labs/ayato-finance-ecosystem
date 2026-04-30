@@ -18,10 +18,10 @@ def test_audit_manager_session_lifecycle(tmp_path):
             "SELECT market, status FROM sync_sessions WHERE session_id = ?", (session_id,)
         ).fetchone()
         assert row[0] == "US"
-        assert row[1] == "STARTED"
+        assert row[1] == "RUNNING"
 
     # 2. End Session
-    am.end_session(session_id, status="SUCCESS", records=10, errors=0)
+    am.end_session(session_id, status="SUCCESS", processed=10, errors=0)
 
     with duckdb.connect(str(test_db)) as conn:
         row = conn.execute(
@@ -29,7 +29,7 @@ def test_audit_manager_session_lifecycle(tmp_path):
             (session_id,),
         ).fetchone()
         assert row[0] == "SUCCESS"
-        assert row[1] == 10
+        assert row[1] == 10  # noqa: PLR2004
 
 
 def test_audit_manager_log_mapping(tmp_path):
@@ -38,8 +38,8 @@ def test_audit_manager_log_mapping(tmp_path):
 
     am.log_mapping(
         session_id="test-session",
-        source="US:Assets",
-        target="TotalAssets",
+        source_tag="US:Assets",
+        mapped_label="TotalAssets",
         model="test-gemma",
         reasoning="Test reasoning",
         confidence=0.95,
@@ -47,7 +47,7 @@ def test_audit_manager_log_mapping(tmp_path):
 
     with duckdb.connect(str(test_db)) as conn:
         row = conn.execute(
-            "SELECT target_label, reasoning FROM mapping_audit WHERE source_tag = 'US:Assets'"
+            "SELECT mapped_label, reasoning FROM mapping_audit WHERE source_tag = 'US:Assets'"
         ).fetchone()
         assert row[0] == "TotalAssets"
         assert row[1] == "Test reasoning"
@@ -69,6 +69,7 @@ def test_audit_manager_sync_progress(tmp_path):
         assert rows[1][1] == "SUCCESS"
 
     # 2. Test filter for sync
-    to_sync = am.get_tickers_to_sync("JP")
-    # Tickers with ERROR should be returned
-    assert "8697" in to_sync
+    synced = am.get_synced_symbols("JP")
+    # Tickers with ERROR should NOT be in the synced list
+    assert "8697" not in synced
+    assert "AAPL" in am.get_synced_symbols("US")

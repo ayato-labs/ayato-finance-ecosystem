@@ -1,4 +1,5 @@
 import logging
+import random
 import threading
 import time
 import uuid
@@ -24,8 +25,7 @@ class AuditManager:
         max_retries = 10
         base_delay = 0.1  # 100ms
 
-        # Avoid potential circular imports or overhead by importing random here
-        import random
+        # Use a shared lock hint if possible
 
         for i in range(max_retries):
             try:
@@ -124,7 +124,9 @@ class AuditManager:
             with self._get_conn() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sync_sessions (session_id, market, status, started_at, git_commit_hash)
+                    INSERT INTO sync_sessions (
+                        session_id, market, status, started_at, git_commit_hash
+                    )
                     VALUES (?, ?, ?, ?, ?)
                 """,
                     [session_id, market, "RUNNING", started_at, git_hash],
@@ -142,8 +144,9 @@ class AuditManager:
             with self._get_conn() as conn:
                 conn.execute(
                     """
-                    UPDATE sync_sessions 
-                    SET status = ?, ended_at = ?, records_processed = ?, errors_count = ?, error_log = ?
+                    UPDATE sync_sessions
+                    SET status = ?, ended_at = ?, records_processed = ?,
+                        errors_count = ?, error_log = ?
                     WHERE session_id = ?
                 """,
                     [status, datetime.now(), processed, errors, log, session_id],
@@ -170,7 +173,7 @@ class AuditManager:
                 conn.execute(
                     """
                     INSERT INTO mapping_audit (
-                        mapping_id, session_id, source_tag, mapped_label, 
+                        mapping_id, session_id, source_tag, mapped_label,
                         reasoning, confidence_score, mapped_at, llm_model_version
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -207,7 +210,7 @@ class AuditManager:
             with self._get_conn() as conn:
                 res = conn.execute(
                     """
-                    SELECT symbol FROM sync_progress 
+                    SELECT symbol FROM sync_progress
                     WHERE market = ? AND last_synced_at >= (CURRENT_TIMESTAMP - INTERVAL 1 DAY * ?)
                     AND status IN ('SUCCESS', 'SKIPPED_NOT_FOUND')
                     """,

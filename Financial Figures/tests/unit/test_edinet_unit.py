@@ -6,6 +6,7 @@ import pytest
 from src.edinet.client import EDINETClient
 from src.edinet.parser import EDINETParser
 from src.edinet.storage import EDINETStorage
+from src.edinet.sync_worker import EDINETSyncWorker
 
 
 def test_client_url_logic():
@@ -16,8 +17,6 @@ def test_client_url_logic():
 
 def test_download_document_csv_validation(mocker):
     """Verify that is_zipfile validation skips invalid ZIP content."""
-    from src.edinet.client import EDINETClient
-
     client = EDINETClient(api_key="test")
 
     # Mock requests to return non-ZIP data
@@ -33,8 +32,6 @@ def test_download_document_csv_validation(mocker):
 
 def test_download_document_csv_json_handling(mocker):
     """Verify that JSON error responses are handled gracefully."""
-    from src.edinet.client import EDINETClient
-
     client = EDINETClient(api_key="test")
 
     mock_resp = mocker.Mock()
@@ -57,7 +54,7 @@ def test_parser_valid_csv():
     facts = EDINETParser.parse_financial_csv(csv_content)
     assert len(facts) >= 1
     assert facts[0]["id"] == "jpcrp_cor:NetSales"
-    assert facts[0]["value"] == 1000000.0
+    assert facts[0]["value"] == 1000000.0  # noqa: PLR2004
 
 
 def test_storage_incremental_methods(tmp_path):
@@ -93,25 +90,24 @@ def test_storage_raw_facts_integrity(tmp_path):
 
     with duckdb.connect(str(db_file)) as con:
         res = con.execute("SELECT amount_value FROM raw_facts WHERE doc_id=?", (doc_id,)).fetchone()
-        assert res[0] == 500.0
+        assert res[0] == 500.0  # noqa: PLR2004
 
 
 @pytest.mark.parametrize("invalid_val", ["", "N/A", "Unknown", "-", "1,234.56"])
 def test_parser_robustness(invalid_val):
     # Header must be valid for the row to be processed
-    csv = f"要素ID\t項目名\tコンテキストID\tユニットID\t単位\t値\nID1\tN1\tC1\tU1\t円\t{invalid_val}\n"
+    header = "要素ID\t項目名\tコンテキストID\tユニットID\t単位\t値\n"
+    csv = f"{header}ID1\tN1\tC1\tU1\t円\t{invalid_val}\n"
     facts = EDINETParser.parse_financial_csv(csv)
     if invalid_val == "1,234.56":
         assert len(facts) == 1
-        assert facts[0]["value"] == 1234.56
+        assert facts[0]["value"] == 1234.56  # noqa: PLR2004
     else:
         assert len(facts) == 0
 
 
 def test_sync_worker_years_clipping(mocker):
     """Verify that EDINETSyncWorker clips requested years to 5."""
-    from src.edinet.sync_worker import EDINETSyncWorker
-
     worker = EDINETSyncWorker()
 
     # Mock time.sleep to avoid 15 minute wait
@@ -128,7 +124,7 @@ def test_sync_worker_years_clipping(mocker):
 
     worker.run_historical_backfill(years=10)
 
-    # Check if get_document_list was called for about 5 years (5 * 365 = 1825 days)
-    # The count should be around 1826
-    assert mock_client.get_document_list.call_count <= 1830
-    assert mock_client.get_document_list.call_count >= 1820
+    # Check if get_document_list was called for Phase 1 (31 days) + Phase 2 (5 * 365 + 1 days)
+    # The count should be around 1857
+    assert mock_client.get_document_list.call_count <= 1870  # noqa: PLR2004
+    assert mock_client.get_document_list.call_count >= 1850  # noqa: PLR2004

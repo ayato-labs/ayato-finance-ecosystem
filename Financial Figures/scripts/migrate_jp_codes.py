@@ -1,15 +1,17 @@
 import duckdb
-from src.core.config import settings
 from loguru import logger
+
+from src.core.config import settings
+
 
 def migrate_db(db_path, name):
     logger.info(f"Starting migration for {name} ({db_path})...")
     try:
         conn = duckdb.connect(str(db_path))
-        
+
         # Check if tickers table exists (only in jp.duckdb)
         tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
-        
+
         if "company_facts" in tables:
             logger.info(f"Dropping indexes for {name}...")
             if name == "JP Market DB":
@@ -34,13 +36,13 @@ def migrate_db(db_path, name):
             """)
             # Insert normalized
             conn.execute("""
-                INSERT OR IGNORE INTO tickers 
-                SELECT DISTINCT 
-                    CASE 
-                        WHEN LENGTH(code) = 5 AND code LIKE '%0' THEN SUBSTR(code, 1, 4) 
-                        ELSE code 
-                    END as code, 
-                    name, market_section, sector, last_session_id 
+                INSERT OR IGNORE INTO tickers
+                SELECT DISTINCT
+                    CASE
+                        WHEN LENGTH(code) = 5 AND code LIKE '%0' THEN SUBSTR(code, 1, 4)
+                        ELSE code
+                    END as code,
+                    name, market_section, sector, last_session_id
                 FROM tickers_old
             """)
             conn.execute("DROP TABLE tickers_old")
@@ -72,35 +74,42 @@ def migrate_db(db_path, name):
             # Insert normalized
             conn.execute("""
                 INSERT OR IGNORE INTO company_facts (
-                    fact_id, code, disclosed_date, fiscal_year, fiscal_period, 
+                    fact_id, code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id, ingested_at
                 )
-                SELECT 
-                    fact_id, 
-                    CASE 
-                        WHEN LENGTH(code) = 5 AND code LIKE '%0' THEN SUBSTR(code, 1, 4) 
-                        ELSE code 
-                    END as code, 
-                    disclosed_date, fiscal_year, fiscal_period, 
+                SELECT
+                    fact_id,
+                    CASE
+                        WHEN LENGTH(code) = 5 AND code LIKE '%0' THEN SUBSTR(code, 1, 4)
+                        ELSE code
+                    END as code,
+                    disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id, ingested_at
                 FROM company_facts_old
             """)
             conn.execute("DROP TABLE company_facts_old")
-            count = conn.execute("SELECT count(*) FROM company_facts WHERE LENGTH(code) = 4").fetchone()[0]
+            count = conn.execute(
+                "SELECT count(*) FROM company_facts WHERE LENGTH(code) = 4"
+            ).fetchone()[0]
             logger.info(f"Fact normalization complete for {name}. Total 4-digit facts: {count}")
-            
+
             # Recreate indexes
             logger.info("Recreating indexes...")
             if name == "JP Market DB":
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_jp_facts_lookup ON company_facts (code, tag, disclosed_date)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_jp_facts_lookup ON company_facts (code, tag, disclosed_date)"
+                )
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jp_tickers_symbol ON tickers (code)")
             else:
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup ON company_facts (code, tag, disclosed_date)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup ON company_facts (code, tag, disclosed_date)"
+                )
 
         conn.close()
         logger.info(f"Migration successful for {name}.")
     except Exception as e:
         logger.error(f"Migration failed for {name}: {e}")
+
 
 if __name__ == "__main__":
     migrate_db(settings.DB_PATH_JP, "JP Market DB")

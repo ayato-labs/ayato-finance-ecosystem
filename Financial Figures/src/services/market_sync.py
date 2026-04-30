@@ -227,27 +227,29 @@ class BatchSyncService:
                     self.ai_queue.task_done()
                     break
 
-                task_type = task[0]
-
-                if task_type == "MAP_TAGS":
-                    _, market, symbol, tags_to_map, session_id = task
-                    logger.info(f"[AIMapper] Mapping {len(tags_to_map)} tags for {symbol}...")
-                    results = self.mapper.map_tags_bulk(market, tags_to_map, session_id)
-                    for res in results:
-                        self.db_queue.put(
-                            (
-                                "SAVE_MAPPING",
-                                session_id,
-                                res["source_tag"],
-                                res["mapped_label"],
-                                res["model"],
-                                res["reasoning"],
-                                res["confidence"],
+                try:
+                    task_type = task[0]
+                    if task_type == "MAP_TAGS":
+                        _, market, symbol, tags_to_map, session_id = task
+                        logger.info(f"[AIMapper] Mapping {len(tags_to_map)} tags for {symbol}...")
+                        results = self.mapper.map_tags_bulk(market, tags_to_map, session_id)
+                        for res in results:
+                            self.db_queue.put(
+                                (
+                                    "SAVE_MAPPING",
+                                    session_id,
+                                    res["source_tag"],
+                                    res["mapped_label"],
+                                    res["model"],
+                                    res["reasoning"],
+                                    res["confidence"],
+                                )
                             )
-                        )
-                    logger.info(f"[AIMapper] Finished mapping for {symbol}.")
-
-                self.ai_queue.task_done()
+                        logger.info(f"[AIMapper] Finished mapping for {symbol}.")
+                except Exception as e:
+                    logger.error(f"Error in AI Mapper worker: {e}", exc_info=True)
+                finally:
+                    self.ai_queue.task_done()
             except queue.Empty:
                 continue
 

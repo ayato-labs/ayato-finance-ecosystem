@@ -2,7 +2,7 @@ import os
 import random
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import duckdb
 from fastapi import FastAPI, HTTPException, Query
@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from src.core.config import settings
+from src.edinet.sync_worker import EDINETSyncWorker
 from src.services.market_sync import BatchSyncService
 
 
@@ -59,9 +60,6 @@ app = FastAPI(
 # ... (CORS middleware remains the same)
 
 
-from contextlib import contextmanager
-
-
 class DBManager:
     def __init__(self):
         settings.DB_PATH_US.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +89,8 @@ class DBManager:
                 if "Locked" in str(e) or "access" in str(e).lower():
                     delay = (base_delay * (2**i)) + (random.random() * 0.1)
                     logger.warning(
-                        f"Database busy, retrying in {delay:.2f}s... (Attempt {i + 1}/{max_retries})"
+                        f"Database busy, retrying in {delay:.2f}s... "
+                        f"(Attempt {i + 1}/{max_retries})"
                     )
                     time.sleep(delay)
                     continue
@@ -166,7 +165,7 @@ def health_check():
             conn.execute("SELECT 1")
         return {"status": "healthy", "databases": ["us", "jp", "audit"]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/stats", response_model=Stats, tags=["System"])
@@ -257,14 +256,15 @@ def get_financials(
 ):
     """Retrieve standardized financials for a symbol with pagination."""
     symbol = symbol.upper()
-    is_jp = symbol.isdigit() and len(symbol) == 4
+    jp_ticker_len = 4
+    is_jp = symbol.isdigit() and len(symbol) == jp_ticker_len
     market = "JP" if is_jp else "US"
 
     # Fetch facts and ticker info
     try:
         if is_jp:
             query = """
-                SELECT f.tag, f.value, f.unit, CAST(f.disclosed_date AS VARCHAR) as period_date, 
+                SELECT f.tag, f.value, f.unit, CAST(f.disclosed_date AS VARCHAR) as period_date,
                        f.fiscal_year, t.name
                 FROM company_facts f
                 JOIN tickers t ON f.code = t.code
@@ -272,20 +272,20 @@ def get_financials(
             """
             with db.get_jp_conn() as conn:
                 facts = conn.execute(query, [symbol]).fetchall()
-            
+
             # FALLBACK: Try EDINET DB for additional history/tags
             try:
                 # We use 'label' from EDINET as it contains the AI-standardized tag name
                 edinet_query = """
-                    SELECT label as tag, value, unit, 
-                           CAST(COALESCE(disclosed_date, ingested_at) AS VARCHAR) as period_date, 
+                    SELECT label as tag, value, unit,
+                           CAST(COALESCE(disclosed_date, ingested_at) AS VARCHAR) as period_date,
                            fiscal_year
                     FROM company_facts
                     WHERE code = ?
                 """
                 with db.get_edinet_conn() as conn:
                     edinet_facts = conn.execute(edinet_query, [symbol]).fetchall()
-                
+
                 if edinet_facts:
                     # Map EDINET standardized labels to J-Quants shorthand tags if necessary
                     # to match the existing mapping_audit table entries.
@@ -298,13 +298,13 @@ def get_financials(
                         "TotalAssets": "TA",
                         "EquityToAssetRatio": "EqAR",
                     }
-                    
+
                     # Supplement the facts list
-                    existing_keys = {(f[0], f[3]) for f in facts} # (tag, period_date)
+                    existing_keys = {(f[0], f[3]) for f in facts}  # (tag, period_date)
                     for ef in edinet_facts:
                         raw_tag = ef[0]
                         normalized_tag = tag_map.get(raw_tag, raw_tag)
-                        
+
                         key = (normalized_tag, ef[3])
                         if key not in existing_keys:
                             # Append with normalized tag and placeholder for name
@@ -313,7 +313,7 @@ def get_financials(
                 logger.warning(f"Fallback to EDINET failed for {symbol}: {e}")
         else:
             query = """
-                SELECT f.tag, f.value, f.unit, CAST(f.end_date AS VARCHAR) as period_date, 
+                SELECT f.tag, f.value, f.unit, CAST(f.end_date AS VARCHAR) as period_date,
                        f.fiscal_year, t.name
                 FROM company_facts f
                 JOIN tickers t ON f.cik = t.cik
@@ -322,7 +322,9 @@ def get_financials(
             with db.get_us_conn() as conn:
                 facts = conn.execute(query, [symbol]).fetchall()
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Database error or symbol not found: {e}")
+        raise HTTPException(
+            status_code=404, detail=f"Database error or symbol not found: {e}"
+        ) from e
 
     if not facts:
         raise HTTPException(status_code=404, detail=f"No financials found for symbol {symbol}")
@@ -375,8 +377,6 @@ def manual_sync_task(service: BatchSyncService, market: str):
             service.sync_market_full("JP", incremental=True)
             # Trigger EDINET Sync as part of JP market sync
             try:
-                from src.edinet.sync_worker import EDINETSyncWorker
-
                 edinet_worker = EDINETSyncWorker()
                 edinet_worker.run_incremental_sync()
             except Exception as e:
@@ -411,7 +411,8 @@ async def sync_ticker(symbol: str):
     This will fetch latest filings and queue them for AI mapping and DB ingestion.
     """
     symbol = symbol.upper()
-    is_jp = symbol.isdigit() and len(symbol) == 4
+    jp_ticker_len = 4
+    is_jp = symbol.isdigit() and len(symbol) == jp_ticker_len
     market = "JP" if is_jp else "US"
     session_id = f"api-sync-{int(time.time())}"
 
@@ -448,7 +449,7 @@ async def sync_ticker(symbol: str):
         }
     except Exception as e:
         logger.error(f"Manual API sync failed for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":

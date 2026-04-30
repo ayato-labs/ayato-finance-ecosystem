@@ -17,7 +17,7 @@ def test_system_edinet_cli(tmp_path):
     db_path = data_dir / "edinet_system_test.duckdb"
 
     # We need to tell main.py to use this DB.
-    # Since main.py uses src.core.config.settings, we can override via ENV VAR if pydantic-settings is used.
+    # Since main.py uses src.core.config.settings, we can override via ENV VAR if pydantic-settings.
     env = os.environ.copy()
     env["DB_PATH_EDINET"] = str(db_path)
     env["EDINET_API_KEY"] = "DUMMY_KEY_FOR_SYSTEM_TEST"
@@ -25,7 +25,7 @@ def test_system_edinet_cli(tmp_path):
 
     # Run the CLI for a single recent date to keep it fast
     # We use a date that likely has data or at least runs through the logic
-    target_date = (date.today() - timedelta(days=2)).isoformat()
+    (date.today() - timedelta(days=2)).isoformat()
 
     # Command: python main.py --edinet-only --sync-date <target_date>
     # Note: main.py might not have --sync-date, it uses sync_incremental internally.
@@ -34,7 +34,7 @@ def test_system_edinet_cli(tmp_path):
     cmd = [sys.executable, "main.py", "--edinet-only"]
 
     # Run with timeout to prevent hanging
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=False)
 
     print(f"STDOUT: {result.stdout}")
     print(f"STDERR: {result.stderr}")

@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any
 
 
@@ -18,8 +19,6 @@ class FakeModels:
             val = self.return_values[self.call_count - 1]
             if val == "__HUNG__":
                 # Simulate a long-running call that would trigger a timeout if not handled
-                import time
-
                 time.sleep(1)  # In unit tests, we want this small but detectable
             return FakeResponse(val)
         return FakeResponse(json.dumps({"mappings": []}))
@@ -37,6 +36,4 @@ class FakeGeminiClient:
 
 def create_mapping_response(mappings: list[dict[str, Any]]) -> str:
     """Helper to create valid JSON responses for the fake client."""
-    import json
-
     return json.dumps({"mappings": mappings})

@@ -10,14 +10,13 @@ def verify_growth_data():
     conn.execute(f"ATTACH '{settings.DB_PATH_JP}' AS jp")
 
     targets = ["TSLA", "7203"]
-    labels = ["ResearchAndDevelopment", "CapitalExpenditure"]
 
     for t in targets:
         print(f"\n--- Growth Metrics for {t} ---")
         q = f"""
         SELECT target_label, value, unit, period_date, reasoning
-        FROM v_standardized_financials 
-        WHERE symbol = '{t}' 
+        FROM v_standardized_financials
+        WHERE symbol = '{t}'
           AND target_label IN ('ResearchAndDevelopment', 'CapitalExpenditure')
         ORDER BY period_date DESC
         LIMIT 5

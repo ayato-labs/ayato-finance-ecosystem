@@ -9,8 +9,8 @@ def verify():
 
     print("=== Latest AI Mapping Entries ===")
     res = conn.execute("""
-        SELECT source_tag, target_label, model, reasoning, confidence 
-        FROM mapping_audit 
+        SELECT source_tag, target_label, model, reasoning, confidence
+        FROM mapping_audit
         ORDER BY id DESC LIMIT 5
     """).fetchall()
 

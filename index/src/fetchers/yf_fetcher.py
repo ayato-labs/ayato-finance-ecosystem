@@ -1,7 +1,9 @@
 from datetime import datetime
+
 import pandas as pd
 import yfinance as yf
 from loguru import logger
+
 from ..schema import enforce_schema
 
 class YFinanceFetcher:
@@ -20,11 +22,10 @@ class YFinanceFetcher:
         try:
             # 指数はactions=True（配当など）は基本不要だが一貫性のために設定可能
             df = yf.download(
-                ticker, 
-                start=start_date.strftime("%Y-%m-%d"), 
+                ticker,
+                start=start_date.strftime("%Y-%m-%d"),
                 progress=False
             )
-            
             if df.empty:
                 logger.warning(f"yfinance returned empty data for {ticker}")
                 return pd.DataFrame()

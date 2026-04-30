@@ -23,7 +23,7 @@ def map_all_tags():
         # Get taxonomy and tag combinations, ordered by frequency
         tags = conn.execute("""
             SELECT taxonomy, tag, count(*) as freq
-            FROM company_facts 
+            FROM company_facts
             GROUP BY taxonomy, tag
             ORDER BY count(*) DESC
             LIMIT 50
@@ -43,7 +43,7 @@ def map_all_tags():
     # 4. Process unknown tags
     mapped_count = 0
     errors_count = 0
-    for taxonomy, tag, freq in tags:
+    for taxonomy, tag, _freq in tags:
         source_key = f"US:{tag}"  # We use US as market prefix in mapper
         if source_key in mapped_tags:
             continue

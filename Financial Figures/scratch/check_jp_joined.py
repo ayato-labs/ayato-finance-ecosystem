@@ -11,9 +11,9 @@ def check_jp_joined():
 
     conn.execute("""
         CREATE OR REPLACE VIEW v_standardized_financials AS
-        SELECT 
-            'JP' as market, SUBSTR(t.code, 1, 4) as symbol, t.name as company_name, 
-            m.target_label, f.value, f.unit, f.disclosed_date as period_date, 
+        SELECT
+            'JP' as market, SUBSTR(t.code, 1, 4) as symbol, t.name as company_name,
+            m.target_label, f.value, f.unit, f.disclosed_date as period_date,
             f.fiscal_year, m.reasoning
         FROM jp.company_facts f
         JOIN jp.tickers t ON f.code = t.code

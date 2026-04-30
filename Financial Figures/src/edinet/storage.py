@@ -180,12 +180,12 @@ class EDINETStorage:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO company_facts (
-                        fact_id, code, disclosed_date, fiscal_year, fiscal_period, 
+                        fact_id, code, disclosed_date, fiscal_year, fiscal_period,
                         taxonomy, tag, label, value, unit, accession_number, session_id
                     )
-                    SELECT 
+                    SELECT
                         md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
-                        code, disclosed_date, fiscal_year, fiscal_period, 
+                        code, disclosed_date, fiscal_year, fiscal_period,
                         taxonomy, tag, label, value, unit, accession_number, session_id
                     FROM ingest_df
                     """
@@ -207,12 +207,12 @@ class EDINETStorage:
                 conn.execute(
                     """
                     INSERT INTO reconciliation_audit (
-                        audit_id, code, disclosed_date, label, 
+                        audit_id, code, disclosed_date, label,
                         jquants_val, edinet_val, merged_val, strategy, reasoning
                     )
-                    SELECT 
+                    SELECT
                         md5(concat_ws('|', code, disclosed_date, label, strategy)) as audit_id,
-                        code, disclosed_date, label, 
+                        code, disclosed_date, label,
                         jquants_val, edinet_val, merged_val, strategy, reasoning
                     FROM audit_df
                     """

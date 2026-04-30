@@ -3,7 +3,7 @@ import os
 
 
 def find_syntax_errors(root_dir):
-    for root, dirs, files in os.walk(root_dir):
+    for root, _dirs, files in os.walk(root_dir):
         if ".venv" in root or ".git" in root:
             continue
         for file in files:

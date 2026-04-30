@@ -2,7 +2,8 @@ import os
 import subprocess
 import json
 
-def create_ruleset():
+def update_ruleset():
+    ruleset_id = 15711614
     ruleset = {
         "name": "Protect Core Branches",
         "target": "branch",
@@ -25,15 +26,24 @@ def create_ruleset():
                     "require_last_push_approval": False,
                     "required_review_thread_resolution": True
                 }
+            },
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [
+                        {"context": "CI / Build"}
+                    ]
+                }
             }
         ]
     }
     
-    # Use gh api to POST the ruleset
+    # Use gh api to PATCH the ruleset
     cmd = [
         "gh", "api",
-        "--method", "POST",
-        "/repos/ayato-labs/ayato-finance-ecosystem/rulesets",
+        "--method", "PATCH",
+        f"/repos/ayato-labs/ayato-finance-ecosystem/rulesets/{ruleset_id}",
         "--input", "-"
     ]
     
@@ -47,4 +57,4 @@ def create_ruleset():
         print(f"Failed to create ruleset. Error: {stderr}")
 
 if __name__ == "__main__":
-    create_ruleset()
+    update_ruleset()

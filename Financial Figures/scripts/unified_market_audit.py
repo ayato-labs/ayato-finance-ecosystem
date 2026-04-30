@@ -20,10 +20,10 @@ def run_unified_audit():
     # J-Quants
     conn_jp = duckdb.connect(str(jp_db), read_only=True)
     df_jp = conn_jp.execute("""
-        SELECT label, count(*) as count 
-        FROM company_facts 
-        GROUP BY label 
-        ORDER BY count DESC 
+        SELECT label, count(*) as count
+        FROM company_facts
+        GROUP BY label
+        ORDER BY count DESC
         LIMIT 15
     """).df()
     conn_jp.close()
@@ -31,10 +31,10 @@ def run_unified_audit():
     # EDINET
     conn_edinet = duckdb.connect(str(edinet_db), read_only=True)
     df_edinet = conn_edinet.execute("""
-        SELECT label, count(*) as count 
-        FROM company_facts 
-        GROUP BY label 
-        ORDER BY count DESC 
+        SELECT label, count(*) as count
+        FROM company_facts
+        GROUP BY label
+        ORDER BY count DESC
         LIMIT 15
     """).df()
     conn_edinet.close()
@@ -73,16 +73,16 @@ def run_unified_audit():
 
         comparison = conn.execute(
             f"""
-            SELECT 
-                j.code, 
-                j.disclosed_date, 
-                j.value as jq_val, 
+            SELECT
+                j.code,
+                j.disclosed_date,
+                j.value as jq_val,
                 e.value as ed_val,
                 ABS(j.value - e.value) as diff
             FROM jp.company_facts j
-            JOIN edinet.company_facts e 
-              ON j.code = e.code 
-             AND j.disclosed_date = e.disclosed_date 
+            JOIN edinet.company_facts e
+              ON j.code = e.code
+             AND j.disclosed_date = e.disclosed_date
              AND j.label = e.label
             WHERE j.label = 'NetSales'
               AND j.code IN ({",".join(["?" for _ in sample_tickers])})

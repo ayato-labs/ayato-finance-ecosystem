@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+
 import numpy as np
 import pandas as pd
 
@@ -40,12 +41,12 @@ def enforce_schema(df: pd.DataFrame, symbol: str, source: str) -> pd.DataFrame:
 
     # カラム名の正規化 (大文字小文字対策)
     df.columns = [c.capitalize() if c.lower() == "date" else c for c in df.columns]
-    
+
     # 型変換
     df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
     df["LoadTimestamp"] = pd.to_datetime(df["LoadTimestamp"])
     df["Value"] = pd.to_numeric(df["Value"], errors="coerce").astype(np.float64)
-    
+
     # 重複排除の準備として必要なカラムのみ抽出
     df = df[COLUMNS].copy()
 

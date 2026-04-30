@@ -11,9 +11,9 @@ def check_xom_joined():
 
     conn.execute("""
         CREATE OR REPLACE VIEW v_standardized_financials AS
-        SELECT 
-            'US' as market, t.ticker as symbol, t.name as company_name, 
-            m.target_label, f.value, f.unit, f.end_date as period_date, 
+        SELECT
+            'US' as market, t.ticker as symbol, t.name as company_name,
+            m.target_label, f.value, f.unit, f.end_date as period_date,
             f.fiscal_year, m.reasoning
         FROM main.company_facts f
         JOIN main.tickers t ON f.cik = t.cik

@@ -14,18 +14,18 @@ def verify_and_analyze():
     # 2. Define Standardized Financials View
     conn.execute("""
         CREATE OR REPLACE VIEW v_standardized_financials AS
-        SELECT 
-            'US' as market, t.ticker as symbol, t.name as company_name, 
-            m.target_label, f.value, f.unit, f.end_date as period_date, 
+        SELECT
+            'US' as market, t.ticker as symbol, t.name as company_name,
+            m.target_label, f.value, f.unit, f.end_date as period_date,
             f.fiscal_year, m.reasoning
         FROM main.company_facts f
         JOIN main.tickers t ON f.cik = t.cik
         JOIN audit.mapping_audit m ON m.source_tag = CONCAT('US:', f.tag)
         WHERE m.target_label != 'Other'
         UNION ALL
-        SELECT 
-            'JP' as market, SUBSTR(t.code, 1, 4) as symbol, t.name as company_name, 
-            m.target_label, f.value, f.unit, f.disclosed_date as period_date, 
+        SELECT
+            'JP' as market, SUBSTR(t.code, 1, 4) as symbol, t.name as company_name,
+            m.target_label, f.value, f.unit, f.disclosed_date as period_date,
             f.fiscal_year, m.reasoning
         FROM jp.company_facts f
         JOIN jp.tickers t ON f.code = t.code
@@ -92,8 +92,8 @@ def verify_and_analyze():
         try:
             price_df = conn.execute(
                 """
-                SELECT close FROM v_safe_prices 
-                WHERE ticker = ? 
+                SELECT close FROM v_safe_prices
+                WHERE ticker = ?
                 ORDER BY date DESC LIMIT 1
             """,
                 [price_query_sym],

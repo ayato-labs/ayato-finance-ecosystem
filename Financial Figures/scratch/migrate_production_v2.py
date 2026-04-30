@@ -97,17 +97,17 @@ def migrate_us():
         print("Migrating data with physical sorting...")
         conn.execute("""
             INSERT INTO company_facts (
-                fact_id, cik, taxonomy, tag, label, unit, value, end_date, 
+                fact_id, cik, taxonomy, tag, label, unit, value, end_date,
                 fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
             )
-            SELECT 
+            SELECT
                 md5(concat_ws('|', cik, taxonomy, tag, end_date, accession_number)) as fact_id,
-                cik, 
-                taxonomy::taxonomy_enum, 
-                tag, label, unit, value, end_date, 
-                fiscal_year, 
-                fiscal_period::period_enum, 
-                form::form_enum, 
+                cik,
+                taxonomy::taxonomy_enum,
+                tag, label, unit, value, end_date,
+                fiscal_year,
+                fiscal_period::period_enum,
+                form::form_enum,
                 filed_date, accession_number, session_id
             FROM company_facts_old
             ORDER BY cik, tag, end_date DESC

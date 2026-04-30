@@ -1,3 +1,5 @@
+import logging
+
 import duckdb
 import jquantsapi
 import pandas as pd
@@ -8,6 +10,8 @@ from src.core.config import settings
 
 
 class JPEngine:
+    JP_TICKER_LEN_WITH_ZERO = 5
+
     def __init__(self, api_key: str | None = None, refresh_token: str | None = None):
         """
         Initialize the J-Quants engine.
@@ -115,7 +119,10 @@ class JPEngine:
             raise KeyError(f"Could not find code or name columns. Columns: {df.columns.tolist()}")
 
         codes = df[code_col].astype(str).tolist()
-        normalized_codes = [c[:4] if len(c) == 5 and c.endswith("0") else c for c in codes]
+        normalized_codes = [
+            c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+            for c in codes
+        ]
 
         df_mapped = pd.DataFrame(  # noqa: F841
             {
@@ -204,7 +211,7 @@ class JPEngine:
             fy = row.get("FiscalYear")
             fp = row.get("FiscalPeriod")
             ticker_code = str(row.get("LocalCode", row.get("Code", code)))
-            if len(ticker_code) == 5 and ticker_code.endswith("0"):
+            if len(ticker_code) == self.JP_TICKER_LEN_WITH_ZERO and ticker_code.endswith("0"):
                 ticker_code = ticker_code[:4]
             accn = f"{ticker_code}-{disclosed_date}"
 
@@ -262,12 +269,12 @@ class JPEngine:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO company_facts (
-                    fact_id, code, disclosed_date, fiscal_year, fiscal_period, 
+                    fact_id, code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id
                 )
-                SELECT 
+                SELECT
                     md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
-                    code, disclosed_date, fiscal_year, fiscal_period, 
+                    code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id
                 FROM ingest_df
                 """

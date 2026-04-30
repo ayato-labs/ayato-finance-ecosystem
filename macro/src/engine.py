@@ -1,13 +1,14 @@
-from loguru import logger
 from pathlib import Path
+
 import duckdb
 import pandas as pd
+from loguru import logger
 
 
 
 class MacroEngine:
     """
-    マクロ指標データの保存（Parquet）と抽出（DuckDB）を担当するエンジン。
+    マクロ指標データの保存 (Parquet) と抽出 (DuckDB) を担当する engine。
     """
     def __init__(self, base_dir: str = "data/macro"):
         self.base_dir = Path(base_dir)
@@ -22,7 +23,7 @@ class MacroEngine:
             return
 
         file_path = self.base_dir / f"{self._get_safe_filename(symbol)}.parquet"
-        
+
         if file_path.exists():
             existing_df = pd.read_parquet(file_path)
             combined_df = pd.concat([existing_df, df], ignore_index=True)

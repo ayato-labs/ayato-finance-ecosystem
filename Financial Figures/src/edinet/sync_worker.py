@@ -153,7 +153,7 @@ class EDINETSyncWorker:
             elif len(ticker) == ticker_len_full:
                 # Still fallback to 4 digits for JP market consistency if 5th is non-zero?
                 ticker = ticker[:4]
-                # Actually, EDINET secCode 72030 is 7203. 
+                # Actually, EDINET secCode 72030 is 7203.
                 # Let's stick to the common pattern.
 
         submission_date = doc.get("submissionPeriod")
@@ -203,9 +203,7 @@ class EDINETSyncWorker:
 
             if normalized_facts:
                 self.storage.save_normalized_facts(normalized_facts)
-                logger.info(
-                    f"[MAP] Successfully saved {len(normalized_facts)} facts for {ticker}."
-                )
+                logger.info(f"[MAP] Successfully saved {len(normalized_facts)} facts for {ticker}.")
             else:
                 mapping_preview = list(tag_to_label.values())[:5]
                 logger.warning(

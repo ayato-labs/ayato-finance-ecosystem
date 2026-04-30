@@ -14,7 +14,7 @@ def get_safe_price_view_sql(parquet_path: str) -> str:
     # DuckDB's (?i) makes the regex case-insensitive
     return f"""
     CREATE OR REPLACE VIEW v_safe_prices AS
-    SELECT 
+    SELECT
         COLUMNS('(?i)ticker') AS ticker,
         COLUMNS('(?i)date') AS date,
         COLUMNS('(?i)open') AS open,

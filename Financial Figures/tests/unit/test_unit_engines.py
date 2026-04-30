@@ -1,3 +1,4 @@
+import duckdb
 import pandas as pd
 import pytest
 
@@ -45,8 +46,6 @@ def test_us_engine_ingest_facts_normal(us_engine):
     }
     us_engine.ingest_facts("TSLA", facts_data, "session-unit")
 
-    import duckdb
-
     with duckdb.connect(str(settings.DB_PATH_US)) as conn:
         res = conn.execute("SELECT count(*) FROM company_facts").fetchone()[0]
         assert res == 1
@@ -65,8 +64,6 @@ def test_jp_engine_ingest_facts_numeric_parsing(jp_engine):
             }
         ]
     )
-
-    import duckdb
 
     with duckdb.connect(str(settings.DB_PATH_JP)) as conn:
         # ENSURE CLEAN STATE

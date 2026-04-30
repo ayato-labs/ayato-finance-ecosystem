@@ -123,7 +123,7 @@ class AIMapper:
         prompt = f"""
         Market: {market}
         Provide mappings for the following list of financial tags.
-        
+
         Tags to map:
         {tags_json}
         """
@@ -157,7 +157,9 @@ class AIMapper:
             except Exception as jse:
                 # Sanitize log: truncate long output
                 preview_len = 500
-                display_text = raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
+                display_text = (
+                    raw_text[:preview_len] + "..." if len(raw_text) > preview_len else raw_text
+                )
                 logger.error(f"JSON Parsing failed for {model_name}. Preview: {display_text}")
                 raise AIMappingError(f"JSON Parse Failure: {jse}", is_retryable=True) from jse
 
