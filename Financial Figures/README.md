@@ -104,5 +104,23 @@ uv run python scratch/verify_analysis.py
 
 ---
 
-## ⚖ License
-Proprietary / Internal Use Only.
+## ⚖️ License
+
+This project is licensed under a **Dual License** model to support both open-source community innovation and commercial sustainability:
+
+- **Open Source License**: Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE). This ensures that any improvements to the core engine are shared back with the community.
+- **Commercial License**: For organizations that wish to use this software in proprietary products or environments without AGPL obligations, separate commercial licenses are available. 
+
+For inquiries regarding commercial licensing, please contact: [support@ayato.studio](mailto:support@ayato.studio)
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! To maintain the sustainability of the project, all contributors must agree to our [Contributor License Agreement (CLA)](CLA.md).
+
+1. **Agree to the CLA**: In your Pull Request description, please include:
+   > "I agree to the CLA of Ayato Finance Ecosystem as defined in CLA.md."
+2. **Follow the Standards**: Ensure your code passes all linting (`ruff`) and tests before submission.
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
