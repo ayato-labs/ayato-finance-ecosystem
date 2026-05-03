@@ -1,4 +1,5 @@
 import datetime
+import gc
 import queue
 import threading
 import time
@@ -21,8 +22,9 @@ class BatchSyncService:
         audit_manager._init_db()
 
         # 3-Thread Architecture Queues (Producer-Consumer)
-        self.db_queue = queue.Queue()
-        self.ai_queue = queue.Queue()
+        from src.core.config import settings
+        self.db_queue = queue.Queue(maxsize=settings.SYNC_QUEUE_MAXSIZE)
+        self.ai_queue = queue.Queue(maxsize=settings.SYNC_QUEUE_MAXSIZE)
         self.is_running = True
 
         # Stats tracking for the current session
@@ -152,6 +154,9 @@ class BatchSyncService:
                         )
                 finally:
                     self.db_queue.task_done()
+                    # Trigger periodic GC if queue is empty to free memory from large DFs
+                    if self.db_queue.empty():
+                        gc.collect()
 
             except queue.Empty:
                 continue
@@ -324,6 +329,9 @@ class BatchSyncService:
                 self._sync_jp_market(session_id, limit, dry_run, incremental)
             else:
                 raise ValueError(f"Unknown market: {market}")
+
+            # Explicit GC after data fetch phase
+            gc.collect()
 
             logger.info(
                 f"All {market} network fetch requests completed. Waiting for DB/AI processing..."

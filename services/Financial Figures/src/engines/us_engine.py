@@ -50,6 +50,8 @@ class USEngine:
             return
 
         with duckdb.connect(str(self.db_path)) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             # Table for Ticker to CIK mapping
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tickers (
@@ -114,6 +116,8 @@ class USEngine:
         df = pd.DataFrame(records, columns=["ticker", "cik", "name", "last_session_id"])  # noqa: F841
 
         with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tickers (ticker, cik, name, last_session_id)
@@ -223,6 +227,8 @@ class USEngine:
         df["filed_date"] = df["filed_date"].apply(safe_date_parse)
 
         with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             # Generate fact_id MD5 hash inside DuckDB for collision-free uniqueness
             conn.execute("""
                 INSERT OR IGNORE INTO company_facts (
