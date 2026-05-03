@@ -45,7 +45,7 @@ def test_full_api_workflow(mock_download):
     assert data[0]["Close"] == 4050.0
 
 def test_get_non_existent_data():
-    """存在しないデータへのアクセス（総合テスト）"""
+    """存在しないデータへのアクセス(総合テスト)"""
     res = client.get("/prices/UNKNOWN_INDEX")
     assert res.status_code == 404
 
@@ -62,6 +62,6 @@ def test_redundant_sync_api(mock_download):
     client.post(f"/sync/{ticker}")
     client.post(f"/sync/{ticker}")
     
-    # 取得結果が1件（重複排除済み）であることを確認
+    # 取得結果が1件(重複排除済み)であることを確認
     res = client.get(f"/prices/{ticker}")
     assert len(res.json()) == 1

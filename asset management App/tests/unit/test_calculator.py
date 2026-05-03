@@ -27,7 +27,7 @@ def test_calculate_risk_metrics_empty():
 
 
 def test_calculate_risk_metrics_single_day():
-    # 異常系: 1日分しかデータがない（変化率が計算できない）
+    # 異常系: 1日分しかデータがない(変化率が計算できない)
     prices_map = {"AAPL": [100.0]}
     holdings = {"AAPL": 10}
     vol, sharpe, max_dd = PortfolioCalculator.calculate_risk_metrics(prices_map, holdings)
@@ -35,7 +35,7 @@ def test_calculate_risk_metrics_single_day():
 
 
 def test_calculate_risk_metrics_zero_volatility():
-    # 特殊系: 価格が全く動かない（ボラティリティ 0）
+    # 特殊系: 価格が全く動かない(ボラティリティ 0)
     prices_map = {"AAPL": [100.0, 100.0, 100.0]}
     holdings = {"AAPL": 10}
     vol, sharpe, max_dd = PortfolioCalculator.calculate_risk_metrics(prices_map, holdings)
@@ -55,9 +55,9 @@ def test_calculate_risk_metrics_max_drawdown():
 
 
 def test_calculate_risk_metrics_mismatch_length():
-    # 異常系: 銘柄間でデータ数が異なる（最小公約数で計算されるか）
+    # 異常系: 銘柄間でデータ数が異なる(最小公約数で計算されるか)
     prices_map = {"AAPL": [100.0, 101.0, 102.0], "TSLA": [200.0, 202.0]}
     holdings = {"AAPL": 1, "TSLA": 1}
     vol, sharpe, max_dd = PortfolioCalculator.calculate_risk_metrics(prices_map, holdings)
-    # 2日間（変化率は1日分）で計算されるはず
+    # 2日間(変化率は1日分)で計算されるはず
     assert vol is not None

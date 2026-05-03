@@ -20,7 +20,7 @@ class YFinanceFetcher:
         """
         logger.info(f"Downloading {ticker} via yfinance starting from {start_date.date()}...")
         try:
-            # 指数はactions=True（配当など）は基本不要だが一貫性のために設定可能
+            # 指数はactions=True(配当など)は基本不要だが一貫性のために設定可能
             df = yf.download(
                 ticker,
                 start=start_date.strftime("%Y-%m-%d"),

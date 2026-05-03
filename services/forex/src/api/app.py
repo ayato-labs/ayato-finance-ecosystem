@@ -22,7 +22,7 @@ fetcher = ForexFetcher()
 @app.get("/rates/{symbol}")
 async def get_rates(symbol: str):
     """
-    指定された通貨の対米ドルレート（1 Unit = X USD）の履歴を取得する。
+    指定された通貨の対米ドルレート(1 Unit = X USD)の履歴を取得する。
     """
     symbol = symbol.upper()
     data = engine.get_rates(symbol)

@@ -24,7 +24,7 @@ def run_field_test():
     try:
         worker = EDINETSyncWorker()
 
-        # ターゲットを5日前に変更（2026-04-17 金曜日）
+        # ターゲットを5日前に変更(2026-04-17 金曜日)
         target_date = date.today() - timedelta(days=5)
         logger.info(f"Targeting date: {target_date}")
 

@@ -23,7 +23,7 @@ async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
     parser = EdgarParser()
     storage = FinancialNarrativeStorage()
     
-    # 中間保存用ディレクトリ（オプション）
+    # 中間保存用ディレクトリ(オプション)
     raw_dir = Path("data/raw_json")
     raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,7 +77,7 @@ async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
                     logger.warning(f"No sections extracted for {ticker}")
                     continue
 
-            # 5. 分析の実行（オプション）
+            # 5. 分析の実行(オプション)
             # ファイルが存在していても、分析がまだなら実行する
             if run_analysis:
                 # すでに分析済みかチェック
@@ -85,7 +85,7 @@ async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
                 if not existing_analysis:
                     api_key = os.environ.get("GOOGLE_API_KEY")
                     if api_key:
-                        # DBからセクションを再取得（保存直後、または以前保存されたもの）
+                        # DBからセクションを再取得(保存直後、または以前保存されたもの)
                         rows = storage.get_filings_by_ticker(ticker)
                         if rows:
                             latest_row = rows[0]
