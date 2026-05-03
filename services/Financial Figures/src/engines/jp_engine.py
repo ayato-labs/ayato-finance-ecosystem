@@ -53,6 +53,8 @@ class JPEngine:
             return
 
         with duckdb.connect(str(self.db_path)) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tickers (
                     code VARCHAR PRIMARY KEY,
@@ -135,6 +137,8 @@ class JPEngine:
         )
 
         with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tickers (
@@ -175,97 +179,60 @@ class JPEngine:
         self.ingest_facts(code, df, session_id)
 
     def ingest_facts(self, code: str, df: pd.DataFrame, session_id: str):
-        """Flatten and ingest J-Quants statement data into DuckDB."""
+        """Flatten and ingest J-Quants statement data into DuckDB using vectorized operations."""
         if df is None or df.empty:
             return
 
-        all_records = []
-        ignore_cols = [
-            "LocalCode",
-            "DisclosedDate",
-            "FiscalYear",
-            "FiscalPeriod",
-            "DocType",
-            "CurPerType",
-            "CurPerSt",
-            "CurPerEn",
-            "CurFYSt",
-            "CurFYEn",
-            "NxtFYSt",
-            "NxtFYEn",
-            "DEPS",
-            "REPS",
-            "Type",
-        ]
+        # 1. Identify key columns
         date_options = ["DisclosedDate", "Date", "DiscDate"]
         date_col = next((c for c in date_options if c in df.columns), None)
-
         if not date_col:
             return
 
-        for _, row in df.iterrows():
-            disclosed_date = row.get(date_col)
-            if hasattr(disclosed_date, "strftime"):
-                disclosed_date = disclosed_date.strftime("%Y-%m-%d")
-
-            fy = row.get("FiscalYear")
-            fp = row.get("FiscalPeriod")
-            ticker_code = str(row.get("LocalCode", row.get("Code", code)))
-            if len(ticker_code) == self.JP_TICKER_LEN_WITH_ZERO and ticker_code.endswith("0"):
-                ticker_code = ticker_code[:4]
-            accn = f"{ticker_code}-{disclosed_date}"
-
-            for col in df.columns:
-                if col in ignore_cols or col == date_col:
-                    continue
-
-                val = row[col]
-                # Silently skip empty values (empty string or whitespace)
-                if isinstance(val, str) and val.strip() == "":
-                    continue
-                if pd.isna(val):
-                    continue
-
-                try:
-                    val = float(val)
-                except (ValueError, TypeError):
-                    # Downgraded to DEBUG because J-Quants returns many non-numeric metadata columns
-                    # (like DiscTime, Code, boolean flags) that are safely and expectedly skipped.
-                    logger.debug(
-                        f"Skipping non-numeric value for ticker {ticker_code}, "
-                        f"column '{col}': {row[col]}."
-                    )
-                    continue
-                except Exception as e:
-                    logger.error(
-                        f"Unexpected error parsing column '{col}' for {ticker_code}: {e}",
-                        exc_info=True,
-                    )
-                    continue
-
-                all_records.append(
-                    {
-                        "code": ticker_code,
-                        "disclosed_date": disclosed_date,
-                        "fiscal_year": fy,
-                        "fiscal_period": fp,
-                        "taxonomy": "JP-GAAP",
-                        "tag": col,
-                        "label": col,  # For JP, the raw column name is often the descriptive label
-                        "value": val,
-                        "unit": "JPY",
-                        "accession_number": accn,
-                        "session_id": session_id,
-                    }
-                )
-
-        if not all_records:
+        ignore_cols = [
+            "LocalCode", "DisclosedDate", "FiscalYear", "FiscalPeriod", "DocType",
+            "CurPerType", "CurPerSt", "CurPerEn", "CurFYSt", "CurFYEn",
+            "NxtFYSt", "NxtFYEn", "DEPS", "REPS", "Type", "Code"
+        ]
+        
+        id_vars = [c for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"] if c in df.columns]
+        
+        # 2. Vectorized Unpivot (Melt)
+        melted = df.melt(id_vars=id_vars, var_name="tag", value_name="value")
+        
+        # 3. Filter and Clean
+        melted = melted[~melted["tag"].isin(ignore_cols)]
+        melted = melted.dropna(subset=["value"])
+        
+        # Numeric conversion (Coerce errors to NaN then drop)
+        melted["value"] = pd.to_numeric(melted["value"], errors="coerce")
+        melted = melted.dropna(subset=["value"])
+        
+        if melted.empty:
             return
 
-        logger.info(f"Ingesting {len(all_records)} fact records for JP Ticker {code}...")
+        # 4. Map columns to schema
+        melted["code"] = melted.get("LocalCode", melted.get("Code", code)).astype(str)
+        # Normalize JP code (5 digits ending in 0 -> 4 digits)
+        melted["code"] = melted["code"].apply(
+            lambda c: c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+        )
+        
+        melted["disclosed_date"] = pd.to_datetime(melted[date_col]).dt.strftime("%Y-%m-%d")
+        melted["fiscal_year"] = melted.get("FiscalYear")
+        melted["fiscal_period"] = melted.get("FiscalPeriod")
+        melted["taxonomy"] = "JP-GAAP"
+        melted["label"] = melted["tag"]
+        melted["unit"] = "JPY"
+        melted["session_id"] = session_id
+        melted["accession_number"] = melted["code"] + "-" + melted["disclosed_date"]
 
-        ingest_df = pd.DataFrame(all_records)  # noqa: F841
+        # 5. Bulk Ingest to DuckDB
+        logger.info(f"Ingesting {len(melted)} fact records for JP Ticker {code}...")
+
         with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
+            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute(
                 """
                 INSERT OR IGNORE INTO company_facts (
@@ -276,7 +243,7 @@ class JPEngine:
                     md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
                     code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id
-                FROM ingest_df
+                FROM melted
                 """
             )
 
