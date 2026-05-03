@@ -80,6 +80,9 @@ class Settings(BaseSettings):
 
     # Performance Tuning
     AI_MAPPING_BATCH_SIZE: int = 20
+    DUCKDB_MEMORY_LIMIT: str = "2GB"
+    DUCKDB_THREADS: int = 4
+    SYNC_QUEUE_MAXSIZE: int = 50
 
     @property
     def db_read_only(self) -> bool:
