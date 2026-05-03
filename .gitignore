@@ -50,6 +50,8 @@ data/
 # C. Environment & Secrets
 .env
 .env.*
+*.pem
+*.key
 apikey.txt
 id_rsa
 node_modules/
@@ -63,3 +65,6 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Projects & Private Data
+Intrinsic Value/
