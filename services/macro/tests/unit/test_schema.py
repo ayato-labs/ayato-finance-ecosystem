@@ -15,7 +15,7 @@ def test_enforce_schema_from_series():
     assert result["Source"][0] == "fred"
 
 def test_enforce_schema_invalid_value():
-    """不正な数値（文字列など）がNaNに変換されるか（厳しいテスト）"""
+    """不正な数値(文字列など)がNaNに変換されるか(厳しいテスト)"""
     df = pd.DataFrame({
         "Date": ["2024-01-01"],
         "Value": ["invalid_rate"]
@@ -26,7 +26,7 @@ def test_enforce_schema_invalid_value():
     assert result["Value"].dtype == np.float64
 
 def test_enforce_schema_date_normalization():
-    """日付が正規化（時刻除去）されるか"""
+    """日付が正規化(時刻除去)されるか"""
     df = pd.DataFrame({
         "Date": [pd.Timestamp("2024-01-01 15:30:00")],
         "Value": [1.23]

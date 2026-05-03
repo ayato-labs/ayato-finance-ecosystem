@@ -112,7 +112,7 @@ def main():
         )
         return
 
-    # 取得ソースの初期化（yfinance専用だが、プラグイン構造でDI）
+    # 取得ソースの初期化(yfinance専用だが、プラグイン構造でDI)
     fetcher = YFinanceFetcher()
     engine = MarketDataEngine(fetcher=fetcher)
 

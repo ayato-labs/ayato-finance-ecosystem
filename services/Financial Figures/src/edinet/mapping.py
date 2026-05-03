@@ -50,7 +50,7 @@ class EDINETMapper:
             df = pd.read_csv(csv_path, encoding="cp932", skiprows=1)
 
             required_cols = {
-                "ＥＤＩＮＥＴコード": "edinet_code",
+                "EDINETコード": "edinet_code",
                 "証券コード": "ticker",
                 "提出者名": "company_name",
                 "提出者種別": "submitter_type",

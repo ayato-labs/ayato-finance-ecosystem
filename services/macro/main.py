@@ -4,7 +4,7 @@ import uvicorn
 from loguru import logger
 from dotenv import load_dotenv
 
-# .env ファイルの読み込み（インポートより前に行う）
+# .env ファイルの読み込み(インポートより前に行う)
 load_dotenv()
 
 from src.api.app import app, engine, fetcher

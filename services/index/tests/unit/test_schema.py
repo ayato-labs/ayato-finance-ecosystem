@@ -22,7 +22,7 @@ def test_enforce_schema_normal():
     assert isinstance(result["Date"][0], pd.Timestamp)
 
 def test_enforce_schema_missing_columns():
-    """カラムが欠損している場合に補完されるか（厳しいテスト）"""
+    """カラムが欠損している場合に補完されるか(厳しいテスト)"""
     df = pd.DataFrame({
         "Date": ["2024-01-01"],
         "Close": [105.0]
@@ -35,7 +35,7 @@ def test_enforce_schema_missing_columns():
     assert result["Volume"][0] == 0
 
 def test_enforce_schema_invalid_types():
-    """不正なデータ型が強制的に変換されるか（厳しいテスト）"""
+    """不正なデータ型が強制的に変換されるか(厳しいテスト)"""
     df = pd.DataFrame({
         "Date": ["2024-01-01"],
         "Open": ["invalid"], # 文字列が混入

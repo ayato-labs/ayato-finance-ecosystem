@@ -57,7 +57,7 @@ def test_user_transaction_lifecycle():
     assert response.status_code == 200
     assert any(tx["id"] == tx_id for tx in response.json())
 
-    # 3. ダッシュボード（ポートフォリオ）の取得 (GET)
+    # 3. ダッシュボード(ポートフォリオ)の取得 (GET)
     response = client.get("/portfolio")
     assert response.status_code == 200
     data = response.json()
