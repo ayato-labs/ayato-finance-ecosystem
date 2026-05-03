@@ -233,11 +233,11 @@ class EDINETSyncWorker:
         if "有価証券報告書" in doc_desc:
             fiscal_period = "FY"
         elif "四半期報告書" in doc_desc:
-            if "第１四半期" in doc_desc:
+            if "第1四半期" in doc_desc:
                 fiscal_period = "Q1"
-            elif "第２四半期" in doc_desc:
+            elif "第2四半期" in doc_desc:
                 fiscal_period = "Q2"
-            elif "第３四半期" in doc_desc:
+            elif "第3四半期" in doc_desc:
                 fiscal_period = "Q3"
             else:
                 fiscal_period = "Q"

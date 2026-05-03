@@ -1,21 +1,20 @@
-"""\"\"\"
+"""
 Daily Stock Price DB - Gold Standard Logic Assets
 This file contains the core logic components refined during the hardening mission.
 Intended for reuse in cross-system integrations (e.g., Intrinsic Value Engine).
-\"\"\"
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from pathlib import Path
 
 # --- Component 1: Precision Schema Enforcement ---
 def enforce_high_precision_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
-    \"\"\"
+    """
     Enforces float32/int64 schema for financial auditability and overflow safety.
-    \"\"\"
-    if df.empty: return pd.DataFrame()
+    """
+    if df.empty:
+        return pd.DataFrame()
     df = df.copy()
     if "Date" not in df.columns and df.index.name == "Date":
         df = df.reset_index()
@@ -37,11 +36,11 @@ def enforce_high_precision_schema(df: pd.DataFrame, ticker: str, source: str) ->
 
 # --- Component 2: Smart Deduplication SQL ---
 def generate_smart_dedupe_sql(ticker: str, parquet_paths: list[str]) -> str:
-    \"\"\"
+    """
     Generates DuckDB SQL that prioritizes the latest sync data per date.
-    \"\"\"
+    """
     paths_list = [str(p).replace("\\", "/") for p in parquet_paths]
-    return f\"\"\"
+    return f"""
     SELECT * EXCLUDE (row_num)
     FROM (
         SELECT *,
@@ -51,19 +50,19 @@ def generate_smart_dedupe_sql(ticker: str, parquet_paths: list[str]) -> str:
     )
     WHERE row_num = 1
     ORDER BY Date ASC
-    \"\"\".strip()
+    """.strip()
 
 # --- Component 3: Catalog Path Pruning ---
 class CatalogPruner:
-    \"\"\"
+    """
     Logic for mapping Tickers to specific Parquet partitions using SQLite.
-    \"\"\"
+    """
     def __init__(self, sqlite_conn):
         self.conn = sqlite_conn
         
     def resolve_paths(self, ticker: str, data_type: str = "price"):
         res = self.conn.execute(
-            \"SELECT file_path FROM ticker_index WHERE ticker = ? AND data_type = ?\",
+            "SELECT file_path FROM ticker_index WHERE ticker = ? AND data_type = ?",
             (ticker, data_type)
         ).fetchall()
         return [r[0] for r in res]
