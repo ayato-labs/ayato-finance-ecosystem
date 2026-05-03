@@ -7,7 +7,6 @@ from pathlib import Path
 import requests
 from loguru import logger
 
-from src.analyzer import EdgarAnalyzer
 from src.edgar_fetcher import EdgarFetcher
 from src.edgar_parser import EdgarParser
 from src.storage import FinancialNarrativeStorage
@@ -15,7 +14,7 @@ from src.storage import FinancialNarrativeStorage
 USER_AGENT = "SampleAgent yourname@example.com"
 TICKERS = ["AAPL", "NVDA", "GOOGL", "AMZN", "META"]
 
-async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
+async def batch_fetch(tickers: list[str] = None):
     if tickers is None:
         tickers = TICKERS
         
@@ -77,28 +76,7 @@ async def batch_fetch(tickers: list[str] = None, run_analysis: bool = False):
                     logger.warning(f"No sections extracted for {ticker}")
                     continue
 
-            # 5. 分析の実行(オプション)
-            # ファイルが存在していても、分析がまだなら実行する
-            if run_analysis:
-                # すでに分析済みかチェック
-                existing_analysis = storage.get_analysis_by_ticker(ticker)
-                if not existing_analysis:
-                    api_key = os.environ.get("GOOGLE_API_KEY")
-                    if api_key:
-                        # DBからセクションを再取得(保存直後、または以前保存されたもの)
-                        rows = storage.get_filings_by_ticker(ticker)
-                        if rows:
-                            latest_row = rows[0]
-                            sections = json.loads(latest_row[3])
-                            
-                            analyzer = EdgarAnalyzer(api_key=api_key)
-                            analysis = await analyzer.analyze_narratives(sections)
-                            if analysis:
-                                storage.save_analysis(acc_no, ticker, analysis)
-                    else:
-                        logger.warning("GOOGLE_API_KEY not set, skipping analysis.")
-                else:
-                    logger.info(f"Analysis already exists for {ticker}. Skipping.")
+
 
             # SECレート制限(10 req/sec)を守るため待機
             time.sleep(0.5)
