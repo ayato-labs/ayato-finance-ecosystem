@@ -132,7 +132,7 @@ class BenchmarkCalculator:
         forex_rates: dict[str, float] | None = None,
     ) -> tuple[float, float, float]:
         """
-        与えられたトランザクションと同じタイミング・同じ金額（USDベース）で
+        与えられたトランザクションと同じタイミング・同じ金額(USDベース)で
         ベンチマークを購入したと仮定した場合のパフォーマンスを計算する。
         returns: (total_bench_cost_usd, total_bench_market_value_usd, total_bench_units)
         """
@@ -141,7 +141,7 @@ class BenchmarkCalculator:
         total_units = 0.0
         total_cost_usd = 0.0
 
-        # フィルタリング（特定銘柄のみの比較用）
+        # フィルタリング(特定銘柄のみの比較用)
         filtered_txs = [
             tx
             for tx in transactions
@@ -162,7 +162,7 @@ class BenchmarkCalculator:
                         break
 
             if bench_price and bench_price > 0:
-                # 当時の投資額（USDベースに変換）
+                # 当時の投資額(USDベースに変換)
                 rate = forex_rates.get(tx.currency, 1.0) if forex_rates else 1.0
                 inv_usd = tx.quantity * tx.price * rate
                 total_units += inv_usd / bench_price
@@ -185,7 +185,7 @@ class BenchmarkCalculator:
     ) -> dict[str, float]:
         """
         ポートフォリオとベンチマークの比較指標を計算する。
-        Geometric Alpha（幾何学的な乖離）を主眼に置く。
+        Geometric Alpha(幾何学的な乖離)を主眼に置く。
         """
         # Arithmetic Returns (単純利益率)
         p_return = (

@@ -37,7 +37,7 @@ def test_sync_integration_success(mock_download, integration_setup):
 
 @patch("yfinance.download")
 def test_sync_integration_empty_response(mock_download, integration_setup):
-    """外部APIが空を返した場合に不整合が起きないか（厳しいテスト）"""
+    """外部APIが空を返した場合に不整合が起きないか(厳しいテスト)"""
     fetcher, engine = integration_setup
     mock_download.return_value = pd.DataFrame() # 空
     
@@ -50,7 +50,7 @@ def test_sync_integration_empty_response(mock_download, integration_setup):
 
 @patch("yfinance.download")
 def test_sync_integration_api_error(mock_download, integration_setup):
-    """外部APIが例外を投げた場合の堅牢性（厳しいテスト）"""
+    """外部APIが例外を投げた場合の堅牢性(厳しいテスト)"""
     fetcher, engine = integration_setup
     mock_download.side_effect = Exception("Network Error")
     

@@ -82,7 +82,7 @@ class EdgarParser:
             key = defn["key"]
             pattern = defn["start"]
             for i, line in enumerate(lines):
-                # 目次内のリンクを避ける（リンクがない、かつパターンにマッチ、かつ行が長すぎない）
+                # 目次内のリンクを避ける(リンクがない、かつパターンにマッチ、かつ行が長すぎない)
                 if pattern.search(line) and len(line) < 250 and not re.search(r'\[.*\]\(#.*\)', line):
                     indices[key] = i
                     break

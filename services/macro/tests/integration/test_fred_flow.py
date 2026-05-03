@@ -18,7 +18,7 @@ def test_fred_integration_flow(mock_get_series, macro_setup):
     fetcher, engine = macro_setup
     symbol = "DFF"
     
-    # FREDのレスポンス（Series）をモック
+    # FREDのレスポンス(Series)をモック
     mock_series = pd.Series([5.33], index=pd.to_datetime(["2024-04-20"]), name="Value")
     mock_get_series.return_value = mock_series
     

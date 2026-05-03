@@ -55,7 +55,7 @@ class EDINETParser:
                     unit = row[unit_idx].strip() if unit_idx < len(row) else ""
                     raw_value = row[val_idx].strip()
 
-                    if not raw_value or raw_value in ["-", "－"]:
+                    if not raw_value or raw_value in ["-", "-"]:
                         continue
 
                     # Numeric cleaning

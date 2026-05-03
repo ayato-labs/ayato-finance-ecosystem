@@ -48,7 +48,7 @@ def test_backfill_minimal_end_to_end(tmp_path):
     with open(csv_path, "w", encoding="cp932") as f:
         f.write("Header\n")
         f.write(
-            "ＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名（英）,提出者名（ヨミ）,住所,業種,証券コード,法人番号\n"
+            "ＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名(英),提出者名(ヨミ),住所,業種,証券コード,法人番号\n"
         )
         f.write(
             "E02144,法人,あり,上場,連結,635401,トヨタ自動車,TOYOTA,トヨタ,愛知,輸送用機器,72030,0\n"
@@ -74,7 +74,7 @@ def test_backfill_flow_simulated(tmp_path, mocker):
     # Setup mock master CSV
     with open(csv_path, "w", encoding="cp932") as f:
         f.write(
-            "H\nＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名（英）,提出者名（ヨミ）,住所,業種,証券コード,法人番号\n"
+            "H\nＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名(英),提出者名(ヨミ),住所,業種,証券コード,法人番号\n"
         )
         f.write("E001,法人,あり,上場,連結,100,TestCo,T,T,T,T,12340,0\n")
 
@@ -129,7 +129,7 @@ def test_historical_backfill_flow_full(tmp_path, mocker):
 
     with open(csv_path, "w", encoding="cp932") as f:
         f.write(
-            "H\nＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名（英）,提出者名（ヨミ）,住所,業種,証券コード,法人番号\n"
+            "H\nＥＤＩＮＥＴコード,提出者種別,発行者,上場区分,連結・単体,資本金,提出者名,提出者名(英),提出者名(ヨミ),住所,業種,証券コード,法人番号\n"
         )
         f.write("E001,法人,あり,上場,連結,100,TestCo,T,T,T,T,12340,0\n")
 

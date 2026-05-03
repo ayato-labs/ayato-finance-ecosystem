@@ -27,7 +27,7 @@ def test_engine_save_and_load(temp_engine):
     assert prices[0]["Ticker"] == "TEST"
 
 def test_engine_deduplication(temp_engine):
-    """重複データの排除ロジック（厳しいテスト）"""
+    """重複データの排除ロジック(厳しいテスト)"""
     # 1回目の保存
     df1 = pd.DataFrame({
         "Date": [pd.Timestamp("2024-01-01")],
@@ -36,7 +36,7 @@ def test_engine_deduplication(temp_engine):
     df1 = enforce_schema(df1, "TEST", "src1")
     temp_engine.save_data("TEST", df1)
     
-    # 2回目の保存（同じ日付だが価格が違う + Timestampが新しいはず）
+    # 2回目の保存(同じ日付だが価格が違う + Timestampが新しいはず)
     df2 = pd.DataFrame({
         "Date": [pd.Timestamp("2024-01-01")],
         "Open": [100.0], "High": [110.0], "Low": [90.0], "Close": [105.0], "Volume": [2000]
@@ -48,7 +48,7 @@ def test_engine_deduplication(temp_engine):
     
     # 2件保存されているが、取得結果は1件だけであるべき
     assert len(prices) == 1
-    # 最新の保存データ（Close=105.0）が優先されているべき
+    # 最新の保存データ(Close=105.0)が優先されているべき
     assert prices[0]["Close"] == 105.0
 
 def test_engine_special_ticker_naming(temp_engine):

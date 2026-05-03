@@ -18,13 +18,13 @@ def test_engine_save_and_latest_date(temp_engine):
     assert temp_engine.get_latest_date(symbol) == pd.Timestamp("2024-01-01")
 
 def test_engine_deduplication_latest_wins(temp_engine):
-    """重複した日付の場合、最新のLoadTimestampが勝つか（厳しいテスト）"""
+    """重複した日付の場合、最新のLoadTimestampが勝つか(厳しいテスト)"""
     symbol = "DGS10"
-    # 1回目の取得（古い）
+    # 1回目の取得(古い)
     df1 = enforce_schema(pd.DataFrame({"Date": ["2024-01-01"], "Value": [4.0]}), symbol, "fred")
     temp_engine.save_data(symbol, df1)
     
-    # 2回目の取得（新しい修正値）
+    # 2回目の取得(新しい修正値)
     df2 = enforce_schema(pd.DataFrame({"Date": ["2024-01-01"], "Value": [4.1]}), symbol, "fred")
     temp_engine.save_data(symbol, df2)
     

@@ -11,7 +11,7 @@ def test_system_e2e_flow(mocker, temp_db_path, sample_html, mock_filing_metadata
     mocker.patch("src.batch_fetch.FinancialNarrativeStorage", return_value=FinancialNarrativeStorage(temp_db_path))
     mocker.patch("src.batch_fetch.TICKERS", ["AAPL"])
     
-    # ネットワーク通信のみモック化（SECへの負荷防止）
+    # ネットワーク通信のみモック化(SECへの負荷防止)
     mock_fetcher = mocker.patch("src.batch_fetch.EdgarFetcher")
     mock_fetcher.return_value.get_latest_submissions.return_value = {"filings": {"recent": {}}}
     mock_fetcher.return_value.filter_relevant_filings.return_value = [mock_filing_metadata]
