@@ -47,7 +47,8 @@ def test_full_pipeline_integration(integration_env):
             s.DB_PATH_JP = integration_env["jp"]
             s.DATA_DIR = integration_env["data_dir"]
             s.db_read_only = False
-
+            s.DUCKDB_MEMORY_LIMIT = "1GB"
+            s.DUCKDB_THREADS = 1
         mock_us_client = mock_httpx_cls.return_value
         mock_us_client.get.return_value = MagicMock(
             status_code=200,

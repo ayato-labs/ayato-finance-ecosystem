@@ -1,6 +1,5 @@
 import logging
-
-import duckdb
+from src.core.db import db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +29,12 @@ if __name__ == "__main__":
     # Test
     logging.basicConfig(level=logging.INFO)
     price_path = "C:/Users/saiha/My_Service/programing/finance/daily_stock_price/data/market_data/year=2026/month=04/*.parquet"
-    conn = duckdb.connect(":memory:")
-    try:
-        conn.execute(get_safe_price_view_sql(price_path))
-        logger.info("Safe View Created. Testing column selection...")
-        logger.info(
-            f"\n{conn.execute('SELECT ticker, date, close FROM v_safe_prices LIMIT 1').df()}"
-        )
-    except Exception as e:
-        logger.error(f"Price resolver test failed: {e}")
+    with db_manager.connect(":memory:") as conn:
+        try:
+            conn.execute(get_safe_price_view_sql(price_path))
+            logger.info("Safe View Created. Testing column selection...")
+            logger.info(
+                f"\n{conn.execute('SELECT ticker, date, close FROM v_safe_prices LIMIT 1').df()}"
+            )
+        except Exception as e:
+            logger.error(f"Price resolver test failed: {e}")

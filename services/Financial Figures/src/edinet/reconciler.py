@@ -10,6 +10,8 @@ class EDINETReconciler:
     Priority: Accuracy and Auditability.
     """
 
+    RATIO_TOLERANCE = 0.1
+
     def __init__(self, tolerance: float = 1000.0):
         # Allowable margin of error for rounding differences.
         # Default 1000 Yen (extremely strict for financial data).
@@ -29,18 +31,27 @@ class EDINETReconciler:
             return {
                 "strategy": "KEEP_EDINET",
                 "merged_val": val_edinet,
-                "reasoning": f"Values are nearly identical (diff={diff} <= {self.tolerance}). Trusting EDINET statutory filing.",
+                "reasoning": (
+                    f"Values are nearly identical (diff={diff} <= {self.tolerance}). "
+                    "Trusting EDINET statutory filing."
+                ),
             }
 
         # Rule 2: Unit mismatch detection (1000x or 1,000,000x)
         if val_edinet != 0:
             ratio = val_jquants / val_edinet
-            if abs(ratio - 1000) < 0.1 or abs(ratio - 1000000) < 0.1:
+            if (
+                abs(ratio - 1000) < self.RATIO_TOLERANCE
+                or abs(ratio - 1000000) < self.RATIO_TOLERANCE
+            ):
                 logger.warning(f"[RECON] Unit mismatch detected for {label}: Ratio={ratio}")
                 return {
                     "strategy": "UNIT_SCALED_EDINET",
                     "merged_val": val_jquants,
-                    "reasoning": f"Detected {ratio:.0f}x scale difference. Using J-Quants scaled value.",
+                    "reasoning": (
+                        f"Detected {ratio:.0f}x scale difference. "
+                        "Using J-Quants scaled value."
+                    ),
                 }
 
         # Rule 3: Significant mismatch

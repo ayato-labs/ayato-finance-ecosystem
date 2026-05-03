@@ -246,17 +246,17 @@ class EDINETSyncWorker:
 
     def _has_jquants_data(self, ticker: str, submission_date: str) -> bool:
         """Checks if J-Quants DB already has entries for this ticker and date."""
+        from src.core.db import db_manager
         if not settings.DB_PATH_JP.exists():
             return False
         try:
-            conn = duckdb.connect(str(settings.DB_PATH_JP), read_only=True)
-            # Use disclosed_date to match submissionPeriod
-            res = conn.execute(
-                "SELECT count(*) FROM company_facts WHERE code = ? AND disclosed_date = ?",
-                (ticker, submission_date),
-            ).fetchone()
-            conn.close()
-            return res[0] > 0 if res else False
+            with db_manager.connect(settings.DB_PATH_JP, read_only=True) as conn:
+                # Use disclosed_date to match submissionPeriod
+                res = conn.execute(
+                    "SELECT count(*) FROM company_facts WHERE code = ? AND disclosed_date = ?",
+                    (ticker, submission_date),
+                ).fetchone()
+                return res[0] > 0 if res else False
         except Exception as e:
             logger.debug(f"Failed to check J-Quants DB: {e}")
             return False
