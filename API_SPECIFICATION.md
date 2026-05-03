@@ -13,12 +13,13 @@ This document provides a comprehensive overview of the APIs within the Ayato Fin
 | **Macro Economic API** | 5010 | `http://localhost:5010` | Treasury yields, Fed Funds rates |
 | **Forex API** | 5011 | `http://localhost:5011` | Real-time & historical exchange rates |
 | **Crypto Price API** | 5012 | `http://localhost:5012` | Cryptocurrency OHLCV & Metadata |
-| **Narratives API** | 5013 | `http://localhost:5013` | SEC qualitative data & AI analysis |
+| **Narratives API** | 5013 | `http://localhost:5013` | SEC qualitative data extraction (MD&A, Risks) |
 
 ---
 
 ## 1. Stock Price API (5005)
 High-performance market data access leveraging DuckDB and Parquet.
+**[Data Contract: `DailyPriceRecord`]**
 
 ### Endpoints
 - **`GET /status`**
@@ -37,6 +38,7 @@ High-performance market data access leveraging DuckDB and Parquet.
 
 ## 2. Financial Figures API (5006)
 Standardized financial database for US (SEC) and JP (EDINET) companies.
+**[Data Contract: `FinancialFiguresRecord`]**
 
 ### Endpoints
 - **`GET /tickers`**
@@ -86,6 +88,7 @@ Dedicated service for tracking global benchmarks.
 
 ## 5. Macro Economic API (5010)
 Tracks critical economic indicators from FRED.
+**[Data Contract: `MacroIndicatorRecord`]**
 
 ### Endpoints
 - **`GET /indicators/{symbol}`**
@@ -119,17 +122,13 @@ Cryptocurrency market data and metadata.
 ---
 
 ## 8. Financial Narratives API (5013)
-SEC Qualitative data (MD&A, Risk Factors) with AI-powered analysis.
+SEC Qualitative data (MD&A, Risk Factors) extraction service.
 
 ### Endpoints
 - **`GET /narratives/{ticker}`**
   - Retrieves raw extracted sections from SEC filings.
-- **`GET /narratives/{ticker}/analysis`**
-  - Retrieves AI summaries (Capex, R&D, Sentiment).
-- **`POST /analyze/{ticker}`**
-  - Triggers Gemini-powered analysis of the latest filings.
 - **`POST /sync/{ticker}`**
-  - Downloads latest SEC filings.
+  - Downloads latest SEC filings and parses them for qualitative sections.
 
 ---
 
