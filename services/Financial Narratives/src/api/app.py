@@ -4,8 +4,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from src.analyzer import EdgarAnalyzer
-from src.api.models import AnalysisRecord, FilingRecord, StatsResponse
+from src.api.models import FilingRecord, StatsResponse
 from src.batch_fetch import batch_fetch
 from src.logging_utils import setup_logging
 from src.storage import FinancialNarrativeStorage
@@ -71,60 +70,6 @@ def get_narratives(ticker: str, storage: FinancialNarrativeStorage = Depends(get
     except Exception as e:
         logger.error(f"Failed to get narratives for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/narratives/{ticker}/analysis", response_model=list[AnalysisRecord])
-def get_narrative_analysis(ticker: str, storage: FinancialNarrativeStorage = Depends(get_storage)):
-    """特定銘柄の分析結果を取得"""
-    try:
-        rows = storage.get_analysis_by_ticker(ticker)
-        results = []
-        for r in rows:
-            results.append(AnalysisRecord(
-                accession_number=r[0],
-                ticker=r[1],
-                capex_summary=r[2],
-                rd_summary=r[3],
-                governance_summary=r[4],
-                key_quotes=json.loads(r[5]),
-                sentiment_score=r[6],
-                analyzed_at=r[7]
-            ))
-        return results
-    except Exception as e:
-        logger.error(f"Failed to get analysis for {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def run_analysis_task(ticker: str):
-    """バックグラウンドで分析を実行"""
-    storage = FinancialNarrativeStorage()
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        logger.error("GOOGLE_API_KEY not set, cannot run analysis.")
-        return
-
-    analyzer = EdgarAnalyzer(api_key=api_key)
-    filings = storage.get_filings_by_ticker(ticker)
-    
-    if not filings:
-        logger.warning(f"No filings found for {ticker} to analyze.")
-        return
-
-    # 最新の書類を分析
-    latest = filings[0]
-    acc_no = json.loads(latest[4]).get("accessionNumber")
-    sections = json.loads(latest[3])
-    
-    analysis = await analyzer.analyze_narratives(sections)
-    if analysis:
-        storage.save_analysis(acc_no, ticker, analysis)
-        logger.success(f"Analysis completed and saved for {ticker} ({acc_no})")
-
-@app.post("/analyze/{ticker}")
-def trigger_analysis(ticker: str, background_tasks: BackgroundTasks):
-    """特定銘柄の分析をバックグラウンドで開始"""
-    logger.info(f"Triggering narrative analysis for {ticker} via API")
-    background_tasks.add_task(run_analysis_task, ticker.upper())
-    return {"message": f"Analysis started for {ticker}", "status": "processing"}
 
 @app.post("/sync/{ticker}")
 def trigger_sync(ticker: str, background_tasks: BackgroundTasks):

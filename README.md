@@ -21,10 +21,10 @@ This is a **Monorepo** of decoupled services. For detailed design decisions and 
 
 ### Modules:
 - **[Asset Management App](./asset%20management%20App)**: Dashboard for real-time risk analysis.
-- **[Daily Stock Price](./daily_stock_price)**: Historical and daily OHLCV ingestion.
-- **[Financial Figures](./Financial%20Figures)**: Statutory reporting (XBRL) tracking.
-- **[Market Index API](./index)**: Benchmarks (S&P 500, Nikkei 225).
-- **[Macro Economic API](./macro)**: Treasury yields, Fed rates, etc.
+- **[Daily Stock Price](./services/daily_stock_price)**: Historical and daily OHLCV ingestion.
+- **[Financial Figures](./services/Financial%20Figures)**: Statutory reporting (XBRL) tracking.
+- **[Market Index API](./services/index)**: Benchmarks (S&P 500, Nikkei 225).
+- **[Macro Economic API](./services/macro)**: Treasury yields, Fed rates, etc.
 
 ## 🚀 Getting Started
 
