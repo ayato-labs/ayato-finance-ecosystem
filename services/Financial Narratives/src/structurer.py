@@ -2,9 +2,15 @@ import json
 from google import genai
 from google.genai import types
 from loguru import logger
+from src.config import LLM_MODEL_NAME
 
 
 class FilingStructurer:
+    """
+    抽出されたセクション（Markdown）から特定の事実項目を構造化抽出するクラス。
+    解釈や分析は行わず、テキストに含まれる事実の特定に特化する。
+    """
+
     SYSTEM_PROMPT = """
 あなたは高度な金融データエンジニアです。提供された企業の開示資料（定性情報）から、以下の項目について「事実」のみを構造化抽出してください。
 主観的な解釈や感情的な分析は一切含めないでください。
@@ -25,9 +31,13 @@ class FilingStructurer:
 
     def __init__(self, api_key: str):
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = LLM_MODEL_NAME
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
+        """
+        セクションデータから事実を構造化抽出する
+        """
+        # 抽出対象のテキストを結合
         combined_text = ""
         for key, text in sections.items():
             if text:
@@ -40,6 +50,7 @@ class FilingStructurer:
         prompt = f"以下の開示資料から事実を抽出してください:\n\n{combined_text}"
 
         try:
+            # flashモデルを使用して高速かつ低コストに抽出
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
