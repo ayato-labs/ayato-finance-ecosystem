@@ -1,8 +1,8 @@
 import os
 
 # LLM Configuration
-# デフォルトで Gemini 2.0 Flash を使用。環境変数で上書き可能。
-LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-2.0-flash")
+# 優先順位順に使用するモデルのリスト。最初のモデルが失敗した場合、次を試行する。
+GOOGLE_AI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 
 # API Configuration
 USER_AGENT = os.environ.get("USER_AGENT", "FinancialNarrativesAgent/1.0 (contact: ayato-labs)")

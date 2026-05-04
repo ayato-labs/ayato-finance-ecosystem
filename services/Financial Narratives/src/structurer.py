@@ -2,7 +2,7 @@ import json
 from google import genai
 from google.genai import types
 from loguru import logger
-from src.config import LLM_MODEL_NAME
+from src.config import GOOGLE_AI_MODELS
 
 
 class FilingStructurer:
@@ -31,7 +31,7 @@ class FilingStructurer:
 
     def __init__(self, api_key: str):
         self.client = genai.Client(api_key=api_key)
-        self.model_name = LLM_MODEL_NAME
+        self.models = GOOGLE_AI_MODELS
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
         """
@@ -49,24 +49,26 @@ class FilingStructurer:
 
         prompt = f"以下の開示資料から事実を抽出してください:\n\n{combined_text}"
 
-        try:
-            # flashモデルを使用して高速かつ低コストに抽出
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=self.SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                ),
-            )
+        for model_name in self.models:
+            try:
+                logger.info(f"Attempting extraction with model: {model_name}")
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                    ),
+                )
 
-            if response.text:
-                structured_data = json.loads(response.text)
-                logger.info("Successfully extracted structured facts using Gemini.")
-                return structured_data
-            
-            return {}
+                if response.text:
+                    structured_data = json.loads(response.text)
+                    logger.info(f"Successfully extracted structured facts using {model_name}.")
+                    return structured_data
 
-        except Exception as e:
-            logger.error(f"Failed to extract facts using Gemini: {e}")
-            return {}
+            except Exception as e:
+                logger.warning(f"Model {model_name} failed: {e}")
+                continue
+
+        logger.error("All models failed for extraction.")
+        return {}
