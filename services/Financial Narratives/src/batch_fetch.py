@@ -121,98 +121,104 @@ async def sync_recent_us_filings(fetcher, parser, storage, run_structuring=False
 
 async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False):
     """Process SEC EDGAR for US tickers."""
-    # 1. 提出書類リスト取得
-    subs = fetcher.get_latest_submissions(ticker)
-    if not subs:
-        return
+    try:
+        # 1. 提出書類リスト取得
+        subs = fetcher.get_latest_submissions(ticker)
+        if not subs:
+            return
 
-    # 2. 最新10-K特定
-    filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K", "10-Q"])
-    if not filings:
-        return
+        # 2. 最新10-K特定
+        filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K", "10-Q"])
+        if not filings:
+            return
 
-    latest = filings[0]
-    acc_no = latest["accessionNumber"]
+        latest = filings[0]
+        acc_no = latest["accessionNumber"]
 
-    if storage.filing_exists(acc_no):
-        return
+        if storage.filing_exists(acc_no):
+            return
 
-    cik = fetcher.get_cik(ticker).lstrip("0")
-    acc_no_clean = acc_no.replace("-", "")
-    doc = latest["primaryDocument"]
-    url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
+        cik = fetcher.get_cik(ticker).lstrip("0")
+        acc_no_clean = acc_no.replace("-", "")
+        doc = latest["primaryDocument"]
+        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
 
-    # 3. ダウンロード
-    logger.info(f"Downloading US filing: {ticker} ({acc_no})")
-    resp = requests.get(url, headers={"User-Agent": USER_AGENT})
-    time.sleep(0.1)
+        # 3. ダウンロード
+        logger.info(f"Downloading US filing: {ticker} ({acc_no})")
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT})
+        time.sleep(0.1)
 
-    if resp.status_code != 200:
-        return
+        if resp.status_code != 200:
+            return
 
-    # 4. パース
-    sections = parser.extract_all_sections(resp.text, latest["form"])
-    if sections:
-        filing_metadata = latest.copy()
-        filing_metadata["ticker"] = ticker
-        filing_metadata["cik"] = cik
-        storage.save_filing(filing_metadata, sections)
-        if run_structuring:
-            await run_structuring_for_filing(ticker, acc_no, sections, storage)
+        # 4. パース
+        sections = parser.extract_all_sections(resp.text, latest["form"])
+        if sections:
+            filing_metadata = latest.copy()
+            filing_metadata["ticker"] = ticker
+            filing_metadata["cik"] = cik
+            storage.save_filing(filing_metadata, sections)
+            if run_structuring:
+                await run_structuring_for_filing(ticker, acc_no, sections, storage)
 
-    # RAM使用効率向上
-    del resp
-    gc.collect()
-    log_memory_usage(f"US Process: {ticker}")
-    time.sleep(0.5)
+        # RAM使用効率向上
+        del resp
+        gc.collect()
+        log_memory_usage(f"US Process: {ticker}")
+        time.sleep(0.5)
+    except Exception as e:
+        logger.error(f"Failed to process US ticker {ticker}: {e}")
 
 
 async def process_jp_ticker(ticker, fetcher, parser, storage, run_structuring=False):
     """Process EDINET for JP tickers (On-demand)."""
-    edinet_code = fetcher.get_edinet_code(ticker)
-    if not edinet_code:
-        logger.warning(f"EDINET Code not found for ticker {ticker}")
-        return
+    try:
+        edinet_code = fetcher.get_edinet_code(ticker)
+        if not edinet_code:
+            logger.warning(f"EDINET Code not found for ticker {ticker}")
+            return
 
-    today = date.today()
-    found_doc = None
-    # 過去1年分を遡って最新の有報を探す
-    for i in range(365):
-        target_date = today - timedelta(days=i)
-        docs = fetcher.list_documents(target_date)
-        for doc in docs:
-            if doc.get("edinetCode") == edinet_code and doc.get("docTypeCode") == "120":
-                found_doc = doc
+        today = date.today()
+        found_doc = None
+        # 過去1年分を遡って最新の有報を探す
+        for i in range(365):
+            target_date = today - timedelta(days=i)
+            docs = fetcher.list_documents(target_date)
+            for doc in docs:
+                if doc.get("edinetCode") == edinet_code and doc.get("docTypeCode") == "120":
+                    found_doc = doc
+                    break
+            if found_doc:
                 break
-        if found_doc:
-            break
 
-    if not found_doc:
-        logger.warning(f"No recent Yuho found for {ticker}")
-        return
+        if not found_doc:
+            logger.warning(f"No recent Yuho found for {ticker}")
+            return
 
-    doc_id = found_doc["docID"]
-    if storage.filing_exists(doc_id):
-        logger.info(f"Filing {doc_id} already exists in DB.")
-        return
+        doc_id = found_doc["docID"]
+        if storage.filing_exists(doc_id):
+            logger.info(f"Filing {doc_id} already exists in DB.")
+            return
 
-    zip_bytes = fetcher.download_document(doc_id, doc_type=1)
-    if zip_bytes:
-        sections = parser.parse_zip(zip_bytes)
-        if sections:
-            metadata = {
-                "accessionNumber": doc_id,
-                "ticker": ticker,
-                "cik": edinet_code,
-                "form": "120",
-                "filingDate": found_doc.get("filingDate"),
-                "filerName": found_doc.get("filerName"),
-            }
-            storage.save_filing(metadata, sections)
-            if run_structuring:
-                await run_structuring_for_filing(ticker, doc_id, sections, storage)
+        zip_bytes = fetcher.download_document(doc_id, doc_type=1)
+        if zip_bytes:
+            sections = parser.parse_zip(zip_bytes)
+            if sections:
+                metadata = {
+                    "accessionNumber": doc_id,
+                    "ticker": ticker,
+                    "cik": edinet_code,
+                    "form": "120",
+                    "filingDate": found_doc.get("filingDate"),
+                    "filerName": found_doc.get("filerName"),
+                }
+                storage.save_filing(metadata, sections)
+                if run_structuring:
+                    await run_structuring_for_filing(ticker, doc_id, sections, storage)
 
-    time.sleep(0.5)
+        time.sleep(0.5)
+    except Exception as e:
+        logger.error(f"Failed to process JP ticker {ticker}: {e}")
 
 
 async def run_structuring_for_filing(ticker, acc_no, sections, storage):
