@@ -19,12 +19,15 @@ from src.storage import FinancialNarrativeStorage
 TICKERS = ["AAPL", "NVDA", "7203", "9984"]
 
 
-async def batch_fetch(tickers: list[str] | None = None, run_structuring: bool = False):
+async def batch_fetch(
+    tickers: list[str] | None = None, run_structuring: bool = False, days: int = 7
+):
     """
     日米市場の定性データを一括取得・構造化保存する。
 
     tickers が指定された場合: 指定銘柄をオンデマンドで取得。
-    tickers が None の場合: EDINET/SECの最新開示を監視し、全上場企業を対象に差分同期。
+    tickers が None の場合: 指定された日数分遡って全件同期。
+    days: 遡る日数。
     run_structuring が True の場合: 取得後にAIによる構造化抽出を実行。
     """
     storage = FinancialNarrativeStorage()
@@ -32,7 +35,6 @@ async def batch_fetch(tickers: list[str] | None = None, run_structuring: bool = 
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
     edinet_parser = EdinetParser()
-    # structurer is initialized lazily in run_structuring_for_filing
 
     if tickers:
         # 1. 特定銘柄のオンデマンド処理
@@ -46,49 +48,45 @@ async def batch_fetch(tickers: list[str] | None = None, run_structuring: bool = 
                     )
                 else:
                     await process_us_ticker(
-                        ticker, edgar_fetcher, edgar_parser, storage, run_structuring
+                        ticker, edgar_fetcher, edgar_parser, storage, run_structuring, days=3650
                     )
 
-                # RAM使用効率向上
                 gc.collect()
-                log_memory_usage(f"On-demand: {ticker}")
             except Exception as e:
                 logger.error(f"Error processing {ticker}: {e}")
     else:
-        # 2. 最新開示ベースの自動同期 (全上場企業対象)
-        logger.info("=== Starting Automated Sync for All Listed Companies ===")
+        # 2. 自動同期 (全上場企業対象)
+        logger.info(f"=== Starting Automated Sync (Lookback: {days} days) ===")
+        # 日本市場
         await sync_recent_jp_filings(
-            edinet_fetcher, edinet_parser, storage, run_structuring=run_structuring
+            edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
         )
+        # 米国市場
         await sync_recent_us_filings(
-            edgar_fetcher, edgar_parser, storage, run_structuring=run_structuring
+            edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
         )
 
 
 async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuring=False):
-    """EDINETの書類一覧APIを使用して、直近N日間の全上場企業の開示を同期"""
+    """EDINETの書類一覧APIを使用して、指定日数の全上場企業の開示を同期"""
     today = date.today()
 
     for i in range(days):
         target_date = today - timedelta(days=i)
+        logger.info(f"Syncing JP filings for {target_date}...")
         docs = fetcher.list_documents(target_date)
 
         # 有報(120), 四半期(140) 等を抽出
         target_forms = ["120", "140"]
         relevant_docs = [d for d in docs if d.get("docTypeCode") in target_forms]
 
-        logger.info(f"Found {len(relevant_docs)} relevant filings on {target_date}")
-
         for doc in relevant_docs:
             doc_id = doc["docID"]
-            ticker = (doc.get("secCode") or "")[:4]  # 証券コード4桁
-            if not ticker:
+            ticker = (doc.get("secCode") or "")[:4]
+            if not ticker or storage.filing_exists(doc_id):
                 continue
 
-            if storage.filing_exists(doc_id):
-                continue
-
-            logger.info(f"Syncing JP filing: {ticker} ({doc_id})")
+            logger.info(f"Downloading JP filing: {ticker} ({doc_id})")
             zip_bytes = fetcher.download_document(doc_id, doc_type=1)
             if zip_bytes:
                 sections = parser.parse_zip(zip_bytes)
@@ -105,67 +103,70 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                     if run_structuring:
                         await run_structuring_for_filing(ticker, doc_id, sections, storage)
 
-            # RAM使用効率向上のためメモリ解放を明示
             del zip_bytes
             gc.collect()
-            log_memory_usage(f"JP Sync: {ticker}")
             time.sleep(0.1)
 
 
-async def sync_recent_us_filings(fetcher, parser, storage, run_structuring=False):
-    """SECの最新提出書類(RSS等)から同期 (現在は主要銘柄の最新を確認する簡易版)"""
-    # TODO: SECの全銘柄同期は index.idx 等を使用するのが一般的
-    for ticker in SEC_TICKERS:
-        await process_us_ticker(ticker, fetcher, parser, storage, run_structuring)
+async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuring=False):
+    """全米国上場企業の提出書類をスキャンし、指定期間内のものを取得"""
+    all_tickers = fetcher.get_all_tickers()
+    logger.info(f"Scanning {len(all_tickers)} US tickers for filings within {days} days...")
+
+    for ticker in all_tickers:
+        await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
+        # SEC Rate Limit (10 requests/second) を遵守
+        time.sleep(0.11)
 
 
-async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False):
-    """Process SEC EDGAR for US tickers."""
+async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False, days=7):
+    """指定期間内の SEC EDGAR 提出書類を処理"""
     try:
         # 1. 提出書類リスト取得
         subs = fetcher.get_latest_submissions(ticker)
         if not subs:
             return
 
-        # 2. 最新10-K特定
+        # 2. 指定期間内の 10-K/Q を抽出
         filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K", "10-Q"])
         if not filings:
             return
 
-        latest = filings[0]
-        acc_no = latest["accessionNumber"]
+        # 期間フィルター
+        threshold_date = (date.today() - timedelta(days=days)).isoformat()
+        target_filings = [f for f in filings if f["filingDate"] >= threshold_date]
 
-        if storage.filing_exists(acc_no):
-            return
+        for filing in target_filings:
+            acc_no = filing["accessionNumber"]
+            if storage.filing_exists(acc_no):
+                continue
 
-        cik = fetcher.get_cik(ticker).lstrip("0")
-        acc_no_clean = acc_no.replace("-", "")
-        doc = latest["primaryDocument"]
-        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc}"
+            cik = fetcher.get_cik(ticker).lstrip("0")
+            acc_no_clean = acc_no.replace("-", "")
+            doc_name = filing["primaryDocument"]
+            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-        # 3. ダウンロード
-        logger.info(f"Downloading US filing: {ticker} ({acc_no})")
-        resp = requests.get(url, headers={"User-Agent": USER_AGENT})
-        time.sleep(0.1)
+            # 3. ダウンロード
+            logger.info(f"Downloading US filing: {ticker} ({acc_no}) - Date: {filing['filingDate']}")
+            resp = requests.get(url, headers=fetcher.headers)
+            time.sleep(0.1)
 
-        if resp.status_code != 200:
-            return
+            if resp.status_code != 200:
+                continue
 
-        # 4. パース
-        sections = parser.extract_all_sections(resp.text, latest["form"])
-        if sections:
-            filing_metadata = latest.copy()
-            filing_metadata["ticker"] = ticker
-            filing_metadata["cik"] = cik
-            storage.save_filing(filing_metadata, sections)
-            if run_structuring:
-                await run_structuring_for_filing(ticker, acc_no, sections, storage)
+            # 4. パース
+            sections = parser.extract_all_sections(resp.text, filing["form"])
+            if sections:
+                filing_metadata = filing.copy()
+                filing_metadata["ticker"] = ticker
+                filing_metadata["cik"] = cik
+                storage.save_filing(filing_metadata, sections)
+                if run_structuring:
+                    await run_structuring_for_filing(ticker, acc_no, sections, storage)
 
-        # RAM使用効率向上
-        del resp
-        gc.collect()
-        log_memory_usage(f"US Process: {ticker}")
-        time.sleep(0.5)
+            del resp
+            gc.collect()
+
     except Exception as e:
         logger.error(f"Failed to process US ticker {ticker}: {e}")
 
@@ -247,10 +248,20 @@ async def run_structuring_for_filing(ticker, acc_no, sections, storage):
 
 if __name__ == "__main__":
     import sys
-
+    import argparse
     from src.logging_utils import setup_logging
 
     setup_logging("batch")
-    # コマンドライン引数で銘柄指定がない場合は None (全同期)
-    target_tickers = sys.argv[1:] if len(sys.argv) > 1 else None
-    asyncio.run(batch_fetch(tickers=target_tickers))
+    
+    parser = argparse.ArgumentParser(description="Financial Narratives Batch Fetcher")
+    parser.add_argument("--days", type=int, default=7, help="Number of days to look back")
+    parser.add_argument("--tickers", nargs="+", help="Specific tickers to fetch")
+    parser.add_argument("--structure", action="store_true", help="Run AI structuring after fetch")
+    
+    args = parser.parse_args()
+
+    asyncio.run(batch_fetch(
+        tickers=args.tickers, 
+        run_structuring=args.structure, 
+        days=args.days
+    ))

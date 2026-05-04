@@ -99,26 +99,27 @@ class EdinetFetcher:
         params = {
             "date": target_date.strftime("%Y-%m-%d"),
             "type": list_type,
-            "Subscription-Key": self.api_key,
         }
+        headers = {"Ocp-Apim-Subscription-Key": self.api_key}
 
-        logger.info(f"Listing EDINET documents for {target_date}...")
+        logger.info(f"Listing EDINET documents for {target_date} (Key: {self.api_key[:4]}...)")
         try:
-            response = requests.get(url, params=params, timeout=15)
+            response = requests.get(url, params=params, headers=headers, timeout=15)
 
             if response.status_code == 200:
                 data = response.json()
-                metadata = data.get("metadata", {})
-                status = metadata.get("status")
-                if status == "200":
+                if "results" in data:
                     return data.get("results", [])
 
+                metadata = data.get("metadata", {})
+                status = metadata.get("status")
                 message = metadata.get("message")
                 logger.error(f"EDINET API Error: Status={status}, Message={message}")
+                logger.info(f"Raw Response Body: {response.text}")
                 if status == "403":
                     logger.error("403 Forbidden: Check if your EDINET_API_KEY is valid.")
             else:
-                logger.error(f"EDINET Request Failed: {response.status_code}")
+                logger.error(f"EDINET Request Failed: {response.status_code}, Body: {response.text}")
         except Exception as e:
             logger.error(f"EDINET API Exception: {e}")
 
