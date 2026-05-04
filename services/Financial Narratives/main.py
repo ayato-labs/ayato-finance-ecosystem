@@ -10,39 +10,38 @@ load_dotenv()
 
 from src.batch_fetch import batch_fetch
 from src.config import DEFAULT_PORT
+from src.logging_utils import setup_logging
 from src.storage import FinancialNarrativeStorage
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("data/narratives_error.log", level="ERROR", rotation="10 MB")
-logger.add("data/narratives.log", level="INFO", rotation="10 MB")
+# 初期化
+load_dotenv()
+logger = setup_logging("financial_narratives")
 
 
 def run_diagnostics():
     """DuckDB内のデータ状況を診断・表示する"""
-    storage = FinancialNarrativeStorage()
-    summary = storage.get_summary()
+    try:
+        storage = FinancialNarrativeStorage()
+        summary = storage.get_summary()
 
-    if not summary:
-        logger.warning("DuckDB is currently empty.")
-        return
+        if not summary:
+            logger.warning("DuckDB is currently empty")
+            return
 
-    print("\n" + "=" * 60)
-    print(" FINANCIAL NARRATIVES - DATABASE DIAGNOSTICS")
-    print("=" * 60)
-    print(f"{'Ticker':<10} | {'Form':<8} | {'Filing Date':<12}")
-    print("-" * 60)
-    for row in summary:
-        print(f"{row[0]:<10} | {row[1]:<8} | {row[2]!s:<12}")
-    print("=" * 60 + "\n")
+        logger.info("--- Database Diagnostics ---")
+        for row in summary:
+            logger.info(f"Ticker: {row[0]:<6} | Form: {row[1]:<6} | Date: {row[2]}")
+    except Exception:
+        logger.exception("Failed to run diagnostics")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Financial Narratives - SEC Qualitative Data Service"
+        description="Financial Narratives - SEC/EDINET Qualitative Data Service"
     )
     parser.add_argument("--sync", nargs="*", help="Tickers to sync (empty for default list)")
+    parser.add_argument("--days", type=int, default=7, help="Days to look back for automated sync")
+    parser.add_argument("--struct", action="store_true", help="Run AI structuring after fetch")
     parser.add_argument("--diag", action="store_true", help="Run database diagnostics")
     parser.add_argument("--api", action="store_true", help="Start the FastAPI server")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port for the API server")
@@ -51,23 +50,29 @@ def main():
 
     args = parser.parse_args()
 
-    if args.api:
-        logger.info(f"Starting API server on {args.host}:{args.port}...")
-        uvicorn.run("src.api.app:app", host=args.host, port=args.port, reload=args.reload)
-        return
+    try:
+        if args.api:
+            logger.info(f"Starting API server | host={args.host} | port={args.port}")
+            uvicorn.run("src.api.app:app", host=args.host, port=args.port, reload=args.reload)
+            return
 
-    if args.sync is not None:
-        logger.info("Starting financial narrative collection process...")
-        asyncio.run(batch_fetch(args.sync if args.sync else None))
-        run_diagnostics()
-        return
+        if args.sync is not None:
+            tickers = args.sync if args.sync else None
+            logger.info(f"Starting batch fetch task | tickers={tickers} | days={args.days}")
+            asyncio.run(batch_fetch(tickers=tickers, run_structuring=args.struct, days=args.days))
+            run_diagnostics()
+            return
 
-    if args.diag:
-        run_diagnostics()
-        return
+        if args.diag:
+            run_diagnostics()
+            return
 
-    # Default: Show help
-    parser.print_help()
+        # Default: Show help
+        parser.print_help()
+
+    except Exception:
+        logger.exception("Critical failure in main execution loop")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

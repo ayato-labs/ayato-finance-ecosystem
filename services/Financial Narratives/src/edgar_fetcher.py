@@ -33,8 +33,8 @@ class EdgarFetcher:
                     # SECの制限に達した場合
                     wait_time = (2**attempt) + random.uniform(0, 1)
                     logger.warning(
-                        f"SEC Rate Limit (429). Retrying in {wait_time:.2f}s... "
-                        f"(Attempt {attempt + 1}/{self.max_retries})"
+                        f"SEC Rate Limit (429) | url={url} | retry_in={wait_time:.2f}s | "
+                        f"attempt={attempt + 1}/{self.max_retries}"
                     )
                     time.sleep(wait_time)
                     continue
@@ -43,39 +43,42 @@ class EdgarFetcher:
                     # サーバーエラー
                     wait_time = (2**attempt) + random.uniform(0, 1)
                     logger.error(
-                        f"SEC Server Error ({response.status_code}). "
-                        f"Retrying in {wait_time:.2f}s..."
+                        f"SEC Server Error ({response.status_code}) | url={url} | "
+                        f"retry_in={wait_time:.2f}s | attempt={attempt + 1}/{self.max_retries}"
                     )
                     time.sleep(wait_time)
                     continue
 
                 # その他のエラー (404, 403等) はリトライせず終了
-                logger.error(f"SEC API Error: {response.status_code} for {url}")
+                logger.error(f"SEC API Error | status={response.status_code} | url={url}")
                 return None
 
-            except requests.RequestException as e:
+            except requests.RequestException:
                 wait_time = (2**attempt) + random.uniform(0, 1)
-                logger.error(f"Network error: {e}. Retrying in {wait_time:.2f}s...")
+                logger.exception(f"Network error during SEC request | url={url} | retry_in={wait_time:.2f}s")
                 time.sleep(wait_time)
 
-        logger.error(f"Max retries reached for {url}")
+        logger.error(f"Max retries reached for SEC API | url={url}")
         return None
 
     def _refresh_ticker_map(self):
         """ティッカーからCIKを変換するためのマスターリストを取得"""
-        logger.info("Refreshing SEC ticker-to-cik map...")
-        response = self._request_with_retry(self.BASE_URL_TICKERS)
-        if response and response.status_code == 200:
-            data = response.json()
-            # dataは "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."} という形式
-            for key in data:
-                entry = data[key]
-                ticker = entry["ticker"].upper()
-                cik = str(entry["cik_str"]).zfill(10)
-                self.ticker_to_cik_map[ticker] = cik
-        else:
-            status = response.status_code if response else "N/A"
-            logger.error(f"Failed to fetch ticker map: {status}")
+        try:
+            logger.info("Refreshing SEC ticker-to-cik map")
+            response = self._request_with_retry(self.BASE_URL_TICKERS)
+            if response and response.status_code == 200:
+                data = response.json()
+                for key in data:
+                    entry = data[key]
+                    ticker = entry["ticker"].upper()
+                    cik = str(entry["cik_str"]).zfill(10)
+                    self.ticker_to_cik_map[ticker] = cik
+                logger.info(f"Ticker map refreshed | count={len(self.ticker_to_cik_map)}")
+            else:
+                status = response.status_code if response else "N/A"
+                logger.error(f"Failed to fetch ticker map | status={status}")
+        except Exception:
+            logger.exception("Failed to refresh SEC ticker map")
 
     def get_all_tickers(self) -> list[str]:
         """全ティッカーのリストを取得"""
@@ -92,43 +95,51 @@ class EdgarFetcher:
 
     def get_latest_submissions(self, ticker: str) -> dict | None:
         """特定の企業の最新の提出書類リストを取得"""
-        cik = self.get_cik(ticker)
-        if not cik:
-            logger.warning(f"CIK not found for ticker: {ticker}")
+        try:
+            cik = self.get_cik(ticker)
+            if not cik:
+                logger.warning(f"CIK not found for ticker | ticker={ticker}")
+                return None
+
+            url = f"{self.BASE_URL_SUBMISSIONS}CIK{cik}.json"
+            logger.info(f"Fetching submissions | ticker={ticker} | cik={cik}")
+
+            response = self._request_with_retry(url)
+            if response and response.status_code == 200:
+                return response.json()
             return None
-
-        url = f"{self.BASE_URL_SUBMISSIONS}CIK{cik}.json"
-        logger.info(f"Fetching submissions for {ticker} (CIK: {cik})...")
-
-        response = self._request_with_retry(url)
-        if response and response.status_code == 200:
-            return response.json()
-        return None
+        except Exception:
+            logger.exception(f"Error fetching submissions | ticker={ticker}")
+            return None
 
     def filter_relevant_filings(
         self, submissions_data: dict, doc_types: list[str] | None = None
     ) -> list[dict]:
         """10-Kや10-Qなどの特定の書類のみを抽出"""
-        if doc_types is None:
-            doc_types = ["10-K", "10-Q"]
-        if not submissions_data or "filings" not in submissions_data:
+        try:
+            if doc_types is None:
+                doc_types = ["10-K", "10-Q"]
+            if not submissions_data or "filings" not in submissions_data:
+                return []
+
+            recent = submissions_data["filings"]["recent"]
+            relevant_filings = []
+
+            for i in range(len(recent["form"])):
+                if recent["form"][i] in doc_types:
+                    filing = {
+                        "accessionNumber": recent["accessionNumber"][i],
+                        "filingDate": recent["filingDate"][i],
+                        "form": recent["form"][i],
+                        "primaryDocument": recent["primaryDocument"][i],
+                        "primaryDocDescription": recent["primaryDocDescription"][i],
+                    }
+                    relevant_filings.append(filing)
+
+            return relevant_filings
+        except Exception:
+            logger.exception("Error filtering relevant filings")
             return []
-
-        recent = submissions_data["filings"]["recent"]
-        relevant_filings = []
-
-        for i in range(len(recent["form"])):
-            if recent["form"][i] in doc_types:
-                filing = {
-                    "accessionNumber": recent["accessionNumber"][i],
-                    "filingDate": recent["filingDate"][i],
-                    "form": recent["form"][i],
-                    "primaryDocument": recent["primaryDocument"][i],
-                    "description": recent["primaryDocDescription"][i],
-                }
-                relevant_filings.append(filing)
-
-        return relevant_filings
 
 
 if __name__ == "__main__":

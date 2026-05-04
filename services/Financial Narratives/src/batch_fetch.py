@@ -24,47 +24,59 @@ async def batch_fetch(
 ):
     """
     日米市場の定性データを一括取得・構造化保存する。
-
-    tickers が指定された場合: 指定銘柄をオンデマンドで取得。
-    tickers が None の場合: 指定された日数分遡って全件同期。
-    days: 遡る日数。
-    run_structuring が True の場合: 取得後にAIによる構造化抽出を実行。
     """
+    logger.info(
+        f"Starting batch_fetch | tickers_specified={tickers is not None} | "
+        f"run_structuring={run_structuring} | days={days}"
+    )
+
     storage = FinancialNarrativeStorage()
     edgar_fetcher = EdgarFetcher(USER_AGENT)
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
     edinet_parser = EdinetParser()
 
-    if tickers:
-        # 1. 特定銘柄のオンデマンド処理
-        for ticker in tickers:
+    try:
+        if tickers:
+            # 1. 特定銘柄のオンデマンド処理
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing ticker (on-demand) | ticker={ticker}")
+                    is_jp = ticker.isdigit()
+                    if is_jp:
+                        await process_jp_ticker(
+                            ticker, edinet_fetcher, edinet_parser, storage, run_structuring
+                        )
+                    else:
+                        await process_us_ticker(
+                            ticker, edgar_fetcher, edgar_parser, storage, run_structuring, days=3650
+                        )
+                    gc.collect()
+                except Exception:
+                    logger.exception(f"Unexpected error processing ticker | ticker={ticker}")
+        else:
+            # 2. 自動同期 (全上場企業対象)
+            logger.info(f"Starting automated sync | lookback_days={days}")
+            # 日本市場
             try:
-                logger.info(f"=== Processing {ticker} (On-demand) ===")
-                is_jp = ticker.isdigit()
-                if is_jp:
-                    await process_jp_ticker(
-                        ticker, edinet_fetcher, edinet_parser, storage, run_structuring
-                    )
-                else:
-                    await process_us_ticker(
-                        ticker, edgar_fetcher, edgar_parser, storage, run_structuring, days=3650
-                    )
+                await sync_recent_jp_filings(
+                    edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
+                )
+            except Exception:
+                logger.exception("Failed during JP historical sync")
 
-                gc.collect()
-            except Exception as e:
-                logger.error(f"Error processing {ticker}: {e}")
-    else:
-        # 2. 自動同期 (全上場企業対象)
-        logger.info(f"=== Starting Automated Sync (Lookback: {days} days) ===")
-        # 日本市場
-        await sync_recent_jp_filings(
-            edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
-        )
-        # 米国市場
-        await sync_recent_us_filings(
-            edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
-        )
+            # 米国市場
+            try:
+                await sync_recent_us_filings(
+                    edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
+                )
+            except Exception:
+                logger.exception("Failed during US historical sync")
+
+    except Exception:
+        logger.exception("Critical error in batch_fetch orchestration")
+    finally:
+        logger.info("Batch fetch orchestration completed")
 
 
 async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuring=False):
@@ -73,50 +85,61 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
 
     for i in range(days):
         target_date = today - timedelta(days=i)
-        logger.info(f"Syncing JP filings for {target_date}...")
-        docs = fetcher.list_documents(target_date)
+        logger.info(f"Syncing JP filings | date={target_date}")
+        
+        try:
+            docs = fetcher.list_documents(target_date)
+            # 有報(120), 四半期(140) 等を抽出
+            target_forms = ["120", "140"]
+            relevant_docs = [d for d in docs if d.get("docTypeCode") in target_forms]
 
-        # 有報(120), 四半期(140) 等を抽出
-        target_forms = ["120", "140"]
-        relevant_docs = [d for d in docs if d.get("docTypeCode") in target_forms]
+            for doc in relevant_docs:
+                try:
+                    doc_id = doc["docID"]
+                    ticker = (doc.get("secCode") or "")[:4]
+                    if not ticker or storage.filing_exists(doc_id):
+                        continue
 
-        for doc in relevant_docs:
-            doc_id = doc["docID"]
-            ticker = (doc.get("secCode") or "")[:4]
-            if not ticker or storage.filing_exists(doc_id):
-                continue
-
-            logger.info(f"Downloading JP filing: {ticker} ({doc_id})")
-            zip_bytes = fetcher.download_document(doc_id, doc_type=1)
-            if zip_bytes:
-                sections = parser.parse_zip(zip_bytes)
-                if sections:
-                    metadata = {
-                        "accessionNumber": doc_id,
-                        "ticker": ticker,
-                        "cik": doc.get("edinetCode"),
-                        "form": doc.get("formCode"),
-                        "filingDate": doc.get("filingDate"),
-                        "filerName": doc.get("filerName"),
-                    }
-                    storage.save_filing(metadata, sections)
-                    if run_structuring:
-                        await run_structuring_for_filing(ticker, doc_id, sections, storage)
-
-            del zip_bytes
-            gc.collect()
-            time.sleep(0.1)
+                    logger.info(f"Downloading JP filing | ticker={ticker} | doc_id={doc_id}")
+                    zip_bytes = fetcher.download_document(doc_id, doc_type=1)
+                    if zip_bytes:
+                        sections = parser.parse_zip(zip_bytes)
+                        if sections:
+                            metadata = {
+                                "accessionNumber": doc_id,
+                                "ticker": ticker,
+                                "cik": doc.get("edinetCode"),
+                                "form": doc.get("formCode"),
+                                "filingDate": doc.get("filingDate"),
+                                "filerName": doc.get("filerName"),
+                            }
+                            storage.save_filing(metadata, sections)
+                            if run_structuring:
+                                await run_structuring_for_filing(ticker, doc_id, sections, storage)
+                    del zip_bytes
+                    gc.collect()
+                    time.sleep(0.1)
+                except Exception:
+                    logger.exception(f"Error processing JP document | doc_id={doc.get('docID')}")
+        except Exception:
+            logger.exception(f"Failed to fetch JP document list | date={target_date}")
 
 
 async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuring=False):
     """全米国上場企業の提出書類をスキャンし、指定期間内のものを取得"""
-    all_tickers = fetcher.get_all_tickers()
-    logger.info(f"Scanning {len(all_tickers)} US tickers for filings within {days} days...")
+    try:
+        all_tickers = fetcher.get_all_tickers()
+        logger.info(f"Scanning US tickers | count={len(all_tickers)} | days={days}")
 
-    for ticker in all_tickers:
-        await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
-        # SEC Rate Limit (10 requests/second) を遵守
-        time.sleep(0.11)
+        for ticker in all_tickers:
+            try:
+                await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
+                # SEC Rate Limit (10 requests/second) を遵守
+                time.sleep(0.11)
+            except Exception:
+                logger.exception(f"Unexpected error in US ticker loop | ticker={ticker}")
+    except Exception:
+        logger.exception("Critical failure during US ticker list retrieval")
 
 
 async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False, days=7):
@@ -137,38 +160,45 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
         target_filings = [f for f in filings if f["filingDate"] >= threshold_date]
 
         for filing in target_filings:
-            acc_no = filing["accessionNumber"]
-            if storage.filing_exists(acc_no):
-                continue
+            try:
+                acc_no = filing["accessionNumber"]
+                if storage.filing_exists(acc_no):
+                    continue
 
-            cik = fetcher.get_cik(ticker).lstrip("0")
-            acc_no_clean = acc_no.replace("-", "")
-            doc_name = filing["primaryDocument"]
-            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
+                cik = fetcher.get_cik(ticker).lstrip("0")
+                acc_no_clean = acc_no.replace("-", "")
+                doc_name = filing["primaryDocument"]
+                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-            # 3. ダウンロード
-            logger.info(f"Downloading US filing: {ticker} ({acc_no}) - Date: {filing['filingDate']}")
-            resp = requests.get(url, headers=fetcher.headers)
-            time.sleep(0.1)
+                # 3. ダウンロード
+                logger.info(
+                    f"Downloading US filing | ticker={ticker} | acc_no={acc_no} | "
+                    f"date={filing['filingDate']}"
+                )
+                resp = requests.get(url, headers=fetcher.headers, timeout=30)
+                time.sleep(0.1)
 
-            if resp.status_code != 200:
-                continue
+                if resp.status_code != 200:
+                    logger.error(f"Failed to download US filing | ticker={ticker} | status={resp.status_code}")
+                    continue
 
-            # 4. パース
-            sections = parser.extract_all_sections(resp.text, filing["form"])
-            if sections:
-                filing_metadata = filing.copy()
-                filing_metadata["ticker"] = ticker
-                filing_metadata["cik"] = cik
-                storage.save_filing(filing_metadata, sections)
-                if run_structuring:
-                    await run_structuring_for_filing(ticker, acc_no, sections, storage)
+                # 4. パース
+                sections = parser.extract_all_sections(resp.text, filing["form"])
+                if sections:
+                    filing_metadata = filing.copy()
+                    filing_metadata["ticker"] = ticker
+                    filing_metadata["cik"] = cik
+                    storage.save_filing(filing_metadata, sections)
+                    if run_structuring:
+                        await run_structuring_for_filing(ticker, acc_no, sections, storage)
 
-            del resp
-            gc.collect()
+                del resp
+                gc.collect()
+            except Exception:
+                logger.exception(f"Error processing US filing | ticker={ticker} | acc_no={filing.get('accessionNumber')}")
 
-    except Exception as e:
-        logger.error(f"Failed to process US ticker {ticker}: {e}")
+    except Exception:
+        logger.exception(f"Failed to process US ticker | ticker={ticker}")
 
 
 async def process_jp_ticker(ticker, fetcher, parser, storage, run_structuring=False):

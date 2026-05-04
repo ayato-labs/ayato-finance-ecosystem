@@ -55,54 +55,62 @@ class FilingStructurer:
     def _parse_response(self, response_text: str) -> dict:
         """
         LLMからのレスポンス文字列をJSONとしてパースする。
-        Markdownのコードブロック（```json ... ```）が含まれている場合は抽出を試みる。
         """
-        clean_text = response_text.strip()
-        # MarkdownのJSONコードブロックを検索
-        json_match = re.search(r"```json\s*(.*?)\s*```", clean_text, re.DOTALL)
-        if json_match:
-            clean_text = json_match.group(1)
-        else:
-            # ``` ... ``` だけの場合も考慮
-            code_match = re.search(r"```\s*(.*?)\s*```", clean_text, re.DOTALL)
-            if code_match:
-                clean_text = code_match.group(1)
-
         try:
+            clean_text = response_text.strip()
+            # MarkdownのJSONコードブロックを検索
+            json_match = re.search(r"```json\s*(.*?)\s*```", clean_text, re.DOTALL)
+            if json_match:
+                clean_text = json_match.group(1)
+            else:
+                # ``` ... ``` だけの場合も考慮
+                code_match = re.search(r"```\s*(.*?)\s*```", clean_text, re.DOTALL)
+                if code_match:
+                    clean_text = code_match.group(1)
+
             return json.loads(clean_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            raise ValueError(f"Invalid JSON response from LLM: {response_text}") from e
+        except json.JSONDecodeError:
+            logger.exception(f"Failed to parse LLM response | raw_text={response_text[:500]}")
+            raise ValueError(f"Invalid JSON response from LLM")
+        except Exception:
+            logger.exception("Unexpected error during JSON parsing")
+            raise
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
         """
         セクションデータから事実を構造化抽出する
         """
-        prompt = self._prepare_prompt(sections)
-        if not prompt:
-            logger.warning("No text content available for structuring.")
+        try:
+            prompt = self._prepare_prompt(sections)
+            if not prompt:
+                logger.warning("No text content available for structuring")
+                return {}
+
+            for model_name in self.models:
+                try:
+                    logger.info(f"LLM Extraction attempt | model={model_name}")
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=self.SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                        ),
+                    )
+
+                    if response.text:
+                        structured_data = self._parse_response(response.text)
+                        logger.info(f"LLM Extraction successful | model={model_name}")
+                        return structured_data
+                    else:
+                        logger.warning(f"LLM returned empty response | model={model_name}")
+
+                except Exception:
+                    logger.exception(f"Model extraction failed | model={model_name}")
+                    continue
+
+            logger.error("All models failed for extraction")
             return {}
-
-        for model_name in self.models:
-            try:
-                logger.info(f"Attempting extraction with model: {model_name}")
-                response = self.client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.SYSTEM_PROMPT,
-                        response_mime_type="application/json",
-                    ),
-                )
-
-                if response.text:
-                    structured_data = self._parse_response(response.text)
-                    logger.info(f"Successfully extracted structured facts using {model_name}.")
-                    return structured_data
-
-            except Exception as e:
-                logger.warning(f"Model {model_name} failed: {e}")
-                continue
-
-        logger.error("All models failed for extraction.")
-        return {}
+        except Exception:
+            logger.exception("Critical error in extract_facts orchestration")
+            return {}
