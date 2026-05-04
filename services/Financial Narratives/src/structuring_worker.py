@@ -42,14 +42,24 @@ class StructuringWorkerPool:
         storage = self.storage_jp if market == "jp" else self.storage_us
 
         def fetch_db():
-            with duckdb.connect(storage.db_path) as conn:
-                res = conn.execute(
-                    "SELECT sections FROM filings WHERE accession_number = ?",
-                    (accession_number,)
-                ).fetchone()
-                if res and res[0]:
-                    return json.loads(res[0])
-                return {}
+            import time
+            for attempt in range(5):
+                try:
+                    with duckdb.connect(storage.db_path, read_only=True) as conn:
+                        res = conn.execute(
+                            "SELECT sections FROM filings WHERE accession_number = ?",
+                            (accession_number,)
+                        ).fetchone()
+                        if res and res[0]:
+                            return json.loads(res[0])
+                        return {}
+                except Exception as e:
+                    if "already open" in str(e) or "Unique file handle conflict" in str(e):
+                        logger.warning(f"DB locked, retrying fetch ({attempt+1}/5)...")
+                        time.sleep(1)
+                        continue
+                    raise e
+            return {}
 
         return await asyncio.to_thread(fetch_db)
 
@@ -93,7 +103,19 @@ class StructuringWorkerPool:
                 db_lock = db_write_lock_jp if market == "jp" else db_write_lock_us
 
                 async with db_lock:
-                    await asyncio.to_thread(storage.save_structuring, acc_no, ticker, facts)
+                    def save_db():
+                        import time
+                        for attempt in range(10):
+                            try:
+                                storage.save_structuring(acc_no, ticker, facts)
+                                return
+                            except Exception as e:
+                                if "already open" in str(e) or "Unique file handle conflict" in str(e):
+                                    logger.warning(f"DB locked, retrying save ({attempt+1}/10)...")
+                                    time.sleep(2)
+                                    continue
+                                raise e
+                    await asyncio.to_thread(save_db)
 
                 # 5. SQLite ステータスの完了更新
                 await asyncio.to_thread(self.queue.complete_job, acc_no)

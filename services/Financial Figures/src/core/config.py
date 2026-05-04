@@ -66,7 +66,8 @@ class Settings(BaseSettings):
 
     DB_PATH_US: Path = MARKETS_DIR / "us.duckdb"
     DB_PATH_JP: Path = MARKETS_DIR / "jp.duckdb"
-    DB_PATH_EDINET: Path = DATA_DIR / "edinet.duckdb"
+    DB_PATH_EDINET_RAW: Path = DATA_DIR / "audit" / "edinet_raw.duckdb"
+    DB_PATH_EDINET_NORM: Path = MARKETS_DIR / "edinet_normalized.duckdb"
     DB_PATH_TRACEABILITY: Path = DATA_DIR / "audit" / "traceability.duckdb"
 
     # API Endpoints

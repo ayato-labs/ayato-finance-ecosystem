@@ -30,9 +30,9 @@ class EDINETSyncWorker:
             self.client = EDINETClient()
             self.storage = EDINETStorage()
             self.parser = EDINETParser()
-            self.mapper = EDINETMapper(str(self.storage.db_path))
+            self.mapper = EDINETMapper(str(self.storage.raw_db_path))
             self.ai_mapper = AIMapper()
-            logger.info("EDINETSyncWorker initialized with Mapping Support and AI Mapper.")
+            logger.info("EDINETSyncWorker initialized with 3-Layer Physical Separation (Raw/Norm).")
         except Exception as e:
             logger.error(f"Failed to initialize EDINETSyncWorker: {e}")
             raise
@@ -47,7 +47,7 @@ class EDINETSyncWorker:
             target_codes = self.mapper.get_all_target_edinet_codes()
             if not target_codes or force_update:
                 logger.info("EDINET ticker master is empty or update requested. Syncing...")
-                master_dir = Path(self.storage.db_path).parent / "master"
+                master_dir = settings.DATA_DIR / "master"
                 csv_path = self.client.download_edinet_code_list(master_dir)
                 self.mapper.load_csv(str(csv_path))
         except Exception as e:
@@ -64,8 +64,6 @@ class EDINETSyncWorker:
     ):
         """
         Syncs all relevant statutory documents for a specific date.
-        If target_edinet_codes is provided, only processes documents from those submitters.
-        If allowed_types is provided, only processes documents of those types.
         """
         logger.info(f"=== Starting EDINET Sync: {target_date} ===")
 
@@ -87,7 +85,6 @@ class EDINETSyncWorker:
                 if type_code not in self.RELEVANT_DOC_TYPES:
                     continue
 
-                # 1.b. Priority Filter (e.g. only 120/130 if specified)
                 if allowed_types and type_code not in allowed_types:
                     continue
 
@@ -95,9 +92,9 @@ class EDINETSyncWorker:
                 if target_edinet_codes and edinet_code not in target_edinet_codes:
                     continue
 
-                # 3. Incremental Check: Skip if already exists
+                # 3. Incremental Check: Skip if already exists in RAW
                 if self.storage.is_document_exists(doc_id):
-                    logger.info(f"[SKIP] Document {doc_id} already exists in storage.")
+                    logger.info(f"[SKIP] Document {doc_id} already exists in RAW storage.")
                     continue
 
                 filer = doc.get("filerName", "Unknown")
@@ -105,38 +102,30 @@ class EDINETSyncWorker:
                 logger.info(f"[SYNC] Processing: {filer} ({desc}) doc_id={doc_id}")
 
                 try:
-                    # 1. Save metadata
+                    # 1. Save metadata to RAW
                     self.storage.save_document(doc)
 
                     # 2. Download statutory CSV zip
-                    logger.debug(f"[SYNC] Downloading ZIP for {doc_id}...")
                     zip_content = self.client.download_document_csv(doc_id)
                     if not zip_content:
-                        logger.warning(f"[SYNC] No content returned for {doc_id}")
                         continue
 
                     # 3. Extract and Parse CSVs
-                    logger.debug(f"[SYNC] Extracting CSVs from ZIP {doc_id}...")
                     csv_files = self.client.extract_csv_from_zip(zip_content)
                     all_facts = []
                     for _filename, content in csv_files:
                         facts = self.parser.parse_financial_csv(content)
                         all_facts.extend(facts)
 
-                    # 4. Save Raw Facts for Audit
+                    # 4. Save Raw Facts to RAW (Bronze)
                     if all_facts:
-                        logger.info(
-                            f"[SYNC] Saving {len(all_facts)} raw facts for audit trail "
-                            f"(doc_id={doc_id})."
-                        )
                         self.storage.save_facts(doc_id, all_facts)
 
-                        # 5. Map to Standardized Facts
+                        # 5. Map and Save to NORM (Silver)
                         try:
                             self._map_and_save_facts(doc, all_facts)
                         except Exception as e:
                             logger.error(f"[MAP] Failed to map and save facts for {doc_id}: {e}")
-                            # Don't fail the whole day sync if one doc mapping fails
                     else:
                         logger.warning(f"No numeric facts extracted from {doc_id}")
 
@@ -144,10 +133,8 @@ class EDINETSyncWorker:
 
                 except Exception as e:
                     logger.exception(f"Failed to process document {doc_id}: {e}")
-                    # Log but continue to next document
                     continue
 
-                # Rate limiting: Be respectful to EDINET servers (1s per doc download)
                 time.sleep(1)
 
             logger.info(f"=== Sync Complete: {target_date}. Processed {processed_count} docs. ===")
@@ -160,24 +147,23 @@ class EDINETSyncWorker:
     def _map_and_save_facts(self, doc: dict, raw_facts: list[dict]):
         """
         Uses AI Mapper to translate EDINET raw facts to standardized labels
-        and saves them to the wide-format company_facts table.
+        and saves them to the NORMALIZED database (Silver).
         """
         try:
             doc_id = doc["docID"]
             ticker = doc.get("secCode")
             if ticker:
                 ticker = str(ticker)
-                ticker_len_full = 5
-                if len(ticker) == ticker_len_full and ticker.endswith("0"):
-                    ticker = ticker[:4]
-                elif len(ticker) == ticker_len_full:
+                if len(ticker) == 5:
                     ticker = ticker[:4]
 
-            submission_date = doc.get("submissionPeriod")
+            submit_dt = doc.get("submitDateTime")
+            submission_date = submit_dt.split(" ")[0] if submit_dt else None
             session_id = f"edinet-sync-{date.today()}"
 
+            # Only sync if not already in J-Quants (Gold)
             if self._has_jquants_data(ticker, submission_date):
-                logger.info(f"[MAP] Skipping AI mapping for {ticker} (exists in J-Quants).")
+                logger.info(f"[MAP] Skipping AI mapping for {ticker} (exists in J-Quants Gold).")
                 return
 
             # Unique tags for efficient mapping
@@ -194,7 +180,7 @@ class EDINETSyncWorker:
             mappings = self.ai_mapper.map_tags_bulk("EDINET", tags_to_map, session_id)
             tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in mappings}
 
-            # 1. Pivot the raw facts into a single wide-format record
+            # 1. Pivot the raw facts into a single wide-format record for SILVER
             wide_record = {
                 "DisclosedDate": submission_date,
                 "LocalCode": ticker,
@@ -204,17 +190,18 @@ class EDINETSyncWorker:
                 "accession_number": doc_id,
             }
 
-            # 2. Map facts to columns
+            # 2. Map facts to columns using standard labels
             for f in raw_facts:
                 label = tag_to_label.get(f["id"])
-                if label and label != "Other":
-                    wide_record[label] = str(f["value"])
-                    wide_record["tag"] = f["id"]
-                    wide_record["label"] = label
+                if label and label != "Other" and label in settings.TARGET_LABELS:
+                    try:
+                        wide_record[label] = float(f["value"])
+                    except (ValueError, TypeError):
+                        logger.warning(f"Failed to convert {label} value '{f['value']}' to float.")
 
-            if len(wide_record) > 6:  # More than just the metadata
+            if len(wide_record) > 6:
                 self.storage.save_normalized_facts([wide_record])
-                logger.info(f"[MAP] Successfully saved wide-format record for {ticker}.")
+                logger.info(f"[MAP] Successfully saved Silver record for {ticker} to edinet_normalized.")
             else:
                 logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
         except Exception as e:

@@ -11,34 +11,41 @@ from src.core.db import db_manager
 class EDINETStorage:
     """
     DuckDB-based storage for EDINET statutory data.
-    Ensures data integrity and full audit trail for all operations.
+    Ensures physical separation between Raw Data Lake (Bronze) and Normalized Data (Silver).
     """
 
-    def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or str(settings.DB_PATH_EDINET)
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        logger.info(f"Initializing EDINETStorage at {self.db_path}")
+    def __init__(self, raw_db_path: str | None = None, norm_db_path: str | None = None):
+        self.raw_db_path = raw_db_path or str(settings.DB_PATH_EDINET_RAW)
+        self.norm_db_path = norm_db_path or str(settings.DB_PATH_EDINET_NORM)
+        
+        os.makedirs(os.path.dirname(self.raw_db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.norm_db_path), exist_ok=True)
+        
+        logger.info(f"Initializing EDINETStorage (Raw: {self.raw_db_path}, Norm: {self.norm_db_path})")
         try:
             self._init_db()
         except Exception as e:
-            logger.error(f"Failed to initialize EDINET database: {e}", exc_info=True)
+            logger.error(f"Failed to initialize EDINET databases: {e}", exc_info=True)
             raise RuntimeError("Database Initialization Failure") from e
 
     def _init_db(self):
-        """Initialize the EDINET database using MigrationManager."""
+        """Initialize both EDINET databases using MigrationManager."""
         if settings.db_read_only:
             logger.info("Skipping EDINET DB initialization in READ_ONLY mode.")
             return
 
         from src.core.migrations import MigrationManager
 
-        MigrationManager.apply_migrations(self.db_path, "edinet")
+        # Initialize Raw DB (Documents, Raw Facts)
+        MigrationManager.apply_migrations(self.raw_db_path, "edinet_raw")
+        # Initialize Norm DB (Normalized company_facts)
+        MigrationManager.apply_migrations(self.norm_db_path, "edinet_norm")
 
     def save_document(self, doc_data: dict):
-        """Saves document metadata with conflict handling."""
-        logger.info(f"[DB] Saving document metadata: doc_id={doc_data['docID']}")
+        """Saves document metadata to the RAW database."""
+        logger.info(f"[DB-RAW] Saving document metadata: doc_id={doc_data['docID']}")
         try:
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.raw_db_path, read_only=settings.db_read_only) as con:
                 con.execute(
                     """
                     INSERT OR IGNORE INTO documents (
@@ -50,7 +57,7 @@ class EDINETStorage:
                         doc_data.get("secCode"),
                         doc_data.get("filerName"),
                         doc_data.get("docDescription"),
-                        doc_data.get("submissionPeriod"),
+                        doc_data.get("submitDateTime"),
                     ),
                 )
         except Exception as e:
@@ -58,9 +65,9 @@ class EDINETStorage:
             raise
 
     def is_document_exists(self, doc_id: str) -> bool:
-        """Checks if a document has already been processed."""
+        """Checks existence in the RAW database."""
         try:
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.raw_db_path, read_only=settings.db_read_only) as con:
                 res = con.execute("SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
                 return res is not None
         except Exception as e:
@@ -68,9 +75,9 @@ class EDINETStorage:
             return False
 
     def get_last_sync_date(self) -> date | None:
-        """Retrieves the most recent submission date stored in the database."""
+        """Retrieves most recent date from the RAW database."""
         try:
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.raw_db_path, read_only=settings.db_read_only) as con:
                 res = con.execute("SELECT MAX(submission_date) FROM documents").fetchone()
                 if res and res[0]:
                     return res[0]
@@ -80,14 +87,14 @@ class EDINETStorage:
             return None
 
     def save_facts(self, doc_id: str, facts: list[dict]):
-        """Saves raw facts for auditability."""
+        """Saves raw facts to the RAW database."""
         if not facts:
             logger.warning(f"No facts to save for doc_id={doc_id}")
             return
 
-        logger.info(f"[DB] Bulk inserting {len(facts)} raw facts for doc_id={doc_id}")
+        logger.info(f"[DB-RAW] Bulk inserting {len(facts)} raw facts for doc_id={doc_id}")
         try:
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.raw_db_path, read_only=settings.db_read_only) as con:
                 con.executemany(
                     """
                     INSERT INTO raw_facts (
@@ -104,14 +111,14 @@ class EDINETStorage:
             raise
 
     def save_normalized_facts(self, facts: list[dict]):
-        """Saves AI-mapped facts into WIDE-FORMAT company_facts table."""
+        """Saves AI-mapped facts into the NORMALIZED database (Silver)."""
         if not facts:
             return
 
-        logger.info(f"[DB] Saving {len(facts)} normalized records to company_facts (WIDE)...")
+        logger.info(f"[DB-NORM] Saving {len(facts)} normalized records to company_facts...")
         try:
             ingest_df = pd.DataFrame(facts)
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            with db_manager.connect(self.norm_db_path, read_only=settings.db_read_only) as conn:
                 # Dynamically build columns to match schema
                 columns = [c for c in ingest_df.columns if c != "ingested_at"]
                 col_list = ", ".join(columns)
@@ -128,14 +135,14 @@ class EDINETStorage:
             raise
 
     def save_reconciliation_audit(self, audit_records: list[dict]):
-        """Saves Stage 2 reconciliation choices for auditability."""
+        """Saves Stage 2 reconciliation choices for auditability in the NORMALIZED DB."""
         if not audit_records:
             return
 
-        logger.info(f"[DB] Logging {len(audit_records)} reconciliation decisions for audit.")
+        logger.info(f"[DB-NORM] Logging {len(audit_records)} reconciliation decisions for audit.")
         try:
             audit_df = pd.DataFrame(audit_records)
-            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            with db_manager.connect(self.norm_db_path, read_only=settings.db_read_only) as conn:
                 conn.register("audit_df", audit_df)
                 conn.execute(
                     """

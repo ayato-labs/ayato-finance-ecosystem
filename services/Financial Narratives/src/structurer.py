@@ -72,26 +72,23 @@ class FilingStructurer:
 
     def _parse_json(self, text: str) -> dict:
         """
-        LLMの出力からJSONブロックを抽出してパースする。
+        LLMの出力からJSONをパースする。JSONモード時は通常そのままパース可能。
         """
+        if not text:
+            return {}
+        
         try:
-            # JSONモードを有効にするため、通常はそのままパース可能
             return json.loads(text)
         except json.JSONDecodeError:
+            # フォールバック: マークダウンブロックや余計なテキストが含まれている場合
             try:
-                # MarkdownのJSONブロックを探す（フォールバック）
-                match = re.search(r"```(?:json|JSON)?\s*(.*?)\s*```", text, re.DOTALL)
+                match = re.search(r"\{.*\}", text, re.DOTALL)
                 if match:
-                    return json.loads(match.group(1))
-
-                # 裸のJSONを探す
-                match = re.search(r"(\{.*\})", text, re.DOTALL)
-                if match:
-                    return json.loads(match.group(1))
+                    return json.loads(match.group(0))
             except Exception:
                 pass
-
-            logger.warning(f"Failed to parse JSON from LLM output: {text[:200]}...")
+            
+            logger.warning(f"Failed to parse JSON even with JSON mode: {text[:200]}...")
             return {}
 
     async def _identify_tags(self, tag_names: list[str]) -> dict:
@@ -102,7 +99,6 @@ class FilingStructurer:
             return {}
 
         # SEC documents (US market) typically store the entire MD&A in a single 'full_content' key.
-        # In this case, we bypass the LLM mapping and map it to all categories.
         if len(tag_names) == 1 and tag_names[0] == "full_content":
             return {
                 "capex": ["full_content"],
@@ -114,13 +110,27 @@ class FilingStructurer:
             }
 
         tag_list_str = "\n".join(tag_names)
-        prompt = f"""以下のタグ名リストを分析し、
-    指定されたカテゴリに関連するものを抽出してください。
-    必ずJSON形式で出力してください:
+        prompt = f"""以下のタグ名リストを分析し、各カテゴリに関連するタグ名を選択してください。
+        
+        タグ名リスト:
+        {tag_list_str}
+        """
 
-    {tag_list_str}"""
+        # スキーマ定義
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "thinking": {"type": "STRING", "description": "推論過程"},
+                "capex": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "rd": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "governance": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "employees": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "compensation": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "cross_shareholding": {"type": "ARRAY", "items": {"type": "STRING"}}
+            },
+            "required": ["thinking", "capex", "rd", "governance", "employees", "compensation", "cross_shareholding"]
+        }
 
-        # model_name が指定されている場合はそれのみを使用
         models_to_try = [self.model_name] if self.model_name else self.models
 
         for model_name in models_to_try:
@@ -132,10 +142,10 @@ class FilingStructurer:
                     config=types.GenerateContentConfig(
                         system_instruction=self.SYSTEM_PROMPT_MAPPING,
                         response_mime_type="application/json",
+                        response_schema=schema
                     ),
                 )
                 if response.text:
-                    logger.debug(f"LLM Response (partial): {response.text[:300]}...")
                     return self._parse_json(response.text)
             except Exception as e:
                 logger.error(f"Tag mapping failed with {model_name}: {e}")
@@ -147,7 +157,6 @@ class FilingStructurer:
         2段階のプロセスで事実を構造化抽出する
         """
         try:
-            # 1. タグのマッピング
             tag_names = list(sections.keys())
             mapping = await self._identify_tags(tag_names)
 
@@ -157,10 +166,9 @@ class FilingStructurer:
 
             logger.info(f"Generated Mapping: {json.dumps(mapping, ensure_ascii=False)}")
 
-            # 2. 関連するテキストの集約
             context_per_category = {}
             for category, mapped_tags in mapping.items():
-                if category == "thinking": # thinkingフィールドは無視
+                if category == "thinking":
                     continue
                 combined_text = ""
                 for tag in mapped_tags:
@@ -173,17 +181,36 @@ class FilingStructurer:
                 logger.warning("No relevant content found after mapping")
                 return {}
 
-            # 3. 各カテゴリの詳細構造化
             final_prompt_parts = []
             for cat, text in context_per_category.items():
                 final_prompt_parts.append(f"## Category: {cat}\n{text}")
 
-            final_prompt = """以下の情報を分析し、各項目の事実を抽出してください。
-    必ずJSON形式で出力してください:
+            final_prompt = "以下の情報を分析し、各項目の事実を抽出してください:\n\n" + "\n\n".join(final_prompt_parts)
 
-    """ + "\n\n".join(final_prompt_parts)
+            # 詳細構造化のスキーマ
+            fact_item_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "facts": {"type": "STRING", "description": "抽出された事実内容。該当なしは空文字"},
+                    "raw_evidence": {"type": "STRING", "description": "根拠となった原文の引用。該当なしは空文字"}
+                },
+                "required": ["facts", "raw_evidence"]
+            }
+            
+            schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "thinking": {"type": "STRING", "description": "情報の欠落がないかの注意深い推論過程"},
+                    "capex": fact_item_schema,
+                    "rd": fact_item_schema,
+                    "governance": fact_item_schema,
+                    "employees": fact_item_schema,
+                    "compensation": fact_item_schema,
+                    "cross_shareholding": fact_item_schema
+                },
+                "required": ["thinking", "capex", "rd", "governance", "employees", "compensation", "cross_shareholding"]
+            }
 
-            # model_name が指定されている場合はそれのみを使用
             models_to_try = [self.model_name] if self.model_name else self.models
 
             for model_name in models_to_try:
@@ -195,10 +222,10 @@ class FilingStructurer:
                         config=types.GenerateContentConfig(
                             system_instruction=self.SYSTEM_PROMPT_STRUCTURING,
                             response_mime_type="application/json",
+                            response_schema=schema
                         ),
                     )
                     if response.text:
-                        logger.debug(f"LLM Response (partial): {response.text[:300]}...")
                         return self._parse_json(response.text)
                 except Exception as e:
                     logger.error(f"Structuring failed with {model_name}: {e}")

@@ -160,7 +160,7 @@ TABLE_SCHEMAS: dict[str, dict[str, dict[str, str]]] = {
             """,
         },
     },
-    "edinet": {
+    "edinet_raw": {
         "documents": {
             "v1": """
                 CREATE TABLE documents (
@@ -185,7 +185,9 @@ TABLE_SCHEMAS: dict[str, dict[str, dict[str, str]]] = {
                     FOREIGN KEY (doc_id) REFERENCES documents(doc_id)
                 )
             """
-        },
+        }
+    },
+    "edinet_norm": {
         "company_facts": {
             "v1": """
                 CREATE TABLE company_facts (
@@ -193,29 +195,43 @@ TABLE_SCHEMAS: dict[str, dict[str, dict[str, str]]] = {
                     LocalCode VARCHAR,
                     FiscalYear VARCHAR,
                     FiscalPeriod VARCHAR,
-                    NetSales VARCHAR,
-                    OperatingProfit VARCHAR,
-                    OrdinaryProfit VARCHAR,
-                    Profit VARCHAR,
-                    EarningsPerShare VARCHAR,
-                    TotalAssets VARCHAR,
-                    NetAssets VARCHAR,
-                    Equity VARCHAR,
-                    EquityToAssetRatio VARCHAR,
-                    BookValuePerShare VARCHAR,
-                    CashFlowsFromOperatingActivities VARCHAR,
-                    CashFlowsFromInvestingActivities VARCHAR,
-                    CashFlowsFromFinancingActivities VARCHAR,
-                    CashAndCashEquivalents VARCHAR,
-                    tag VARCHAR,
-                    label VARCHAR,
+                    NetSales DOUBLE,
+                    OperatingProfit DOUBLE,
+                    OrdinaryProfit DOUBLE,
+                    Profit DOUBLE,
+                    EarningsPerShare DOUBLE,
+                    TotalAssets DOUBLE,
+                    NetAssets DOUBLE,
+                    Equity DOUBLE,
+                    EquityToAssetRatio DOUBLE,
+                    BookValuePerShare DOUBLE,
+                    CashFlowsFromOperatingActivities DOUBLE,
+                    CashFlowsFromInvestingActivities DOUBLE,
+                    CashFlowsFromFinancingActivities DOUBLE,
+                    CashAndCashEquivalents DOUBLE,
                     accession_number VARCHAR,
                     session_id VARCHAR,
                     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (LocalCode, DisclosedDate, tag, accession_number)
+                    PRIMARY KEY (LocalCode, DisclosedDate, accession_number)
                 )
             """
         },
+        "reconciliation_audit": {
+            "v1": """
+                CREATE TABLE reconciliation_audit (
+                    audit_id VARCHAR PRIMARY KEY,
+                    code VARCHAR,
+                    disclosed_date DATE,
+                    label VARCHAR,
+                    jquants_val DOUBLE,
+                    edinet_val DOUBLE,
+                    merged_val DOUBLE,
+                    strategy VARCHAR,
+                    reasoning VARCHAR,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """
+        }
     },
 }
 
@@ -230,12 +246,12 @@ INDEX_SCHEMAS: dict[str, list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_jp_tickers_symbol ON tickers (code)",
         "CREATE INDEX IF NOT EXISTS idx_jp_facts_date ON company_facts (LocalCode, DisclosedDate)",
     ],
-    "edinet": [
+    "edinet_raw": [
         "CREATE INDEX IF NOT EXISTS idx_facts_doc ON raw_facts(doc_id)",
-        (
-            "CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup "
-            "ON company_facts (LocalCode, DisclosedDate)"
-        ),
+        "CREATE INDEX IF NOT EXISTS idx_docs_date ON documents(submission_date)",
+    ],
+    "edinet_norm": [
+        "CREATE INDEX IF NOT EXISTS idx_edinet_norm_lookup ON company_facts (LocalCode, DisclosedDate)",
     ],
 }
 
