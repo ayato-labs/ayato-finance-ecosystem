@@ -1,11 +1,23 @@
 from datetime import datetime
-
 import pandas as pd
 import yfinance as yf
 from loguru import logger
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from ..schema import enforce_schema
 
+# yfinance internal exception might not be exposed, so we catch generic RateLimit or generic Exception
+try:
+    from yfinance.exceptions import YFRateLimitError
+except ImportError:
+    # Fallback if the specific exception is not found in the installed version
+    class YFRateLimitError(Exception):
+        pass
 
 class YFinanceFetcher:
     """
@@ -16,14 +28,24 @@ class YFinanceFetcher:
     def source_name(self) -> str:
         return "yfinance"
 
+    @retry(
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception_type((YFRateLimitError, Exception)),
+        reraise=True,
+    )
+    def _download_with_retry(self, ticker, start_date_str):
+        return yf.download(ticker, start=start_date_str, progress=False)
+
     def fetch(self, ticker: str, start_date: datetime) -> pd.DataFrame:
         """
         指定されたティッカーのデータを開始日から現在まで取得する。
         """
         logger.info(f"Downloading {ticker} via yfinance starting from {start_date.date()}...")
         try:
-            # 指数はactions=True(配当など)は基本不要だが一貫性のために設定可能
-            df = yf.download(ticker, start=start_date.strftime("%Y-%m-%d"), progress=False)
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            df = self._download_with_retry(ticker, start_date_str)
+            
             if df.empty:
                 logger.warning(f"yfinance returned empty data for {ticker}")
                 return pd.DataFrame()

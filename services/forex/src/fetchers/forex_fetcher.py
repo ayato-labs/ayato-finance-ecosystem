@@ -1,11 +1,23 @@
 import logging
 from datetime import datetime, timedelta
-
 import pandas as pd
 import yfinance as yf
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 logger = logging.getLogger(__name__)
 
+# yfinance internal exception might not be exposed, so we catch generic RateLimit or generic Exception
+try:
+    from yfinance.exceptions import YFRateLimitError
+except ImportError:
+    # Fallback if the specific exception is not found in the installed version
+    class YFRateLimitError(Exception):
+        pass
 
 class ForexFetcher:
     """
@@ -14,22 +26,26 @@ class ForexFetcher:
 
     def __init__(self):
         # Ticker mappings: (Symbol, is_inverse_to_usd)
-        # yfinance JPY=X gives USD/JPY (How many JPY for 1 USD)
-        # yfinance EURUSD=X gives EUR/USD (How many USD for 1 EUR)
-        # yfinance CNY=X gives USD/CNY (How many CNY for 1 USD)
         self.tickers = {
             "JPY": ("JPY=X", True),
             "EUR": ("EURUSD=X", False),
             "CNY": ("CNY=X", True),
         }
 
+    @retry(
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception_type((YFRateLimitError, Exception)),
+        reraise=True,
+    )
+    def _history_with_retry(self, ticker, start_date_str):
+        return ticker.history(start=start_date_str, interval="1d")
+
     def fetch(self, symbol: str, start_date: datetime) -> pd.DataFrame:
         """
         指定された通貨の対米ドルレートを取得する。
-        返されるレートは '1 ForeignUnit = X USD' の形式。
         """
         if symbol == "USD":
-            # USD case: static rate 1.0
             dates = pd.date_range(start=start_date, end=datetime.now(), freq="D")
             df = pd.DataFrame(
                 {"Date": dates, "Symbol": "USD", "Rate": 1.0, "LoadTimestamp": datetime.now()}
@@ -41,13 +57,11 @@ class ForexFetcher:
             return pd.DataFrame()
 
         ticker_symbol, is_inverse = self.tickers[symbol]
-
-        # Adjust start date to ensure we get some data (yfinance sometimes misses the exact start)
         fetch_start = start_date - timedelta(days=5)
 
         try:
             ticker = yf.Ticker(ticker_symbol)
-            df = ticker.history(start=fetch_start.strftime("%Y-%m-%d"), interval="1d")
+            df = self._history_with_retry(ticker, fetch_start.strftime("%Y-%m-%d"))
 
             if df.empty:
                 logger.warning(f"No data returned for {ticker_symbol}")
@@ -59,14 +73,10 @@ class ForexFetcher:
             df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
             df["Symbol"] = symbol
 
-            # Normalize to '1 ForeignUnit = X USD'
             if is_inverse:
-                # USD/JPY -> 1 JPY = 1 / X USD
                 df["Rate"] = 1.0 / df["Rate"]
 
             df["LoadTimestamp"] = datetime.now()
-
-            # Filter to requested period
             df = df[df["Date"] >= pd.to_datetime(start_date)]
 
             return df
