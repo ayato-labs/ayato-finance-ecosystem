@@ -111,6 +111,12 @@ class MigrationManager:
                                 logger.warning(f"  [Migration] Index error: {e}")
 
             logger.info(f"Migrations for shard '{shard_key}' complete.")
+            
+            # Update master registry (if not migrating the master itself)
+            if shard_key != "master":
+                from src.core.master import master_manager
+                master_manager.sync_shard_status(shard_key, Path(db_path))
+
         except Exception as e:
             logger.error(f"Migration failed for shard '{shard_key}': {e}")
             raise

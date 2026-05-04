@@ -52,6 +52,54 @@ CREATE TABLE sync_progress (
 
 ---
 
+## Shard: `master`
+
+### Table: `shard_registry`
+Latest Version: `v1`
+```sql
+CREATE TABLE shard_registry (
+                    shard_id VARCHAR PRIMARY KEY,
+                    physical_path VARCHAR,
+                    current_schema_version VARCHAR,
+                    health_status VARCHAR,
+                    last_migration_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    file_size_bytes BIGINT,
+                    last_modified_at TIMESTAMP
+                )
+```
+
+### Table: `job_tracker`
+Latest Version: `v1`
+```sql
+CREATE TABLE job_tracker (
+                    job_id VARCHAR PRIMARY KEY,
+                    job_name VARCHAR,
+                    status VARCHAR,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    affected_shards VARCHAR,
+                    records_processed INTEGER DEFAULT 0,
+                    error_message VARCHAR,
+                    metadata VARCHAR
+                )
+```
+
+### Table: `universe_master`
+Latest Version: `v1`
+```sql
+CREATE TABLE universe_master (
+                    code VARCHAR PRIMARY KEY,
+                    name VARCHAR,
+                    market VARCHAR,
+                    sector VARCHAR,
+                    last_synced_at TIMESTAMP,
+                    sync_status VARCHAR,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+```
+
+---
+
 ## Shard: `us`
 
 ### Table: `tickers`
@@ -154,7 +202,7 @@ CREATE INDEX IF NOT EXISTS idx_jp_facts_date ON company_facts (LocalCode, Disclo
 
 ---
 
-## Shard: `edinet`
+## Shard: `edinet_raw`
 
 ### Table: `documents`
 Latest Version: `v1`
@@ -183,6 +231,16 @@ CREATE TABLE raw_facts (
                 )
 ```
 
+### Indexes
+```sql
+CREATE INDEX IF NOT EXISTS idx_facts_doc ON raw_facts(doc_id)
+CREATE INDEX IF NOT EXISTS idx_docs_date ON documents(submission_date)
+```
+
+---
+
+## Shard: `edinet_norm`
+
 ### Table: `company_facts`
 Latest Version: `v1`
 ```sql
@@ -191,33 +249,47 @@ CREATE TABLE company_facts (
                     LocalCode VARCHAR,
                     FiscalYear VARCHAR,
                     FiscalPeriod VARCHAR,
-                    NetSales VARCHAR,
-                    OperatingProfit VARCHAR,
-                    OrdinaryProfit VARCHAR,
-                    Profit VARCHAR,
-                    EarningsPerShare VARCHAR,
-                    TotalAssets VARCHAR,
-                    NetAssets VARCHAR,
-                    Equity VARCHAR,
-                    EquityToAssetRatio VARCHAR,
-                    BookValuePerShare VARCHAR,
-                    CashFlowsFromOperatingActivities VARCHAR,
-                    CashFlowsFromInvestingActivities VARCHAR,
-                    CashFlowsFromFinancingActivities VARCHAR,
-                    CashAndCashEquivalents VARCHAR,
-                    tag VARCHAR,
-                    label VARCHAR,
+                    NetSales DOUBLE,
+                    OperatingProfit DOUBLE,
+                    OrdinaryProfit DOUBLE,
+                    Profit DOUBLE,
+                    EarningsPerShare DOUBLE,
+                    TotalAssets DOUBLE,
+                    NetAssets DOUBLE,
+                    Equity DOUBLE,
+                    EquityToAssetRatio DOUBLE,
+                    BookValuePerShare DOUBLE,
+                    CashFlowsFromOperatingActivities DOUBLE,
+                    CashFlowsFromInvestingActivities DOUBLE,
+                    CashFlowsFromFinancingActivities DOUBLE,
+                    CashAndCashEquivalents DOUBLE,
                     accession_number VARCHAR,
                     session_id VARCHAR,
                     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (LocalCode, DisclosedDate, tag, accession_number)
+                    PRIMARY KEY (LocalCode, DisclosedDate, accession_number)
+                )
+```
+
+### Table: `reconciliation_audit`
+Latest Version: `v1`
+```sql
+CREATE TABLE reconciliation_audit (
+                    audit_id VARCHAR PRIMARY KEY,
+                    code VARCHAR,
+                    disclosed_date DATE,
+                    label VARCHAR,
+                    jquants_val DOUBLE,
+                    edinet_val DOUBLE,
+                    merged_val DOUBLE,
+                    strategy VARCHAR,
+                    reasoning VARCHAR,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
 ```
 
 ### Indexes
 ```sql
-CREATE INDEX IF NOT EXISTS idx_facts_doc ON raw_facts(doc_id)
-CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup ON company_facts (LocalCode, DisclosedDate)
+CREATE INDEX IF NOT EXISTS idx_edinet_norm_lookup ON company_facts (LocalCode, DisclosedDate)
 ```
 
 ---

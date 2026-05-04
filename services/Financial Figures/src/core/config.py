@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     DB_PATH_EDINET_RAW: Path = DATA_DIR / "audit" / "edinet_raw.duckdb"
     DB_PATH_EDINET_NORM: Path = MARKETS_DIR / "edinet_normalized.duckdb"
     DB_PATH_TRACEABILITY: Path = DATA_DIR / "audit" / "traceability.duckdb"
+    DB_PATH_MASTER: Path = DATA_DIR / "master.duckdb"
 
     # API Endpoints
     SEC_TICKERS_URL: str = "https://www.sec.gov/files/company_tickers.json"

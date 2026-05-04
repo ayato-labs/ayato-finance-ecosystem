@@ -45,6 +45,49 @@ TABLE_SCHEMAS: dict[str, dict[str, dict[str, str]]] = {
             """
         },
     },
+    "master": {
+        "shard_registry": {
+            "v1": """
+                CREATE TABLE shard_registry (
+                    shard_id VARCHAR PRIMARY KEY,
+                    physical_path VARCHAR,
+                    current_schema_version VARCHAR,
+                    health_status VARCHAR,
+                    last_migration_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    file_size_bytes BIGINT,
+                    last_modified_at TIMESTAMP
+                )
+            """
+        },
+        "job_tracker": {
+            "v1": """
+                CREATE TABLE job_tracker (
+                    job_id VARCHAR PRIMARY KEY,
+                    job_name VARCHAR,
+                    status VARCHAR,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    affected_shards VARCHAR,
+                    records_processed INTEGER DEFAULT 0,
+                    error_message VARCHAR,
+                    metadata VARCHAR
+                )
+            """
+        },
+        "universe_master": {
+            "v1": """
+                CREATE TABLE universe_master (
+                    code VARCHAR PRIMARY KEY,
+                    name VARCHAR,
+                    market VARCHAR,
+                    sector VARCHAR,
+                    last_synced_at TIMESTAMP,
+                    sync_status VARCHAR,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+            """
+        },
+    },
     "us": {
         "tickers": {
             "v1": """

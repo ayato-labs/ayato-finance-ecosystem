@@ -302,6 +302,9 @@ class EDINETSyncWorker:
     @track_performance("run_incremental_sync_edinet")
     def run_incremental_sync(self, default_days: int = 30):
         """Syncs from the last stored date to today."""
+        from src.core.master import master_manager
+        job_id = master_manager.start_job("EDINET-Incremental-Sync", ["edinet_raw", "edinet_norm"])
+        
         try:
             self.ensure_ticker_master(force_update=True)
 
@@ -317,34 +320,38 @@ class EDINETSyncWorker:
             logger.info(f"Incremental sync: {start_date} to {end_date} ({delta.days} days)")
 
             target_codes = set(self.mapper.get_all_target_edinet_codes())
-            if not target_codes:
-                logger.warning(
-                    "Ticker master is empty. Syncing all statutory documents without filtering."
-                )
-            else:
-                logger.info(f"Filtering sync for {len(target_codes)} listed companies.")
-
+            
+            total_docs = 0
             for i in range(delta.days + 1):
                 target_date = start_date + timedelta(days=i)
                 logger.info(
                     f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---"
                 )
+                # Note: processed_count in sync_date is local, ideally we should return it
                 self.sync_date(target_date, target_edinet_codes=target_codes)
+            
+            master_manager.end_job(job_id, status="COMPLETED")
         except Exception as e:
             logger.error(f"Incremental sync failed: {e}")
+            master_manager.end_job(job_id, status="FAILED", error_message=str(e))
             raise
 
     @track_performance("run_backfill_edinet")
     def run_backfill(self, days: int = 7):
         """Backfill data for the last N days sequentially."""
+        from src.core.master import master_manager
+        job_id = master_manager.start_job("EDINET-Backfill", ["edinet_raw", "edinet_norm"])
+        
         try:
             logger.info(f"Starting backfill for the last {days} days.")
             end_date = date.today()
             for i in range(days):
                 target_date = end_date - timedelta(days=i)
                 self.sync_date(target_date)
+            master_manager.end_job(job_id, status="COMPLETED")
         except Exception as e:
             logger.error(f"Backfill failed: {e}")
+            master_manager.end_job(job_id, status="FAILED", error_message=str(e))
             raise
 
 
