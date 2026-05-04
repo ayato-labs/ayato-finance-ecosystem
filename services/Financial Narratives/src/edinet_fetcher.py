@@ -111,10 +111,15 @@ class EdinetFetcher:
 
             if response.status_code == 200:
                 data = response.json()
-                if data.get("metadata", {}).get("status") == "200":
+                metadata = data.get("metadata", {})
+                status = metadata.get("status")
+                if status == "200":
                     return data.get("results", [])
-                else:
-                    logger.error(f"EDINET API Error: {data.get('metadata', {}).get('message')}")
+                
+                message = metadata.get("message")
+                logger.error(f"EDINET API Error: Status={status}, Message={message}")
+                if status == "403":
+                    logger.error("403 Forbidden: Check if your EDINET_API_KEY is valid.")
             else:
                 logger.error(f"EDINET Request Failed: {response.status_code}")
         except Exception as e:

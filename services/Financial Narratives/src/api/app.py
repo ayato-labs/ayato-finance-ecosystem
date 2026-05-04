@@ -3,6 +3,9 @@ import json
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.api.models import FilingRecord, StatsResponse
 from src.batch_fetch import batch_fetch

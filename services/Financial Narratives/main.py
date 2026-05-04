@@ -4,6 +4,9 @@ import sys
 
 import uvicorn
 from loguru import logger
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.batch_fetch import batch_fetch
 from src.storage import FinancialNarrativeStorage
