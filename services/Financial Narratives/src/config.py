@@ -12,7 +12,7 @@ USER_AGENT = os.environ.get("USER_AGENT", "ayato-labs-finance-sync/1.0 (contact:
 DEFAULT_PORT = 5013
 
 # Storage Configuration
-DEFAULT_DB_PATH = "finance_narratives.duckdb"
+DEFAULT_DB_PATH = "data/financial_narratives.duckdb"
 DUCKDB_MEMORY_LIMIT = "2GB"
 
 # Market Configuration

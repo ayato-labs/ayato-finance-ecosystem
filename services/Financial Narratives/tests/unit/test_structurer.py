@@ -35,6 +35,22 @@ def test_parse_response_malformed():
     with pytest.raises(ValueError):
         structurer._parse_response('{"capex": {"intent": "unclosed"')
 
-# 注: extract_facts 自体は LLM クライアントを使用するため、
-# ユーザー指示に従い Mock を使用しない場合は、有効な API キーが必要となる。
-# 単体テストの範囲としては、ロジックを分離した上記関数群で十分カバーできる。
+@pytest.mark.asyncio
+async def test_extract_facts_real():
+    """Gemini APIを実際に叩いて構造化を確認 (Mock不使用)"""
+    import os
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        pytest.skip("GOOGLE_API_KEY not set in environment")
+        
+    structurer = FilingStructurer(api_key=api_key)
+    sections = {
+        "business": "当社は2025年に向けて、100億円の設備投資を行い、AI半導体の生産能力を倍増させる計画です。"
+    }
+    
+    facts = await structurer.extract_facts(sections)
+    assert facts is not None
+    assert "capex" in facts
+    assert "intent" in facts["capex"]
+    # 意味的に正しいことが抽出されているか
+    assert "100" in str(facts["capex"].get("amount", "")) or "投資" in str(facts["capex"])

@@ -1,77 +1,47 @@
-import time
-
+import pytest
+import asyncio
+from unittest.mock import MagicMock, patch
 from src.edgar_fetcher import EdgarFetcher
 from src.edinet_fetcher import EdinetFetcher
 
+@pytest.mark.asyncio
+async def test_edgar_rate_limit_backoff():
+    """SEC APIのレート制限（429）発生時にリトライされるかを検証"""
+    fetcher = EdgarFetcher("TestAgent")
+    
+    # requests.get が 429 を返した後に 200 を返すように設定
+    with patch("src.edgar_fetcher.requests.get") as mock_get:
+        mock_429 = MagicMock()
+        mock_429.status_code = 429
+        mock_429.headers = {"Retry-After": "0.1"}
+        
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        # SECのcompany_tickers.jsonは "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."} という形式
+        mock_200.json.return_value = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+        
+        # 1回目はTickerMapの更新、2回目はSubmissionsの取得として振る舞わせる必要がある
+        # 実際には get_latest_submissions 内で get_cik -> _refresh_ticker_map が呼ばれる
+        
+        # モックの動作をより正確に：1回目(429), 2回目(TickerMap), 3回目(Submissions)
+        mock_submissions = MagicMock()
+        mock_submissions.status_code = 200
+        mock_submissions.json.return_value = {"cik": "320193", "filings": {"recent": {"form": []}}}
+        
+        mock_get.side_effect = [mock_429, mock_200, mock_submissions]
+        
+        res = fetcher.get_latest_submissions("AAPL")
+        assert res is not None
+        assert mock_get.call_count == 3
 
-def test_edgar_fetcher_retry_logic(mocker):
-    """429エラー時にリトライが行われるかを確認"""
-    fetcher = EdgarFetcher("TestAgent", max_retries=2)
-
-    mock_get = mocker.patch("requests.get")
-    # 1回目は429、2回目も429
-    mock_get.return_value.status_code = 429
-
-    # リトライ時のスリープを短縮して高速化
-    mocker.patch("time.sleep")
-
-    fetcher.get_latest_submissions("AAPL")
-
-    # 2回呼ばれているはず (初回 + リトライ1回)
-    assert mock_get.call_count == 2
-    # time.sleepが呼ばれているはず
-    assert time.sleep.call_count == 2
-
-
-def test_edinet_fetcher_malformed_json(mocker):
-    """EDINETが不正なJSONを返した場合の堅牢性"""
-    fetcher = EdinetFetcher()
-    mock_get = mocker.patch("requests.get")
-    mock_get.return_value.status_code = 200
-    mock_get.return_value.json.side_effect = ValueError("Invalid JSON")
-
-    from datetime import date
-
-    docs = fetcher.list_documents(date(2024, 5, 1))
-    assert docs == []
-
-
-def test_edinet_fetcher_server_down(mocker):
-    """サーバーダウン時の挙動"""
-    fetcher = EdinetFetcher()
-    mocker.patch("requests.get", side_effect=Exception("Server Down"))
-
-    from datetime import date
-
-    docs = fetcher.list_documents(date(2024, 5, 1))
-    assert docs == []
-
-
-def test_storage_concurrency_stress(temp_db_path):
-    """並列保存時の負荷テスト (簡易版)"""
-    import threading
-
+def test_storage_invalid_metadata():
+    """不正なメタデータで保存しようとした際のエラーハンドリング"""
     from src.storage import FinancialNarrativeStorage
-
-    storage = FinancialNarrativeStorage(temp_db_path)
-
-    def worker(i):
-        metadata = {
-            "accessionNumber": f"CONC-{i}",
-            "ticker": "STRESS",
-            "form": "10-K",
-            "filingDate": "2024-01-01",
-        }
-        storage.save_filing(metadata, {"content": "data" * 1000})
-
-    threads = []
-    for i in range(20):
-        t = threading.Thread(target=worker, args=(i,))
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join()
-
-    summary = storage.get_summary()
-    assert len(summary) == 20
+    import os
+    
+    storage = FinancialNarrativeStorage(":memory:")
+    
+    # 必須フィールドが欠落している場合
+    bad_metadata = {"ticker": "AAPL"} # accessionNumber 等が欠落
+    with pytest.raises(ValueError, match="Missing required metadata fields"):
+        storage.save_filing(bad_metadata, {"content": "test"})

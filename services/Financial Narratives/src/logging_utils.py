@@ -26,7 +26,10 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     # ログ保存先ディレクトリの作成
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"{unit_name}.log"
+    
+    # 実行ごとに新しいログファイルを作成し、最新3回分のみ保持する設定
+    # {time} を含めることで、起動のたびに新しいファイルが生成される
+    log_file_pattern = log_dir / f"{unit_name}_{{time:YYYYMMDD_HHmmss}}.log"
 
     # 全ログに run_id を付与する設定
     logger.configure(extra={"run_id": run_id, "unit": unit_name})
@@ -42,18 +45,18 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     logger.add(sys.stderr, format=console_format, level=log_level, colorize=True, enqueue=True)
 
     # 2. ファイル出力 (JSON / 構造化ログ)
-    # serialize=True にすると、ログの全項目がJSON形式で出力される
+    # retention=3 により、最新の3ファイルのみを保持する
     logger.add(
-        str(log_file),
+        str(log_file_pattern),
         format="{message}",
         level=log_level,
         rotation="100 MB",
-        retention="7 days",
+        retention=3,
         serialize=True,
         enqueue=True,
     )
 
-    logger.info(f"Logging initialized | unit={unit_name} | run_id={run_id} | log_file={log_file}")
+    logger.info(f"Logging initialized | unit={unit_name} | run_id={run_id} | pattern={log_file_pattern}")
     return logger
 
 

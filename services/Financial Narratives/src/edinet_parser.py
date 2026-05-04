@@ -44,29 +44,34 @@ class EdinetParser:
         Extract and parse sections from an EDINET XBRL ZIP file.
         The zip contains a 'PublicDoc' folder with Inline XBRL (HTML) files.
         """
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-            # Inline XBRL documents are usually in PublicDoc/*.htm
-            # We look for the main document.
-            # In Yuho, it's often the one starting with 'jpcrp' or similar.
-            html_files = [
-                f
-                for f in z.namelist()
-                if f.startswith("PublicDoc/") and f.endswith((".htm", ".html"))
-            ]
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+                # Inline XBRL documents are usually in PublicDoc/*.htm
+                html_files = [
+                    f
+                    for f in z.namelist()
+                    if f.startswith("PublicDoc/") and f.endswith((".htm", ".html"))
+                ]
 
-            combined_results = {}
-            for html_file in html_files:
-                with z.open(html_file) as f:
-                    content = f.read().decode("utf-8", errors="ignore")
-                    sections = self.parse_ixbrl(content)
-                    # Merge results (some sections might be split across files, though rare in Yuho)
-                    for k, v in sections.items():
-                        if v:
-                            if k in combined_results:
-                                combined_results[k] += "\n\n" + v
-                            else:
-                                combined_results[k] = v
-            return combined_results
+                combined_results = {}
+                for html_file in html_files:
+                    with z.open(html_file) as f:
+                        content = f.read().decode("utf-8", errors="ignore")
+                        sections = self.parse_ixbrl(content)
+                        # Merge results
+                        for k, v in sections.items():
+                            if v:
+                                if k in combined_results:
+                                    combined_results[k] += "\n\n" + v
+                                else:
+                                    combined_results[k] = v
+                return combined_results
+        except zipfile.BadZipFile:
+            logger.error("Failed to parse EDINET ZIP: File is not a zip file or is corrupted")
+            return {}
+        except Exception:
+            logger.exception("Unexpected error parsing EDINET ZIP")
+            return {}
 
     def parse_ixbrl(self, html_content: str) -> dict[str, str]:
         """

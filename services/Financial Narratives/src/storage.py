@@ -24,6 +24,10 @@ class FinancialNarrativeStorage:
             # RAM使用効率の向上のため制限を設定
             conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
             conn.execute("SET threads=4")
+            
+            # 並列書き込み時のパフォーマンスと整合性のための設定
+            # DuckDBはデフォルトでWAL形式に近い動作をするが、チェックポイントの頻度を調整
+            conn.execute("SET checkpoint_threshold='1GB'")
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS filings (
