@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -86,8 +87,6 @@ class Settings(BaseSettings):
 
     @property
     def db_read_only(self) -> bool:
-        import os
-
         return os.environ.get("DB_READ_ONLY", "false").lower() == "true"
 
     model_config = {

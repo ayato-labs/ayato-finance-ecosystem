@@ -59,16 +59,19 @@ class AIMapper:
 
         return f"""
         You are a professional financial data analyst specializing in XBRL and GAAP standards.
-        Your task is to map a market-specific financial tag to a standardized target label.
+        Your task is to map a market-specific financial tag to the MOST APPROPRIATE standardized target label from the provided list.
+
         {market_context}
-        Target Labels: {", ".join(target_labels)}
+        
+        VALID TARGET LABELS (Pick ONE): 
+        {", ".join(target_labels)}, Other
 
         CRITICAL INSTRUCTIONS:
-        1. OUTPUT ONLY A VALID JSON OBJECT.
-        2. DO NOT INCLUDE ANY CONVERSATIONAL TEXT, EXPLANATIONS, OR REPETITIONS.
-        3. Fulfill the EXACT schema provided in the response format.
-        4. If no label fits well, use "Other".
-        5. Provide a brief, concise reasoning.
+        1. YOU MUST SELECT A LABEL FROM THE 'VALID TARGET LABELS' LIST ABOVE.
+        2. If no label fits well, you MUST use "Other".
+        3. DO NOT return placeholder strings like "mapped_label" or "target_label" as the value.
+        4. OUTPUT ONLY A VALID JSON OBJECT matching the requested schema.
+        5. Provide a brief, concise reasoning for your choice.
         6. Do not enter an infinite loop. If you cannot find a match, stop and return "Other".
         """
 

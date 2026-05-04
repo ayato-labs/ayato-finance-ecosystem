@@ -1,6 +1,8 @@
 import duckdb
 import pandas as pd
 
+MAX_BUSINESS_DAY_GAP = 4
+
 
 def strict_audit():
     db = duckdb.connect()
@@ -41,12 +43,15 @@ def strict_audit():
         # Check for gaps (Business days only approx)
         data_7203["diff"] = data_7203["Date"].diff().dt.days
         gaps = data_7203[
-            data_7203["diff"] > 4
+            data_7203["diff"] > MAX_BUSINESS_DAY_GAP
         ]  # More than 4 days gap (e.g. New Year / Golden Week)
         if gaps.empty:
-            print("PASS: No suspicious gaps found (>4 days).")
+            print(f"PASS: No suspicious gaps found (>{MAX_BUSINESS_DAY_GAP} days).")
         else:
-            print(f"INFO: Detected {len(gaps)} gaps > 4 days (likely holidays or market closures).")
+            print(
+                f"INFO: Detected {len(gaps)} gaps > {MAX_BUSINESS_DAY_GAP} days "
+                f"(likely holidays or market closures)."
+            )
             print(gaps[["Date", "diff"]].head())
     else:
         print("FAIL: Could not perform continuity test (No data).")
@@ -80,9 +85,11 @@ def strict_audit():
     )
     print(f"Extracting full profile for: {random_tickers}")
     for rt in random_tickers:
-        sample = db.query(
-            f"SELECT * FROM read_parquet('{parquet_path}') WHERE Ticker = '{rt}' ORDER BY Date DESC LIMIT 2"
-        ).df()
+        sql = (
+            f"SELECT * FROM read_parquet('{parquet_path}') "
+            f"WHERE Ticker = '{rt}' ORDER BY Date DESC LIMIT 2"
+        )
+        sample = db.query(sql).df()
         print(f"\n>> {rt} (Latest 2 days):")
         print(sample[["Date", "Open", "High", "Low", "Close", "Volume"]].to_string(index=False))
 

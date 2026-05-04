@@ -9,6 +9,7 @@ from src.engine import MarketDataEngine
 
 class FakeFetcher:
     """A deterministic, zero-dependency source for unit testing. No MagicMock used."""
+
     def __init__(self, data_map=None):
         # Allow pre-defining data for specific tickers
         self.data_map = data_map or {}
@@ -28,15 +29,17 @@ class FakeFetcher:
             "Low": [95.0] * 5,
             "Close": [102.0] * 5,
             "Volume": [1000] * 5,
-            "Stock Splits": [0.0] * 5,
+            "StockSplits": [0.0] * 5,
             "Source": ["fake"] * 5,
-            "LoadTimestamp": [datetime.now()] * 5
+            "LoadTimestamp": [datetime.now()] * 5,
         }
         return pd.DataFrame(data)
+
 
 @pytest.fixture
 def fake_fetcher():
     return FakeFetcher()
+
 
 @pytest.fixture
 def temp_data_dir(tmp_path):
@@ -46,16 +49,15 @@ def temp_data_dir(tmp_path):
     (d / "market_data").mkdir()
     return d
 
+
 @pytest.fixture
 def temp_catalog(temp_data_dir):
     """Provides a fresh, isolated SQLite catalog for each test."""
     db_path = temp_data_dir / "catalog.sqlite"
     return CatalogManager(db_path=db_path)
 
+
 @pytest.fixture
 def engine(temp_data_dir, fake_fetcher):
     """Provides an isolated MarketDataEngine instance using the FakeFetcher."""
-    return MarketDataEngine(
-        fetcher=fake_fetcher,
-        base_dir=str(temp_data_dir / "market_data")
-    )
+    return MarketDataEngine(fetcher=fake_fetcher, base_dir=str(temp_data_dir / "market_data"))

@@ -30,10 +30,7 @@ class Transaction(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     memo: str | None = None
 
-    model_config = {
-        "populate_by_name": True,
-        "from_attributes": True
-    }
+    model_config = {"populate_by_name": True, "from_attributes": True}
 
 
 class AssetSummary(BaseModel):

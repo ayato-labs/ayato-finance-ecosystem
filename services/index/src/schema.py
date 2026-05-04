@@ -19,6 +19,7 @@ COLUMNS = [
     "LoadTimestamp",
 ]
 
+
 def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     """
     DataFrameのデータ型とカラムを指数データ用に統一し、LoadTimestampを付与する。

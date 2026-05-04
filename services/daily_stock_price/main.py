@@ -1,8 +1,8 @@
 import argparse
 import sys
-from loguru import logger
 
 import duckdb
+from loguru import logger
 
 from src.engine import MarketDataEngine
 from src.fetchers.yf_fetcher import YFinanceFetcher
@@ -77,14 +77,15 @@ def main():
             sys.exit(1)
 
         logger.info(f"Starting API server on {args.host}:{args.port} (reload={args.reload})...")
-        import uvicorn
         import os
+
+        import uvicorn
 
         # Calculate optimal worker count based on CPU cores, leaving buffer for system stability
         cpu_count = os.cpu_count() or 1
         is_windows = sys.platform == "win32"
-        
-        # Safety formula: Use CPU-2, minimum 1. 
+
+        # Safety formula: Use CPU-2, minimum 1.
         # Only use multiple workers if reload is False to avoid conflicts.
         if is_windows:
             # Windows handles uvicorn workers poorly with the default spawn method,
@@ -92,15 +93,17 @@ def main():
             worker_count = 1
         else:
             worker_count = max(1, cpu_count - 2) if not args.reload else 1
-        
+
         if not args.reload:
             if is_windows:
                 logger.info(
-                    "Concurrency Hardening: Windows detected. Auto-scaling bypassed (Using 1 worker for stability)."
+                    "Concurrency Hardening: Windows detected. "
+                    "Auto-scaling bypassed (Using 1 worker for stability)."
                 )
             else:
                 logger.info(
-                    f"Concurrency Hardening: Auto-scaling enabled. Using {worker_count} workers for CPU cores: {cpu_count}"
+                    "Concurrency Hardening: Auto-scaling enabled. "
+                    f"Using {worker_count} workers for CPU cores: {cpu_count}"
                 )
 
         uvicorn.run(

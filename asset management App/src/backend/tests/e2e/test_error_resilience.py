@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import unittest.mock as mock
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient

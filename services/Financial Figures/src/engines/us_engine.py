@@ -3,13 +3,13 @@ import time
 from datetime import date
 from typing import Any
 
-import duckdb
 import httpx
 import pandas as pd
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.core.config import settings
+from src.core.db import db_manager
 
 
 class SECRateLimiter:
@@ -49,9 +49,10 @@ class USEngine:
             logger.info("Skipping US DB initialization in READ_ONLY mode.")
             return
 
-        with duckdb.connect(str(self.db_path)) as conn:
+        with db_manager.connect(self.db_path) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
+            conn.execute("PRAGMA disable_optimizer")
             # Table for Ticker to CIK mapping
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tickers (
@@ -115,9 +116,10 @@ class USEngine:
 
         df = pd.DataFrame(records, columns=["ticker", "cik", "name", "last_session_id"])  # noqa: F841
 
-        with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
+            conn.execute("PRAGMA disable_optimizer")
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tickers (ticker, cik, name, last_session_id)
@@ -136,7 +138,8 @@ class USEngine:
     )
     def fetch_company_facts(self, ticker: str) -> dict[str, Any] | None:
         """Fetch fundamental data for a specific ticker from SEC CompanyFacts API."""
-        with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            conn.execute("PRAGMA disable_optimizer")
             res = conn.execute("SELECT cik FROM tickers WHERE ticker = ?", [ticker]).fetchone()
             if not res:
                 logger.warning(
@@ -226,9 +229,10 @@ class USEngine:
         df["end_date"] = df["end_date"].apply(safe_date_parse)
         df["filed_date"] = df["filed_date"].apply(safe_date_parse)
 
-        with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
+            conn.execute("PRAGMA disable_optimizer")
             # Generate fact_id MD5 hash inside DuckDB for collision-free uniqueness
             conn.execute("""
                 INSERT OR IGNORE INTO company_facts (

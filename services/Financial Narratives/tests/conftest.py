@@ -1,11 +1,13 @@
+
 import pytest
-from pathlib import Path
+
 
 @pytest.fixture
 def temp_db_path(tmp_path):
     """テスト用の一時DuckDBパスを生成"""
     db_file = tmp_path / "test_finance.duckdb"
     return str(db_file)
+
 
 @pytest.fixture
 def sample_html():
@@ -23,6 +25,7 @@ def sample_html():
     </html>
     """
 
+
 @pytest.fixture
 def mock_filing_metadata():
     """テスト用のファイリングメタデータ"""
@@ -32,5 +35,5 @@ def mock_filing_metadata():
         "cik": "0001234567",
         "form": "10-K",
         "filingDate": "2024-04-27",
-        "primaryDocument": "test.htm"
+        "primaryDocument": "test.htm",
     }

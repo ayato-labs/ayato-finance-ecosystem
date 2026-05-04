@@ -19,7 +19,7 @@ def test_us_universe_fallback_no_key(temp_data_dir):
 
         tickers = manager.get_us_universe()
         assert "AAPL" in tickers
-        assert (temp_data_dir / "universe" / "us_tickers.csv").exists()
+        assert (temp_data_dir / "universe" / "us_tickers_full.csv").exists()
 
 def test_us_universe_fmp_integration(temp_data_dir):
     """Verify that UniverseManager uses FMP when a key is provided."""
@@ -29,7 +29,7 @@ def test_us_universe_fmp_integration(temp_data_dir):
     fmp_data = [
         {"symbol": "TSLA", "name": "Tesla", "exchangeShortName": "NASDAQ"},
         {"symbol": "MSFT", "name": "Microsoft", "exchangeShortName": "NASDAQ"},
-        {"symbol": "NON_US", "name": "Foreign", "exchangeShortName": "LSE"}
+        {"symbol": "NON_US", "name": "Foreign", "exchangeShortName": "LSE"},
     ]
 
     with patch("requests.get") as mock_get:
@@ -41,19 +41,26 @@ def test_us_universe_fmp_integration(temp_data_dir):
         tickers = manager.get_us_universe()
         assert "TSLA" in tickers
         assert "MSFT" in tickers
-        assert "NON_US" not in tickers # Should be filtered out
+        assert "NON_US" not in tickers  # Should be filtered out
         assert (temp_data_dir / "universe" / "us_tickers_full.csv").exists()
+
 
 def test_us_universe_fmp_failure_fallback(temp_data_dir):
     """Verify that if FMP fails (e.g., 401), it falls back to Wikipedia."""
     manager = UniverseManager(cache_dir=str(temp_data_dir / "universe"), fmp_api_key="bad_key")
 
     with patch("requests.get") as mock_get:
-        # First call (FMP) fails
+        # 1. FMP call fails
         mock_resp_fmp = MagicMock()
         mock_resp_fmp.raise_for_status.side_effect = Exception("Unauthorized")
 
-        # Second call (Wikipedia) succeeds
+        # 2 & 3. Nasdaq calls (should return empty/invalid for this test
+        # to trigger Wikipedia fallback)
+        mock_resp_nasdaq = MagicMock()
+        mock_resp_nasdaq.text = "Symbol|Security\n" # Empty data
+        mock_resp_nasdaq.status_code = 200
+
+        # 4. Wikipedia call succeeds
         mock_resp_wiki = MagicMock()
         mock_resp_wiki.text = (
             "<table><tr><th>Symbol</th><th>Security</th></tr>"
@@ -61,7 +68,8 @@ def test_us_universe_fmp_failure_fallback(temp_data_dir):
         )
         mock_resp_wiki.status_code = 200
 
-        mock_get.side_effect = [mock_resp_fmp, mock_resp_wiki]
+        # FMP -> Nasdaq1 -> Nasdaq2 -> Wikipedia
+        mock_get.side_effect = [mock_resp_fmp, mock_resp_nasdaq, mock_resp_nasdaq, mock_resp_wiki]
 
         tickers = manager.get_us_universe()
         assert "GOOG" in tickers

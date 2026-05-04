@@ -5,10 +5,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import duckdb
 from loguru import logger
 
 from src.core.audit_manager import audit_manager
+from src.core.config import settings
+from src.core.db import db_manager
 from src.engines.jp_engine import JPEngine
 from src.engines.us_engine import USEngine
 from src.mappers.ai_mapper import AIMapper
@@ -22,7 +23,6 @@ class BatchSyncService:
         audit_manager._init_db()
 
         # 3-Thread Architecture Queues (Producer-Consumer)
-        from src.core.config import settings
         self.db_queue = queue.Queue(maxsize=settings.SYNC_QUEUE_MAXSIZE)
         self.ai_queue = queue.Queue(maxsize=settings.SYNC_QUEUE_MAXSIZE)
         self.is_running = True
@@ -65,7 +65,9 @@ class BatchSyncService:
         logger.info("BatchSyncService stopped.")
 
     def _db_writer_worker(self):
-        """【Thread 1: DB Writer】 データベース書き込みを直列化し、競合を完全に防ぐスレッド"""
+        """【Thread 1: DB Writer】
+        データベース書き込みを直列化し、競合を完全に防ぐスレッド
+        """
         logger.info("DB Writer Thread started.")
         while self.is_running:
             task = None
@@ -78,63 +80,7 @@ class BatchSyncService:
                 task_type = task[0]
 
                 try:
-                    if task_type == "US_INGEST":
-                        _, ticker, data, session_id = task
-                        logger.info(f"[DBWriter] Ingesting US facts for {ticker}...")
-                        self.us_engine.ingest_facts(ticker, data, session_id)
-                        audit_manager.log_ticker_sync("US", ticker, 1, "SUCCESS")
-                        self._increment_stat("SUCCESS")
-                        self._queue_unmapped_tags("US", ticker, session_id)
-
-                    elif task_type == "JP_INGEST":
-                        _, code, df, session_id = task
-                        logger.info(f"[DBWriter] Ingesting JP facts for {code}...")
-                        self.jp_engine.ingest_facts(code, df, session_id)
-                        audit_manager.log_ticker_sync("JP", code, 1, "SUCCESS")
-                        self._increment_stat("SUCCESS")
-                        self._queue_unmapped_tags("JP", code, session_id)
-
-                    elif task_type == "JP_INGEST_BULK":
-                        _, date_str, df, session_id = task
-                        # In bulk mode, we group by ticker code and ingest each group
-                        # Note: J-Quants bulk might use 'LocalCode' or 'Code'
-                        if "LocalCode" in df.columns:
-                            code_col = "LocalCode"
-                        elif "Code" in df.columns:
-                            code_col = "Code"
-                        else:
-                            code_col = "code"
-
-                        unique_codes = df[code_col].unique()
-                        logger.info(
-                            f"[DBWriter] Ingesting bulk JP data for {len(unique_codes)} tickers from {date_str}..."
-                        )
-
-                        for code in unique_codes:
-                            ticker_df = df[df[code_col] == code]
-                            # Normalize column name for engine
-                            ticker_code = str(code)
-                            self.jp_engine.ingest_facts(ticker_code, ticker_df, session_id)
-                            audit_manager.log_ticker_sync("JP", ticker_code, 1, "SUCCESS")
-                            self._increment_stat("SUCCESS")
-                            # We don't queue mapping for EVERY ticker in bulk to avoid overloading AI queue
-                            # It will be caught in subsequent runs or we can sample it
-
-                    elif task_type == "LOG_ERROR":
-                        _, market, symbol, err_msg = task
-                        audit_manager.log_ticker_sync(market, symbol, 0, f"ERROR: {err_msg}")
-                        self._increment_stat("ERROR")
-
-                    elif task_type == "SAVE_MAPPING":
-                        _, session_id, source_tag, mapped_label, model, reasoning, conf = task
-                        audit_manager.log_mapping(
-                            session_id, source_tag, mapped_label, reasoning, conf, model
-                        )
-
-                    elif task_type == "LOG_SKIP":
-                        _, market, symbol, reason = task
-                        logger.info(f"Recording skip for {market}:{symbol} (Reason: {reason})")
-                        audit_manager.log_ticker_sync(market, symbol, 0, "SKIPPED_NOT_FOUND")
+                    self._process_db_task(task)
 
                 except Exception as e:
                     err_msg = str(e)
@@ -144,7 +90,8 @@ class BatchSyncService:
                         for kw in ["io error", "locked", "permission", "used by"]
                     ):
                         logger.warning(
-                            f"Transient DB Error ({task_type}). Re-queueing task. Error: {err_msg[:100]}"
+                            f"Transient DB Error ({task_type}). "
+                            f"Re-queueing task. Error: {err_msg[:100]}"
                         )
                         time.sleep(0.5)  # Throttling
                         self.db_queue.put(task)
@@ -223,7 +170,9 @@ class BatchSyncService:
             self._increment_stat("SUCCESS")
 
     def _ai_mapper_worker(self):
-        """【Thread 2: AI Mapper】 未知のタグをキューから受け取り、非同期でGeminiにマッピングさせるスレッド"""
+        """【Thread 2: AI Mapper】
+        未知のタグをキューから受け取り、非同期でGeminiにマッピングさせるスレッド
+        """
         logger.info("AI Mapper Thread started.")
         while self.is_running:
             try:
@@ -269,12 +218,12 @@ class BatchSyncService:
         col_name = "code"
         if market == "US":
             col_name = "cik"
-            with duckdb.connect(str(self.us_engine.db_path)) as conn:
+            with db_manager.connect(self.us_engine.db_path, read_only=True) as conn:
                 res = conn.execute("SELECT cik FROM tickers WHERE ticker = ?", [symbol]).fetchone()
                 if res:
                     db_id = res[0]
 
-        with duckdb.connect(str(engine.db_path)) as conn:
+        with db_manager.connect(engine.db_path, read_only=True) as conn:
             raw_tags = conn.execute(
                 f"SELECT DISTINCT tag, label FROM company_facts WHERE {col_name} = ?", [db_id]
             ).fetchall()
@@ -362,7 +311,7 @@ class BatchSyncService:
         logger.info("Syncing US Ticker list...")
         self.us_engine.sync_tickers(session_id)
 
-        with duckdb.connect(str(self.us_engine.db_path)) as conn:
+        with db_manager.connect(self.us_engine.db_path, read_only=True) as conn:
             all_symbols = [r[0] for r in conn.execute("SELECT ticker FROM tickers").fetchall()]
 
         synced = audit_manager.get_synced_symbols("US") if incremental else []

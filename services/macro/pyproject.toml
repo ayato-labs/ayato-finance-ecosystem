@@ -33,7 +33,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B"]
-ignore = ["E501"]
+ignore = ["PLR0913", "PLR0912", "PLR0915", "PLR2004", "PLC0415", "E402", "RUF001", "RUF002", "RUF003"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

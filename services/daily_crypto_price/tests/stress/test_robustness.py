@@ -10,6 +10,7 @@ STATUS_OK = 200
 MAX_WORKERS = 10
 REQUEST_COUNT = 20
 
+
 def test_rapid_requests():
     client = TestClient(app)
     ticker = "BTC"
@@ -27,6 +28,7 @@ def test_rapid_requests():
     for r in results:
         assert r.status_code == STATUS_OK
 
+
 def test_malformed_ticker_input():
     client = TestClient(app)
     # Testing very long ticker or special characters
@@ -35,12 +37,14 @@ def test_malformed_ticker_input():
     # Should probably be 404 or handled gracefully
     assert response.status_code in [404, 422]
 
+
 def test_sql_injection_attempt():
     client = TestClient(app)
     # Although we use parameterized queries, let's test a malicious string
     malicious_ticker = "BTC'; DROP TABLE prices; --"
     response = client.get(f"/prices/{malicious_ticker}")
-    assert response.status_code in [400, 404] # Should not execute drop table
+    assert response.status_code in [400, 404]  # Should not execute drop table
+
 
 def test_database_corruption_recovery(tmp_path):
     db_file = tmp_path / "corrupt.duckdb"

@@ -1,62 +1,21 @@
 import logging
-import random
 import threading
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import duckdb
-
 from src.core.config import settings
+from src.core.db import db_manager
 
 logger = logging.getLogger(__name__)
 
 
 class AuditManager:
     def __init__(self, db_path: Path | None = None):
-        # Use provided path or default from standardized settings (lazy evaluation suggested)
+        # Use provided path or default from standardized settings
         self._db_path_override = db_path
         self._lock = threading.Lock()
-
-    def _get_conn(self):
-        """Resilient connection helper for Windows file locks with Exponential Backoff."""
-        max_retries = 10
-        base_delay = 0.1  # 100ms
-
-        # Use a shared lock hint if possible
-
-        for i in range(max_retries):
-            try:
-                # Use a shared lock hint if possible (DuckDB doesn't have a direct 'shared' mode
-                # for connect, but read_only=True helps on some OSs)
-                conn = duckdb.connect(str(self.db_path), read_only=settings.db_read_only)
-                if i > 0:
-                    logger.info(f"Database connection re-established after {i} retries.")
-                return conn
-            except Exception as e:
-                err_str = str(e).lower()
-                is_lock_err = any(
-                    kw in err_str for kw in ["io error", "locked", "permission", "used by another"]
-                )
-
-                if is_lock_err and i < max_retries - 1:
-                    # Exponential backoff with jitter: (2^i * base_delay) + random jitter
-                    delay = (base_delay * (2**i)) + (random.random() * 0.1)
-                    logger.warning(
-                        f"Database lock detected (attempt {i + 1}/{max_retries}). "
-                        f"Retrying in {delay:.2f}s... Error: {err_str[:100]}"
-                    )
-                    time.sleep(delay)
-                    continue
-
-                if not is_lock_err:
-                    logger.error(f"Fatal database attachment error: {e}", exc_info=True)
-                raise e
-
-        # Last resort attempt
-        return duckdb.connect(str(self.db_path), read_only=settings.db_read_only)
 
     @property
     def db_path(self) -> Path:
@@ -70,7 +29,7 @@ class AuditManager:
 
         with self._lock:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path) as conn:
                 # Table for Sync Sessions (Process Level)
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS sync_sessions (
@@ -121,7 +80,7 @@ class AuditManager:
         git_hash = "dev-local"
 
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT INTO sync_sessions (
@@ -141,7 +100,7 @@ class AuditManager:
         """Close a sync session with final stats."""
         self._init_db()
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     UPDATE sync_sessions
@@ -169,7 +128,7 @@ class AuditManager:
         self._init_db()
         mapping_id = str(uuid.uuid4())
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT INTO mapping_audit (
@@ -193,7 +152,7 @@ class AuditManager:
         """Update the last sync state for a specific ticker."""
         self._init_db()
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO sync_progress (
@@ -207,7 +166,7 @@ class AuditManager:
         """Fetch symbols that have been synced recently."""
         self._init_db()
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path, read_only=True) as conn:
                 res = conn.execute(
                     """
                     SELECT symbol FROM sync_progress
@@ -224,7 +183,7 @@ class AuditManager:
             return []
         self._init_db()
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path, read_only=True) as conn:
                 placeholders = ",".join(["?"] * len(source_tags))
                 res = conn.execute(
                     f"SELECT source_tag FROM mapping_audit WHERE source_tag IN ({placeholders})",
@@ -237,7 +196,7 @@ class AuditManager:
         """Retrieve the most recent sync sessions for status reporting."""
         self._init_db()
         with self._lock:
-            with self._get_conn() as conn:
+            with db_manager.connect(self.db_path, read_only=True) as conn:
                 res = conn.execute(
                     """
                     SELECT session_id, market, status, started_at FROM sync_sessions

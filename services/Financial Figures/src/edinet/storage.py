@@ -1,11 +1,11 @@
 import os
 from datetime import date
 
-import duckdb
 import pandas as pd
 from loguru import logger
 
 from src.core.config import settings
+from src.core.db import db_manager
 
 
 class EDINETStorage:
@@ -29,7 +29,7 @@ class EDINETStorage:
         if settings.db_read_only:
             logger.info("Skipping EDINET DB initialization in READ_ONLY mode.")
             return
-        with duckdb.connect(self.db_path) as con:
+        with db_manager.connect(self.db_path) as con:
             # Document Metadata
             con.execute("""
                 CREATE TABLE IF NOT EXISTS documents (
@@ -101,7 +101,7 @@ class EDINETStorage:
         """Saves document metadata with conflict handling."""
         logger.info(f"[DB] Saving document metadata: doc_id={doc_data['docID']}")
         try:
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
                 con.execute(
                     """
                     INSERT OR IGNORE INTO documents (
@@ -123,7 +123,7 @@ class EDINETStorage:
     def is_document_exists(self, doc_id: str) -> bool:
         """Checks if a document has already been processed."""
         try:
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
                 res = con.execute("SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
                 return res is not None
         except Exception as e:
@@ -133,7 +133,7 @@ class EDINETStorage:
     def get_last_sync_date(self) -> date | None:
         """Retrieves the most recent submission date stored in the database."""
         try:
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
                 res = con.execute("SELECT MAX(submission_date) FROM documents").fetchone()
                 if res and res[0]:
                     return res[0]
@@ -150,7 +150,7 @@ class EDINETStorage:
 
         logger.info(f"[DB] Bulk inserting {len(facts)} raw facts for doc_id={doc_id}")
         try:
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as con:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as con:
                 con.executemany(
                     """
                     INSERT INTO raw_facts (
@@ -174,7 +174,7 @@ class EDINETStorage:
         logger.info(f"[DB] Saving {len(facts)} normalized facts to company_facts...")
         try:
             ingest_df = pd.DataFrame(facts)
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
                 # Use register to ensure DuckDB sees the dataframe reliably
                 conn.register("ingest_df", ingest_df)
                 conn.execute(
@@ -202,7 +202,7 @@ class EDINETStorage:
         logger.info(f"[DB] Logging {len(audit_records)} reconciliation decisions for audit.")
         try:
             audit_df = pd.DataFrame(audit_records)
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
                 conn.register("audit_df", audit_df)
                 conn.execute(
                     """

@@ -1,12 +1,16 @@
 import logging
 
-import duckdb
-import jquantsapi
 import pandas as pd
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+try:
+    import jquantsapi
+except ImportError:
+    jquantsapi = None
+
 from src.core.config import settings
+from src.core.db import db_manager
 
 
 class JPEngine:
@@ -52,7 +56,7 @@ class JPEngine:
             logger.info("Skipping JP DB initialization in READ_ONLY mode.")
             return
 
-        with duckdb.connect(str(self.db_path)) as conn:
+        with db_manager.connect(self.db_path) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute("""
@@ -136,9 +140,10 @@ class JPEngine:
             }
         )
 
-        with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
+            conn.execute("PRAGMA disable_optimizer")
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tickers (
@@ -190,24 +195,41 @@ class JPEngine:
             return
 
         ignore_cols = [
-            "LocalCode", "DisclosedDate", "FiscalYear", "FiscalPeriod", "DocType",
-            "CurPerType", "CurPerSt", "CurPerEn", "CurFYSt", "CurFYEn",
-            "NxtFYSt", "NxtFYEn", "DEPS", "REPS", "Type", "Code"
+            "LocalCode",
+            "DisclosedDate",
+            "FiscalYear",
+            "FiscalPeriod",
+            "DocType",
+            "CurPerType",
+            "CurPerSt",
+            "CurPerEn",
+            "CurFYSt",
+            "CurFYEn",
+            "NxtFYSt",
+            "NxtFYEn",
+            "DEPS",
+            "REPS",
+            "Type",
+            "Code",
         ]
-        
-        id_vars = [c for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"] if c in df.columns]
-        
+
+        id_vars = [
+            c
+            for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"]
+            if c in df.columns
+        ]
+
         # 2. Vectorized Unpivot (Melt)
         melted = df.melt(id_vars=id_vars, var_name="tag", value_name="value")
-        
+
         # 3. Filter and Clean
         melted = melted[~melted["tag"].isin(ignore_cols)]
         melted = melted.dropna(subset=["value"])
-        
+
         # Numeric conversion (Coerce errors to NaN then drop)
         melted["value"] = pd.to_numeric(melted["value"], errors="coerce")
         melted = melted.dropna(subset=["value"])
-        
+
         if melted.empty:
             return
 
@@ -217,7 +239,7 @@ class JPEngine:
         melted["code"] = melted["code"].apply(
             lambda c: c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
         )
-        
+
         melted["disclosed_date"] = pd.to_datetime(melted[date_col]).dt.strftime("%Y-%m-%d")
         melted["fiscal_year"] = melted.get("FiscalYear")
         melted["fiscal_period"] = melted.get("FiscalPeriod")
@@ -230,9 +252,10 @@ class JPEngine:
         # 5. Bulk Ingest to DuckDB
         logger.info(f"Ingesting {len(melted)} fact records for JP Ticker {code}...")
 
-        with duckdb.connect(str(self.db_path), read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
+            conn.execute("PRAGMA disable_optimizer")
             conn.execute(
                 """
                 INSERT OR IGNORE INTO company_facts (

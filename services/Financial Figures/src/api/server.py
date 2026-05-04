@@ -1,15 +1,14 @@
 import os
-import random
 import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
 
-import duckdb
 from fastapi import FastAPI, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from src.core.config import settings
+from src.core.db import db_manager
 from src.edinet.sync_worker import EDINETSyncWorker
 from src.services.market_sync import BatchSyncService
 
@@ -57,8 +56,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ... (CORS middleware remains the same)
-
 
 class DBManager:
     def __init__(self):
@@ -67,60 +64,26 @@ class DBManager:
         settings.DB_PATH_TRACEABILITY.parent.mkdir(parents=True, exist_ok=True)
         self.read_only = os.getenv("DB_READ_ONLY", "false").lower() == "true"
         if self.read_only:
-            logger.info("Operating in READ_ONLY mode (Short-lived connections).")
-
-    @contextmanager
-    def _get_conn_with_retry(self, db_path: str):
-        max_retries = 5
-        base_delay = 0.5
-        last_exception = None
-
-        for i in range(max_retries):
-            try:
-                conn = duckdb.connect(db_path, read_only=self.read_only)
-                try:
-                    yield conn
-                finally:
-                    conn.close()
-                return
-            except Exception as e:
-                last_exception = e
-                # Check if it's a lock error
-                if "Locked" in str(e) or "access" in str(e).lower():
-                    delay = (base_delay * (2**i)) + (random.random() * 0.1)
-                    logger.warning(
-                        f"Database busy, retrying in {delay:.2f}s... "
-                        f"(Attempt {i + 1}/{max_retries})"
-                    )
-                    time.sleep(delay)
-                    continue
-                raise e
-
-        logger.error(
-            f"Failed to connect to database after {max_retries} attempts: {last_exception}"
-        )
-        raise HTTPException(
-            status_code=503, detail="Database is temporarily busy. Please try again."
-        )
+            logger.info("Operating in READ_ONLY mode (Standardized Manager).")
 
     @contextmanager
     def get_us_conn(self):
-        with self._get_conn_with_retry(str(settings.DB_PATH_US)) as conn:
+        with db_manager.connect(settings.DB_PATH_US, read_only=self.read_only) as conn:
             yield conn
 
     @contextmanager
     def get_jp_conn(self):
-        with self._get_conn_with_retry(str(settings.DB_PATH_JP)) as conn:
+        with db_manager.connect(settings.DB_PATH_JP, read_only=self.read_only) as conn:
             yield conn
 
     @contextmanager
     def get_audit_conn(self):
-        with self._get_conn_with_retry(str(settings.DB_PATH_TRACEABILITY)) as conn:
+        with db_manager.connect(settings.DB_PATH_TRACEABILITY, read_only=self.read_only) as conn:
             yield conn
 
     @contextmanager
     def get_edinet_conn(self):
-        with self._get_conn_with_retry(str(settings.DB_PATH_EDINET)) as conn:
+        with db_manager.connect(settings.DB_PATH_EDINET, read_only=self.read_only) as conn:
             yield conn
 
 

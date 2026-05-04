@@ -1,11 +1,11 @@
 import time
 
-import duckdb
 from dotenv import load_dotenv
 
 from src.core.audit_manager import audit_manager
 from src.core.config import settings
-from src.mappers.ai_mapper import AIMapper
+from src.core.db import db_manager
+from src.edinet.mapping import AIMapper
 
 
 def map_all_tags():
@@ -19,7 +19,7 @@ def map_all_tags():
 
     # 2. Extract Top Unique Tags from US DB (Optimization for Prototype)
     print(f"Extracting top 50 most frequent tags from {settings.DB_PATH_US}...")
-    with duckdb.connect(str(settings.DB_PATH_US)) as conn:
+    with db_manager.connect(settings.DB_PATH_US, read_only=True) as conn:
         # Get taxonomy and tag combinations, ordered by frequency
         tags = conn.execute("""
             SELECT taxonomy, tag, count(*) as freq
@@ -32,8 +32,7 @@ def map_all_tags():
     print(f"Found {len(tags)} unique tags in database.")
 
     # 3. Check already mapped tags in Audit DB
-    audit_db_path = settings.DATA_DIR / "audit" / "traceability.duckdb"
-    with duckdb.connect(str(audit_db_path)) as conn:
+    with db_manager.connect(settings.DB_PATH_TRACEABILITY, read_only=True) as conn:
         mapped_tags = set(
             r[0] for r in conn.execute("SELECT source_tag FROM mapping_audit").fetchall()
         )

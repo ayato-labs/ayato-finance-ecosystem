@@ -16,6 +16,7 @@ class EDINETClient:
     """
 
     BASE_URL = "https://api.edinet-fsa.go.jp/api/v2"
+    MIN_CONTENT_SIZE = 100
 
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or settings.EDINET_API_KEY
@@ -82,14 +83,15 @@ class EDINETClient:
                     )
                 except Exception:
                     logger.warning(
-                        f"[SKIP] Doc {doc_id} returned JSON instead of ZIP. Content: {response.text[:100]}"
+                        f"[SKIP] Doc {doc_id} returned JSON instead of ZIP. "
+                        f"Content: {response.text[:100]}"
                     )
                 return None
 
             content_size = len(response.content)
             logger.info(f"[TRACE] Download complete: doc_id={doc_id}, size={content_size} bytes")
 
-            if content_size < 100:
+            if content_size < self.MIN_CONTENT_SIZE:
                 logger.warning(
                     f"Doc {doc_id} returned suspiciously small content ({content_size}b)"
                 )
@@ -97,7 +99,8 @@ class EDINETClient:
             # Validate that the downloaded bytes form a legitimate ZIP file.
             if not zipfile.is_zipfile(io.BytesIO(response.content)):
                 logger.warning(
-                    f"[SKIP] Doc {doc_id} is not a valid ZIP file (Content-Type: {content_type}, Size: {content_size}b)."
+                    f"[SKIP] Doc {doc_id} is not a valid ZIP file "
+                    f"(Content-Type: {content_type}, Size: {content_size}b)."
                 )
                 return None
 

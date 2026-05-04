@@ -1,8 +1,9 @@
-# Version: 1.0.1 - Fixed Indentation
 import logging
 
-import duckdb
 import pandas as pd
+
+from src.core.config import settings
+from src.core.db import db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -13,18 +14,19 @@ class EDINETMapper:
     using the master CSV provided by FSA.
     """
 
+    TICKER_LEN_WITH_CHECK_DIGIT = 5
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._init_db()
 
     def _init_db(self):
         """Ensure the mapping table exists in DuckDB."""
-        from src.core.config import settings
 
         if settings.db_read_only:
             logger.debug("Skipping EDINET Mapping DB initialization in READ_ONLY mode.")
             return
-        with duckdb.connect(self.db_path) as conn:
+        with db_manager.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS edinet_tickers (
                     edinet_code VARCHAR PRIMARY KEY,
@@ -42,7 +44,6 @@ class EDINETMapper:
         Load EdinetcodeDlInfo.csv and update the database.
         The CSV is expected to be CP932 (Shift-JIS) encoded.
         """
-        from src.core.config import settings
 
         logger.info(f"Loading EDINET code master from {csv_path}")
         try:
@@ -76,7 +77,7 @@ class EDINETMapper:
                 if pd.isna(val):
                     return None
                 s = str(val).strip().split(".")[0]
-                if len(s) == 5 and s.endswith("0"):
+                if len(s) == self.TICKER_LEN_WITH_CHECK_DIGIT and s.endswith("0"):
                     return s[:4]
                 return s
 
@@ -87,12 +88,14 @@ class EDINETMapper:
             logger.info(f"Identified {len(listed_df)} listed companies in CSV.")
 
             # UPSERT into DuckDB
-            with duckdb.connect(self.db_path, read_only=settings.db_read_only) as conn:
+            with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
                 # Use a temp table for upsert
                 conn.execute("CREATE TEMP TABLE tmp_edinet AS SELECT * FROM listed_df")
                 conn.execute("""
                     INSERT OR REPLACE INTO edinet_tickers
-                    SELECT edinet_code, ticker, company_name, submitter_type, industry, CURRENT_TIMESTAMP
+                    SELECT
+                        edinet_code, ticker, company_name, submitter_type, industry,
+                        CURRENT_TIMESTAMP
                     FROM tmp_edinet
                 """)
                 logger.info("Successfully updated edinet_tickers master table.")
@@ -103,16 +106,14 @@ class EDINETMapper:
 
     def get_ticker_to_edinet(self) -> dict[str, str]:
         """Return a mapping of Ticker -> EDINET Code."""
-        from src.core.config import settings
 
-        with duckdb.connect(self.db_path, read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             res = conn.execute("SELECT ticker, edinet_code FROM edinet_tickers").fetchall()
             return {r[0]: r[1] for r in res}
 
     def get_all_target_edinet_codes(self) -> list[str]:
         """Return a list of all EDINET codes for listed companies."""
-        from src.core.config import settings
 
-        with duckdb.connect(self.db_path, read_only=settings.db_read_only) as conn:
+        with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             res = conn.execute("SELECT edinet_code FROM edinet_tickers").fetchall()
             return [r[0] for r in res]

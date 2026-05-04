@@ -66,5 +66,8 @@ yarn-error.log*
 Thumbs.db
 Desktop.ini
 
+# D. Temporary & Experimental
+**/scratch/
+
 # Projects & Private Data
 Intrinsic Value/
