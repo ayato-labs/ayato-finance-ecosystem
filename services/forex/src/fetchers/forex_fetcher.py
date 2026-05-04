@@ -6,10 +6,12 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+
 class ForexFetcher:
     """
     yfinanceを使用して為替レートを取得し、USDを基準に正規化するフェッチャー。
     """
+
     def __init__(self):
         # Ticker mappings: (Symbol, is_inverse_to_usd)
         # yfinance JPY=X gives USD/JPY (How many JPY for 1 USD)
@@ -28,13 +30,10 @@ class ForexFetcher:
         """
         if symbol == "USD":
             # USD case: static rate 1.0
-            dates = pd.date_range(start=start_date, end=datetime.now(), freq='D')
-            df = pd.DataFrame({
-                "Date": dates,
-                "Symbol": "USD",
-                "Rate": 1.0,
-                "LoadTimestamp": datetime.now()
-            })
+            dates = pd.date_range(start=start_date, end=datetime.now(), freq="D")
+            df = pd.DataFrame(
+                {"Date": dates, "Symbol": "USD", "Rate": 1.0, "LoadTimestamp": datetime.now()}
+            )
             return df
 
         if symbol not in self.tickers:

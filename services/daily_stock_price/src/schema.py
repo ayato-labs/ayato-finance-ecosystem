@@ -38,6 +38,10 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     elif "date" in df.columns:
         df = df.rename(columns={"date": "Date"})
 
+    # カラム名の標準化 (Stock Splits -> StockSplits)
+    if "Stock Splits" in df.columns:
+        df = df.rename(columns={"Stock Splits": "StockSplits"})
+
     # 一旦コピーを作成して作業 (破壊的変更を避ける)
     df = df.copy()
 
@@ -70,9 +74,9 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     # 発行済株式数も巨大な数値になるため float64 (または int64) で扱う。
     # 欠損値を許容するため float64 をデフォルトとする。
     if "SharesOutstanding" in df.columns:
-        df["SharesOutstanding"] = pd.to_numeric(
-            df["SharesOutstanding"], errors="coerce"
-        ).astype(np.float64)
+        df["SharesOutstanding"] = pd.to_numeric(df["SharesOutstanding"], errors="coerce").astype(
+            np.float64
+        )
     else:
         df["SharesOutstanding"] = np.nan
 
@@ -81,6 +85,3 @@ def enforce_schema(df: pd.DataFrame, ticker: str, source: str) -> pd.DataFrame:
     df["Source"] = df["Source"].astype("category")
 
     return df
-
-
-

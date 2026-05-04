@@ -13,6 +13,7 @@ BTC_CLOSE_UPDATED = 105.0
 BTC_SUPPLY = 19000000.0
 PARTIAL_SUPPLY = 1000.0
 
+
 @pytest.fixture
 def temp_db():
     db_path = "tests/test_crypto.duckdb"
@@ -24,8 +25,10 @@ def temp_db():
     if path.exists():
         path.unlink()
 
+
 def test_engine_initialization(temp_db):
     assert Path(temp_db.db_path).exists()
+
 
 def test_engine_save_and_get_prices(temp_db):
     data = {
@@ -34,7 +37,7 @@ def test_engine_save_and_get_prices(temp_db):
         "High": [105.0, 115.0],
         "Low": [95.0, 105.0],
         "Close": [102.0, 112.0],
-        "Volume": [1000, 1100]
+        "Volume": [1000, 1100],
     }
     df = pd.DataFrame(data)
     temp_db.save_prices("TESTBTC", df)
@@ -44,24 +47,38 @@ def test_engine_save_and_get_prices(temp_db):
     assert results[0]["ticker"] == "TESTBTC"
     assert results[0]["Close"] == BTC_CLOSE_INITIAL
 
+
 def test_engine_upsert_behavior(temp_db):
     # First save
-    df1 = pd.DataFrame({
-        "Date": ["2023-01-01"], "Open": [100.0], "High": [105.0],
-        "Low": [95.0], "Close": [102.0], "Volume": [1000]
-    })
+    df1 = pd.DataFrame(
+        {
+            "Date": ["2023-01-01"],
+            "Open": [100.0],
+            "High": [105.0],
+            "Low": [95.0],
+            "Close": [102.0],
+            "Volume": [1000],
+        }
+    )
     temp_db.save_prices("UPSERT_TEST", df1)
 
     # Update same date
-    df2 = pd.DataFrame({
-        "Date": ["2023-01-01"], "Open": [100.0], "High": [105.0],
-        "Low": [95.0], "Close": [BTC_CLOSE_UPDATED], "Volume": [1000]
-    })
+    df2 = pd.DataFrame(
+        {
+            "Date": ["2023-01-01"],
+            "Open": [100.0],
+            "High": [105.0],
+            "Low": [95.0],
+            "Close": [BTC_CLOSE_UPDATED],
+            "Volume": [1000],
+        }
+    )
     temp_db.save_prices("UPSERT_TEST", df2)
 
     results = temp_db.get_prices("UPSERT_TEST")
     assert len(results) == EXPECTED_COUNT_1
     assert results[0]["Close"] == BTC_CLOSE_UPDATED  # Should be updated
+
 
 def test_engine_save_and_get_metadata(temp_db):
     meta = {
@@ -69,7 +86,7 @@ def test_engine_save_and_get_metadata(temp_db):
         "total_supply": 21000000.0,
         "max_supply": 21000000.0,
         "market_cap": 400000000000.0,
-        "description": "Test Bitcoin Description"
+        "description": "Test Bitcoin Description",
     }
     temp_db.save_metadata("BTC", meta)
 
@@ -78,6 +95,7 @@ def test_engine_save_and_get_metadata(temp_db):
     assert result["circulating_supply"] == BTC_SUPPLY
     assert result["description"] == "Test Bitcoin Description"
     assert "last_updated" in result
+
 
 def test_engine_metadata_overwrite(temp_db):
     # Initial save
@@ -88,9 +106,11 @@ def test_engine_metadata_overwrite(temp_db):
     result = temp_db.get_metadata("OVERWRITE")
     assert result["description"] == "Second"
 
+
 def test_engine_missing_metadata(temp_db):
     result = temp_db.get_metadata("UNKNOWN")
     assert result is None
+
 
 def test_engine_partial_metadata(temp_db):
     # Only supply provided

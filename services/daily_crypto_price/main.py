@@ -24,9 +24,11 @@ db = CryptoDBEngine(db_path=os.getenv("DATABASE_PATH", "crypto_prices.duckdb"))
 
 TICKER_REGEX = re.compile(r"^[A-Z0-9\-\.\_]+$")
 
+
 @app.get("/")
 async def root():
     return {"message": "Daily Crypto Price API is running"}
+
 
 @app.get("/prices/{ticker}")
 async def get_prices(ticker: str, sync: bool = Query(False)):
@@ -35,7 +37,7 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
     If sync=True, it fetches latest data from Yahoo Finance first.
     """
     clean_ticker = ticker.upper().strip()
-    
+
     # Validation
     if not TICKER_REGEX.match(clean_ticker):
         logger.warning(f"Invalid ticker format rejected: {clean_ticker}")
@@ -45,14 +47,14 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
     # Standardize ticker for crypto
     clean_ticker = clean_ticker.replace("-USD", "")
-    
+
     if sync:
         try:
             # Sync Prices
             df = fetcher.fetch_daily_data(clean_ticker)
             if not df.empty:
                 db.save_prices(clean_ticker, df)
-            
+
             # Sync Metadata
             meta = fetcher.fetch_metadata(clean_ticker)
             if meta:
@@ -66,12 +68,9 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
     if not prices:
         raise HTTPException(status_code=404, detail=f"Ticker {clean_ticker} not found")
-    
-    return {
-        "ticker": clean_ticker,
-        "prices": prices,
-        "metadata": metadata
-    }
+
+    return {"ticker": clean_ticker, "prices": prices, "metadata": metadata}
+
 
 if __name__ == "__main__":
     host = os.getenv("CRYPTO_API_HOST", "127.0.0.1")

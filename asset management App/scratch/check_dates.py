@@ -1,5 +1,7 @@
-import httpx
 import asyncio
+
+import httpx
+
 
 async def main():
     async with httpx.AsyncClient() as client:
@@ -8,5 +10,6 @@ async def main():
         print(f"Oldest: {data[0]['Date']}")
         print(f"Newest: {data[-1]['Date']}")
         print(f"Total rows: {len(data)}")
+
 
 asyncio.run(main())

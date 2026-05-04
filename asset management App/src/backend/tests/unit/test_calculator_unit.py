@@ -149,4 +149,3 @@ def test_advanced_metrics_calculation():
     assert sortino is None
     assert beta is None
     assert corr is None
-

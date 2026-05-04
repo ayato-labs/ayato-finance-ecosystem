@@ -13,7 +13,6 @@ from src.fetchers.yf_fetcher import YFinanceFetcher
 # Configure logging
 
 
-
 app = FastAPI(
     title="Daily Stock Price API",
     description="High-performance financial data access layer leveraging DuckDB and Parquet",
@@ -29,11 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Initialize Engine (Using default data path)
 def get_engine():
     """Dependency provider for the MarketDataEngine."""
     fetcher = YFinanceFetcher()
     return MarketDataEngine(fetcher=fetcher)
+
 
 # --- Models ---
 class PriceRecord(BaseModel):
@@ -45,20 +46,25 @@ class PriceRecord(BaseModel):
     Close: float
     Volume: int
     StockSplits: float
-    SharesOutstanding: float | None
+    SharesOutstanding: float | None = None
     Source: str
+
     LoadTimestamp: datetime
+
 
 class QueryRequest(BaseModel):
     sql: str
     limit: int | None = 100
+
 
 class SyncResponse(BaseModel):
     status: str
     ticker: str
     message: str | None = None
 
+
 # --- Endpoints ---
+
 
 @app.get("/")
 def read_root():
@@ -73,30 +79,29 @@ def read_root():
         "docs": "/docs",
     }
 
+
 @app.get("/status")
 async def get_status(engine: MarketDataEngine = Depends(get_engine)):  # noqa: B008
     """Returns database overview metrics using the metadata catalog."""
     try:
         stats = engine.catalog.get_stats()
-        return {
-            "status": "ready",
-            "catalog_stats": stats,
-            "last_updated": datetime.now()
-        }
+        return {"status": "ready", "catalog_stats": stats, "last_updated": datetime.now()}
     except Exception as e:
         logger.error(f"Status check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @app.get("/prices/{ticker}", response_model=list[PriceRecord])
 def get_prices(
     ticker: str,
     start_date: str | None = None,
     end_date: str | None = None,
-    engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
+    engine: MarketDataEngine = Depends(get_engine),  # noqa: B008
 ):
     """Retrieves price history for a specific ticker using the deduplicated view."""
     try:
         db = duckdb.connect()
+        db.execute("PRAGMA disable_optimizer")
         # Get the smart view SQL from the engine
         base_sql = engine.get_synced_view(ticker)
         if not base_sql:
@@ -117,6 +122,10 @@ def get_prices(
         if df.empty:
             return []
 
+        # Convert timestamps to strings for consistent dict records
+        df["Date"] = df["Date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        df["LoadTimestamp"] = df["LoadTimestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
         records = df.to_dict(orient="records")
         # Replace NaN with None for JSON compliance
         return [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
@@ -126,11 +135,12 @@ def get_prices(
         logger.error(f"Price retrieval failed for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
 @app.post("/sync/{ticker}", response_model=SyncResponse)
 def sync_ticker(
     ticker: str,
     days: int | None = Query(None, description="Number of days to look back"),
-    engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
+    engine: MarketDataEngine = Depends(get_engine),  # noqa: B008
 ):
     """Triggers an on-demand synchronization for a specific ticker."""
     try:
@@ -141,9 +151,11 @@ def sync_ticker(
         logger.error(f"Sync failed for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}") from e
 
+
 @app.post("/query")
 def run_query(
-    request: QueryRequest, engine: MarketDataEngine = Depends(get_engine)  # noqa: B008
+    request: QueryRequest,
+    engine: MarketDataEngine = Depends(get_engine),  # noqa: B008
 ):
     """
     Executes raw analytical SQL against the data lake.
@@ -152,6 +164,7 @@ def run_query(
     """
     try:
         db = duckdb.connect()
+        db.execute("PRAGMA disable_optimizer")
         path = str(engine.base_dir / "**/*.parquet").replace("\\", "/")
         processed_sql = request.sql.replace("{T}", f"read_parquet('{path}')")
 

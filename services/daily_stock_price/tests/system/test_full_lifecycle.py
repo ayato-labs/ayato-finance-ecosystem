@@ -9,6 +9,7 @@ from tests.conftest import FakeFetcher
 STATUS_OK = 200
 EXPECTED_PRICE_COUNT = 5
 
+
 def test_full_system_handshake(temp_data_dir):
     """
     Tier 3: System Test.

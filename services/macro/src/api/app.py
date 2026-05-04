@@ -3,10 +3,10 @@ from fastapi import FastAPI, HTTPException
 from ..engine import MacroEngine
 from ..fetchers.fred_fetcher import FredFetcher
 
-
 app = FastAPI(title="Macro Economic API")
 engine = MacroEngine()
 fetcher = FredFetcher()
+
 
 @app.get("/indicators/{symbol}")
 async def get_indicator(symbol: str):
@@ -17,6 +17,7 @@ async def get_indicator(symbol: str):
     if not data:
         raise HTTPException(status_code=404, detail=f"No data found for {symbol}")  # noqa: PLR2004
     return data
+
 
 @app.post("/sync/{symbol}")
 async def sync_indicator(symbol: str):
@@ -31,6 +32,7 @@ async def sync_indicator(symbol: str):
 
     engine.save_data(symbol, df)
     return {"status": "success", "rows_added": len(df)}
+
 
 @app.get("/health")
 async def health():

@@ -24,10 +24,7 @@ class YFinanceFetcher(BaseFetcher):
         logger.info(f"Downloading {ticker} via yfinance starting from {start_date.date()}...")
         try:
             df = yf.download(
-                ticker,
-                start=start_date.strftime("%Y-%m-%d"),
-                progress=False,
-                actions=True
+                ticker, start=start_date.strftime("%Y-%m-%d"), progress=False, actions=True
             )
             if df.empty:
                 logger.warning(f"yfinance returned empty data for {ticker}")
@@ -73,7 +70,7 @@ class YFinanceFetcher(BaseFetcher):
                 start=start_date.strftime("%Y-%m-%d"),
                 progress=False,
                 group_by="column",
-                actions=True
+                actions=True,
             )
 
             if df.empty:
@@ -108,5 +105,3 @@ class YFinanceFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"yfinance error during batch fetch: {e}")
             raise  # Propagate up for traceability logging
-
-

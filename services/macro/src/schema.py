@@ -15,6 +15,7 @@ COLUMNS = [
     "LoadTimestamp",
 ]
 
+
 def enforce_schema(df: pd.DataFrame, symbol: str, source: str) -> pd.DataFrame:
     """
     DataFrameのデータ型とカラムをマクロデータ用に統一し、LoadTimestampを付与する。

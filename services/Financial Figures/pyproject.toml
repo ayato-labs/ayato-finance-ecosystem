@@ -38,7 +38,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF"]
-ignore = ["PLR0913", "PLR0912", "PLR0915"] # Allow complex financial functions and AI mapping logic
+ignore = ["PLR0913", "PLR0912", "PLR0915", "PLR2004", "PLC0415", "E402", "RUF001", "RUF002", "RUF003"] # Allow complex financial functions and AI mapping logic
 
 [tool.ruff.format]
 quote-style = "double"

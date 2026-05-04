@@ -45,11 +45,9 @@ class PortfolioCalculator:
             max_dd = 0.0
             peak = daily_values[0]
             for v in daily_values:
-                if v > peak:
-                    peak = v
+                peak = max(peak, v)
                 dd = (v - peak) / peak if peak > 0 else 0
-                if dd < max_dd:
-                    max_dd = dd
+                max_dd = min(max_dd, dd)
 
             max_dd_pct = max_dd * 100
 
@@ -96,13 +94,10 @@ class PortfolioCalculator:
             p_mean = sum(portfolio_returns) / len(portfolio_returns)
             b_mean = sum(benchmark_returns) / len(benchmark_returns)
 
-            covariance = (
-                sum(
-                    (p - p_mean) * (b - b_mean)
-                    for p, b in zip(portfolio_returns, benchmark_returns, strict=False)
-                )
-                / len(portfolio_returns)
-            )
+            covariance = sum(
+                (p - p_mean) * (b - b_mean)
+                for p, b in zip(portfolio_returns, benchmark_returns, strict=False)
+            ) / len(portfolio_returns)
             b_variance = sum((b - b_mean) ** 2 for b in benchmark_returns) / len(benchmark_returns)
 
             beta = covariance / b_variance if b_variance > 0 else 1.0

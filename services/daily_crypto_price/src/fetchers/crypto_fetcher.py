@@ -4,6 +4,7 @@ import pandas as pd
 import yfinance as yf
 from loguru import logger
 
+
 class CryptoPriceFetcher:
     def __init__(self):
         pass
@@ -24,7 +25,7 @@ class CryptoPriceFetcher:
             if df.empty:
                 logger.warning(f"No data found for {yf_symbol}")
                 return pd.DataFrame()
-            
+
             # Clean columns (Handle MultiIndex if necessary)
             if isinstance(df.columns, pd.MultiIndex):
                 # If yfinance returned multiple tickers (e.g. from space-separated input)
@@ -33,11 +34,17 @@ class CryptoPriceFetcher:
 
             df = df.reset_index()
             # Ensure standard names
-            df = df.rename(columns={
-                "Date": "Date", "Close": "Close", "Open": "Open",
-                "High": "High", "Low": "Low", "Volume": "Volume"
-            })
-            
+            df = df.rename(
+                columns={
+                    "Date": "Date",
+                    "Close": "Close",
+                    "Open": "Open",
+                    "High": "High",
+                    "Low": "Low",
+                    "Volume": "Volume",
+                }
+            )
+
             # Convert Date to string YYYY-MM-DD
             df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
 
@@ -69,7 +76,7 @@ class CryptoPriceFetcher:
                 "total_supply": info.get("totalSupply"),
                 "max_supply": info.get("maxSupply"),
                 "market_cap": info.get("marketCap"),
-                "description": info.get("description")
+                "description": info.get("description"),
             }
         except Exception as e:
             logger.exception(f"Unexpected error fetching metadata for {yf_symbol}: {e}")

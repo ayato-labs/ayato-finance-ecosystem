@@ -8,6 +8,11 @@ from typing import Any
 import httpx
 from loguru import logger
 
+# Constants
+HTTP_OK = 200
+HTTP_NOT_FOUND = 404
+DEFAULT_TIMEOUT = 10.0
+
 
 class ExternalApiAggregator:
     def __init__(
@@ -45,8 +50,8 @@ class ExternalApiAggregator:
         logger.info(f"Fetching latest price for {ticker} from {url}...")
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                if response.status_code == 404:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                if response.status_code == HTTP_NOT_FOUND:
                     logger.warning(f"Ticker {ticker} not found in price database.")
                     return None
                 response.raise_for_status()
@@ -79,9 +84,7 @@ class ExternalApiAggregator:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         prices = [
-            d.get("Close")
-            for d in data
-            if d["Date"] >= cutoff and d.get("Close") is not None
+            d.get("Close") for d in data if d["Date"] >= cutoff and d.get("Close") is not None
         ]
 
         # If no data in period, fallback to all data to avoid errors
@@ -105,8 +108,8 @@ class ExternalApiAggregator:
         logger.info(f"Fetching raw historical data for {ticker} from {url}...")
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                if response.status_code == 404:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                if response.status_code == HTTP_NOT_FOUND:
                     return []
                 response.raise_for_status()
                 data = response.json()
@@ -151,8 +154,8 @@ class ExternalApiAggregator:
         url = f"{self.financials_api_url}/financials/{ticker}"
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                if response.status_code == 404:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                if response.status_code == HTTP_NOT_FOUND:
                     return None
                 response.raise_for_status()
                 # For now, return a placeholder score if data exists
@@ -167,8 +170,8 @@ class ExternalApiAggregator:
         url = f"{self.macro_api_url}/indicators/{symbol}"
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                if response.status_code == 404:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                if response.status_code == HTTP_NOT_FOUND:
                     return None
                 response.raise_for_status()
                 data = response.json()
@@ -199,8 +202,8 @@ class ExternalApiAggregator:
         url = f"{self.forex_api_url}/latest/{symbol.upper()}"
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                if response.status_code == 404:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                if response.status_code == HTTP_NOT_FOUND:
                     logger.warning(f"Forex symbol {symbol} not found.")
                     return None
                 response.raise_for_status()
@@ -227,8 +230,8 @@ class ExternalApiAggregator:
             url = f"{self.crypto_api_url}/prices/{ticker}"
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(url, timeout=10.0)
-                    if resp.status_code == 200:
+                    resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                    if resp.status_code == HTTP_OK:
                         data = resp.json()
                         if isinstance(data, dict) and "metadata" in data:
                             crypto_meta = data["metadata"]

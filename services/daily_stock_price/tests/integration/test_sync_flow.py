@@ -5,6 +5,7 @@ import duckdb
 # Constants for testing
 EXPECTED_PRICE_COUNT = 5
 
+
 def test_full_sync_and_catalog_handshake(engine, temp_data_dir):
     """
     Integration: Fetcher -> Engine.sync_ticker -> FileSystem -> Catalog.
@@ -34,12 +35,21 @@ def test_full_sync_and_catalog_handshake(engine, temp_data_dir):
     # 3. Verify DuckDB can actually read the data via the view
     sql = engine.get_synced_view(ticker)
     db = duckdb.connect()
+    # sql includes read_parquet([paths])
     df = db.query(sql).to_df()
 
     assert len(df) == EXPECTED_PRICE_COUNT
     # Verify core columns exist
     expected_cols = {
-        "Date", "Ticker", "Open", "High", "Low", "Close", "Volume",
-        "Source", "LoadTimestamp", "StockSplits"
+        "Date",
+        "Ticker",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "Source",
+        "LoadTimestamp",
+        "StockSplits",
     }
     assert expected_cols.issubset(set(df.columns))

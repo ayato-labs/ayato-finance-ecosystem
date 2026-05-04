@@ -1,14 +1,15 @@
 import json
 from pathlib import Path
-from typing import Any
 
 import duckdb
 from loguru import logger
+
 
 class FinancialNarrativeStorage:
     """
     抽出された定性情報をDuckDBに永続化するクラス
     """
+
     def __init__(self, db_path: str = "data/financial_narratives.duckdb"):
         self.db_path = db_path
         # データベースファイルの親ディレクトリを確実に作成
@@ -16,8 +17,12 @@ class FinancialNarrativeStorage:
         self._init_db()
 
     def _init_db(self):
-        """テーブルの初期化"""
+        """テーブルの初期化とリソース制限の設定"""
         with duckdb.connect(self.db_path) as conn:
+            # RAM使用効率の向上のため制限を設定
+            conn.execute("SET memory_limit='2GB'")
+            conn.execute("SET threads=4")
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS filings (
                     accession_number VARCHAR PRIMARY KEY,
@@ -30,7 +35,7 @@ class FinancialNarrativeStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            logger.info(f"Initialized DuckDB at {self.db_path}")
+            logger.info(f"Initialized DuckDB at {self.db_path} with 2GB limit")
 
     def save_filing(self, metadata: dict, sections: dict):
         """
@@ -50,19 +55,22 @@ class FinancialNarrativeStorage:
         metadata_json = json.dumps(metadata)
 
         with duckdb.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO filings (
                     accession_number, ticker, cik, form, filing_date, sections, metadata, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                acc_no,
-                ticker,
-                metadata.get("cik"),
-                metadata.get("form"),
-                metadata.get("filingDate"),
-                sections_json,
-                metadata_json
-            ))
+            """,
+                (
+                    acc_no,
+                    ticker,
+                    metadata.get("cik"),
+                    metadata.get("form"),
+                    metadata.get("filingDate"),
+                    sections_json,
+                    metadata_json,
+                ),
+            )
             logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
 
 
@@ -73,8 +81,7 @@ class FinancialNarrativeStorage:
         """
         with duckdb.connect(self.db_path) as conn:
             res = conn.execute(
-                "SELECT COUNT(*) FROM filings WHERE accession_number = ?",
-                (accession_number,)
+                "SELECT COUNT(*) FROM filings WHERE accession_number = ?", (accession_number,)
             ).fetchone()
             return res[0] > 0
 
@@ -110,7 +117,6 @@ class FinancialNarrativeStorage:
             return {
                 "total_filings": total,
                 "ticker_stats": [
-                    {"ticker": r[0], "count": r[1], "latest_filing": str(r[2])}
-                    for r in counts
-                ]
+                    {"ticker": r[0], "count": r[1], "latest_filing": str(r[2])} for r in counts
+                ],
             }

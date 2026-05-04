@@ -44,6 +44,8 @@ class MarketDataEngine:
         """
         try:
             db = duckdb.connect()
+            # 統計破損エラーを回避するための設定
+            db.execute("PRAGMA disable_optimizer")
             # カタログから対象パスを取得
             paths = self.catalog.get_paths(ticker, data_type="price")
             if not paths:
@@ -99,8 +101,6 @@ class MarketDataEngine:
                 ticker, fetch_start, fetch_end, 0, "ERROR", self.fetcher.source_name, str(e)
             )
             logger.error(f"Sync failed for {ticker}: {e}")
-
-
 
     def sync_tickers(
         self,
@@ -232,10 +232,12 @@ class MarketDataEngine:
             )
             # カタログ登録
             tickers = save_df["Ticker"].unique().tolist()
-            mappings = [(t, str(month_path / filename), "price") for t in tickers]
+            # Windows パスの \ を / に統一 (DuckDB 互換性)
+            file_path_str = str(month_path / filename).replace("\\", "/")
+            mappings = [(t, file_path_str, "price") for t in tickers]
             self.catalog.register_many(mappings)
 
-            logger.info(f"Saved partition {year}/{month:02d} to {month_path / filename}")
+            logger.info(f"Saved partition {year}/{month:02d} to {file_path_str}")
 
     def get_synced_view(self, ticker: str) -> str:
         """
@@ -246,12 +248,15 @@ class MarketDataEngine:
         if not paths:
             return None
 
+        # DuckDB へのリスト渡し (文字列として整形)
+        paths_str = ", ".join([f"'{p}'" for p in paths])
+
         sql = f"""
         SELECT * EXCLUDE (row_num)
         FROM (
             SELECT *,
                    row_number() OVER (PARTITION BY Date ORDER BY LoadTimestamp DESC) as row_num
-            FROM read_parquet({paths})
+            FROM read_parquet([{paths_str}])
             WHERE Ticker = '{ticker}'
         )
         WHERE row_num = 1
