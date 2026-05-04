@@ -87,23 +87,27 @@ class FilingStructurer:
             return {}
 
         tag_list_str = "\n".join(tag_names)
-        prompt = f"""{self.SYSTEM_PROMPT_MAPPING}
-
-以下のタグ名リストから関連タグを抽出してJSON形式で回答してください:
+        prompt = f"""以下のタグ名リストを分析し、指定されたカテゴリに関連するものを抽出してください。
+出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理し、最後にJSON形式で結果をまとめてください:
 
 {tag_list_str}"""
 
-        try:
-            model_name = self.models[0]
-            response = self.client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response.text:
-                return self._parse_json(response.text)
-        except Exception as e:
-            logger.error(f"Tag mapping failed: {e}")
-            return {}
+        for model_name in self.models:
+            try:
+                logger.info(f"Identifying tags using {model_name}...")
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.SYSTEM_PROMPT_MAPPING,
+                    ),
+                )
+                if response.text:
+                    logger.debug(f"LLM Response (partial): {response.text[:300]}...")
+                    return self._parse_json(response.text)
+            except Exception as e:
+                logger.error(f"Tag mapping failed with {model_name}: {e}")
+                continue
         return {}
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
@@ -138,20 +142,23 @@ class FilingStructurer:
             for cat, text in context_per_category.items():
                 final_prompt_parts.append(f"## Category: {cat}\n{text}")
             
-            final_prompt = f"""{self.SYSTEM_PROMPT_STRUCTURING}
-
-以下の情報を元に、各項目の事実をJSON形式で抽出してください:
+            final_prompt = f"""以下の情報を分析し、各項目の事実をJSON形式で抽出してください。
+情報の欠落がないか注意深く思考（Thinking）した上で、最終的な抽出結果をJSONで出力してください:
 
 """ + "\n\n".join(final_prompt_parts)
 
             for model_name in self.models:
                 try:
-                    logger.info(f"Structuring attempt | model={model_name}")
+                    logger.info(f"Structuring facts using {model_name}...")
                     response = self.client.models.generate_content(
                         model=model_name,
-                        contents=final_prompt
+                        contents=final_prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=self.SYSTEM_PROMPT_STRUCTURING,
+                        ),
                     )
                     if response.text:
+                        logger.debug(f"LLM Response (partial): {response.text[:300]}...")
                         return self._parse_json(response.text)
                 except Exception as e:
                     logger.error(f"Structuring failed with {model_name}: {e}")
