@@ -14,9 +14,7 @@ from src.edinet_parser import EdinetParser
 from src.logging_utils import log_memory_usage
 from src.storage import FinancialNarrativeStorage
 from src.structurer import FilingStructurer
-
-USER_AGENT = "SampleAgent yourname@example.com"
-TICKERS = ["AAPL", "NVDA", "7203", "9984"]  # 日米混在例
+from src.config import USER_AGENT, SEC_TICKERS
 
 
 async def batch_fetch(tickers: list[str] = None, run_structuring: bool = False):
@@ -113,8 +111,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
 async def sync_recent_us_filings(fetcher, parser, storage, run_structuring=False):
     """SECの最新提出書類(RSS等)から同期 (現在は主要銘柄の最新を確認する簡易版)"""
     # TODO: SECの全銘柄同期は index.idx 等を使用するのが一般的
-    default_tickers = ["AAPL", "NVDA", "GOOGL", "AMZN", "META", "MSFT", "TSLA"]
-    for ticker in default_tickers:
+    for ticker in SEC_TICKERS:
         await process_us_ticker(ticker, fetcher, parser, storage, run_structuring)
 
 
@@ -240,6 +237,10 @@ async def run_structuring_for_filing(ticker, acc_no, sections, storage):
 
 if __name__ == "__main__":
     from src.logging_utils import setup_logging
+    import sys
 
     setup_logging("batch")
-    asyncio.run(batch_fetch())
+    
+    # コマンドライン引数で銘柄指定がない場合は None (全同期)
+    target_tickers = sys.argv[1:] if len(sys.argv) > 1 else None
+    asyncio.run(batch_fetch(tickers=target_tickers))

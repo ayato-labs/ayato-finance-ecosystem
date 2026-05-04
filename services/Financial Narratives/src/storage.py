@@ -3,6 +3,7 @@ from pathlib import Path
 
 import duckdb
 from loguru import logger
+from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT
 
 
 class FinancialNarrativeStorage:
@@ -10,7 +11,7 @@ class FinancialNarrativeStorage:
     抽出された定性情報をDuckDBに永続化するクラス
     """
 
-    def __init__(self, db_path: str = "data/financial_narratives.duckdb"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.db_path = db_path
         # データベースファイルの親ディレクトリを確実に作成
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -20,7 +21,7 @@ class FinancialNarrativeStorage:
         """テーブルの初期化とリソース制限の設定"""
         with duckdb.connect(self.db_path) as conn:
             # RAM使用効率の向上のため制限を設定
-            conn.execute("SET memory_limit='2GB'")
+            conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
             conn.execute("SET threads=4")
 
             conn.execute("""
@@ -43,7 +44,7 @@ class FinancialNarrativeStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            logger.info(f"Initialized DuckDB at {self.db_path} with 2GB limit")
+            logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
 
     def save_filing(self, metadata: dict, sections: dict):
         """

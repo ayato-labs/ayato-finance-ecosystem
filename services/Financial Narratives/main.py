@@ -10,6 +10,7 @@ load_dotenv()
 
 from src.batch_fetch import batch_fetch
 from src.storage import FinancialNarrativeStorage
+from src.config import DEFAULT_PORT
 
 # Configure loguru
 logger.remove()
@@ -44,7 +45,7 @@ def main():
     parser.add_argument("--sync", nargs="*", help="Tickers to sync (empty for default list)")
     parser.add_argument("--diag", action="store_true", help="Run database diagnostics")
     parser.add_argument("--api", action="store_true", help="Start the FastAPI server")
-    parser.add_argument("--port", type=int, default=5013, help="Port for the API server")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port for the API server")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for the API server")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload")
 

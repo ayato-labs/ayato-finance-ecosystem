@@ -2,6 +2,7 @@ import json
 from google import genai
 from google.genai import types
 from loguru import logger
+from src.config import LLM_MODEL_NAME
 
 
 class FilingStructurer:
@@ -30,7 +31,7 @@ class FilingStructurer:
 
     def __init__(self, api_key: str):
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = LLM_MODEL_NAME
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
         """

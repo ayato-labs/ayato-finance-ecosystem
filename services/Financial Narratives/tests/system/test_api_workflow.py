@@ -24,7 +24,7 @@ def test_api_full_workflow(mocker, temp_db_path):
 
     # 1. 同期リクエスト (POST /sync/{ticker})
     # batch_fetch自体は時間がかかるため、中身をモック化して即座に終了・保存するようにする
-    def mock_batch_fetch(tickers=None):
+    def mock_batch_fetch(tickers=None, **kwargs):
         if tickers:
             for t in tickers:
                 test_storage.save_filing(
