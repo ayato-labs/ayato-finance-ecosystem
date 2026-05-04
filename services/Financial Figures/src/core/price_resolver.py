@@ -1,4 +1,5 @@
 import logging
+
 from src.core.db import db_manager
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,10 @@ def get_safe_price_view_sql(parquet_path: str) -> str:
 if __name__ == "__main__":
     # Test
     logging.basicConfig(level=logging.INFO)
-    price_path = "C:/Users/saiha/My_Service/programing/finance/daily_stock_price/data/market_data/year=2026/month=04/*.parquet"
+    price_path = (
+        "C:/Users/saiha/My_Service/programing/finance/daily_stock_price/data/"
+        "market_data/year=2026/month=04/*.parquet"
+    )
     with db_manager.connect(":memory:") as conn:
         try:
             conn.execute(get_safe_price_view_sql(price_path))

@@ -170,7 +170,9 @@ class BatchSyncService:
             self._increment_stat("SUCCESS")
 
     def _ai_mapper_worker(self):
-        """【Thread 2: AI Mapper】 未知のタグをキューから受け取り、非同期でGeminiにマッピングさせるスレッド"""
+        """【Thread 2: AI Mapper】
+        未知のタグをキューから受け取り、非同期でGeminiにマッピングさせるスレッド
+        """
         logger.info("AI Mapper Thread started.")
         while self.is_running:
             try:
@@ -214,7 +216,6 @@ class BatchSyncService:
         engine = self.us_engine if market == "US" else self.jp_engine
         db_id = symbol
         col_name = "code"
-        from src.core.db import db_manager
         if market == "US":
             col_name = "cik"
             with db_manager.connect(self.us_engine.db_path, read_only=True) as conn:
@@ -310,7 +311,6 @@ class BatchSyncService:
         logger.info("Syncing US Ticker list...")
         self.us_engine.sync_tickers(session_id)
 
-        from src.core.db import db_manager
         with db_manager.connect(self.us_engine.db_path, read_only=True) as conn:
             all_symbols = [r[0] for r in conn.execute("SELECT ticker FROM tickers").fetchall()]
 

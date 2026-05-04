@@ -3,10 +3,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import ClassVar
 
-import duckdb
 from loguru import logger
 
 from src.core.config import settings
+from src.core.db import db_manager
 from src.mappers.ai_mapper import AIMapper
 
 from .client import EDINETClient
@@ -246,7 +246,6 @@ class EDINETSyncWorker:
 
     def _has_jquants_data(self, ticker: str, submission_date: str) -> bool:
         """Checks if J-Quants DB already has entries for this ticker and date."""
-        from src.core.db import db_manager
         if not settings.DB_PATH_JP.exists():
             return False
         try:

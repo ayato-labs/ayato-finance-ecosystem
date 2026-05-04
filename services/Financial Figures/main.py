@@ -81,8 +81,9 @@ def run_api_server(args):
 def perform_individual_sync(sync_service, args):
     """Sync specific tickers."""
     logger.info(f"Starting individual sync for: {args.sync}")
+    ticker_code_len_jp = 4
     for ticker in args.sync:
-        if ticker.isdigit() and len(ticker) == 4:
+        if ticker.isdigit() and len(ticker) == ticker_code_len_jp:
             df = sync_service.jp_engine.fetch_statements(ticker)
             if df is not None and not df.empty:
                 logger.info(f"Adding JP ticker {ticker} to sync queue.")

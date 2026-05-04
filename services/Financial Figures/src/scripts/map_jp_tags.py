@@ -1,9 +1,14 @@
 import time
 
+from dotenv import load_dotenv
+
+from src.core.audit_manager import audit_manager
+from src.core.config import settings
 from src.core.db import db_manager
+from src.edinet.mapping import AIMapper
 
 
-def map_jp_tags():
+def map_all_jp_tags():
     load_dotenv()
 
     # 1. Start Mapping Session
@@ -60,4 +65,4 @@ def map_jp_tags():
 
 
 if __name__ == "__main__":
-    map_jp_tags()
+    map_all_jp_tags()
