@@ -1,86 +1,61 @@
 import json
-import os
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from loguru import logger
 
-from src.api.models import FilingRecord, StatsResponse
 from src.batch_fetch import batch_fetch
-from src.logging_utils import setup_logging
 from src.storage import FinancialNarrativeStorage
+from .models import FilingRecord, SyncResponse
 
-# Logging初期化
-setup_logging("api")
-
-app = FastAPI(
-    title="Financial Narratives API",
-    description="Qualitative data extraction service for SEC filings (MD&A, Risk Factors, etc.)",
-    version="1.0.0"
-)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter()
 
 def get_storage():
     return FinancialNarrativeStorage()
 
-@app.get("/")
-def read_root():
-    return {
-        "service": "Financial Narratives API",
-        "endpoints": ["/status", "/narratives/{ticker}", "/sync/{ticker}"],
-        "docs": "/docs"
-    }
-
-@app.get("/status", response_model=StatsResponse)
+@router.get("/status")
 def get_status(storage: FinancialNarrativeStorage = Depends(get_storage)):
-    """DBのサマリー統計を取得"""
     try:
-        return storage.get_stats()
+        summary = storage.get_summary()
+        total_filings = sum(s[1] for s in summary)
+        return {
+            "status": "healthy",
+            "total_filings": total_filings,
+            "tickers_count": len(summary),
+            "summary": {s[0]: s[1] for s in summary},
+        }
     except Exception as e:
-        logger.error(f"Failed to get stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Database error: {e}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
-@app.get("/narratives/{ticker}", response_model=list[FilingRecord])
+@router.get("/narratives/{ticker}", response_model=list[FilingRecord])
 def get_narratives(ticker: str, storage: FinancialNarrativeStorage = Depends(get_storage)):
-    """特定銘柄の定性データを全て取得"""
     try:
         rows = storage.get_filings_by_ticker(ticker)
-        if not rows:
-            return []
-            
-        results = []
-        for r in rows:
-            results.append(FilingRecord(
-                ticker=r[0],
-                form=r[1],
-                filing_date=r[2],
-                sections=json.loads(r[3]),
-                metadata=json.loads(r[4]),
-                updated_at=r[5],
-                accession_number=json.loads(r[4]).get("accessionNumber", "unknown")
-            ))
-        return results
+        return [
+            FilingRecord(
+                accession_number=r[0],
+                ticker=r[1],
+                form=r[3],
+                filing_date=r[4],
+                sections=json.loads(r[5]),
+                metadata=json.loads(r[6]),
+                structured_facts=storage.get_structuring_by_ticker(ticker),
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
     except Exception as e:
-        logger.error(f"Failed to get narratives for {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching narratives: {e}")
+        return []
 
-@app.post("/sync/{ticker}")
-def trigger_sync(ticker: str, background_tasks: BackgroundTasks):
-    """特定銘柄の同期をバックグラウンドで開始"""
+@router.post("/sync/{ticker}", response_model=SyncResponse)
+def trigger_sync(ticker: str, background_tasks: BackgroundTasks, storage: FinancialNarrativeStorage = Depends(get_storage)):
     logger.info(f"Triggering sync for {ticker} via API")
-    background_tasks.add_task(batch_fetch, [ticker.upper()])
-    return {"message": f"Sync started for {ticker}", "status": "processing"}
+    processed_ticker = ticker if ticker.isdigit() else ticker.upper()
+    background_tasks.add_task(batch_fetch, [processed_ticker], run_structuring=True)
+    return {"message": f"Sync and Structuring started for {ticker}", "status": "processing"}
 
-@app.post("/sync/all")
+@router.post("/sync/all", response_model=SyncResponse)
 def trigger_sync_all(background_tasks: BackgroundTasks):
-    """全銘柄の同期をバックグラウンドで開始"""
     logger.info("Triggering full sync via API")
-    background_tasks.add_task(batch_fetch)
-    return {"message": "Full sync started", "status": "processing"}
+    background_tasks.add_task(batch_fetch, run_structuring=True)
+    return {"message": "Full sync and structuring started", "status": "processing"}
