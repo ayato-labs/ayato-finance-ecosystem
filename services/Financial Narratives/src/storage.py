@@ -5,6 +5,7 @@ import duckdb
 from loguru import logger
 
 from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT
+from src.db.migrations import MigrationManager
 
 
 class FinancialNarrativeStorage:
@@ -26,29 +27,12 @@ class FinancialNarrativeStorage:
             conn.execute("SET threads=4")
             
             # 並列書き込み時のパフォーマンスと整合性のための設定
-            # DuckDBはデフォルトでWAL形式に近い動作をするが、チェックポイントの頻度を調整
             conn.execute("SET checkpoint_threshold='1GB'")
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS filings (
-                    accession_number VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    cik VARCHAR,
-                    form VARCHAR,
-                    filing_date DATE,
-                    sections JSON,
-                    metadata JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS structured_data (
-                    accession_number VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    structured_facts JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            # マイグレーションマネージャーを使用して初期化
+            manager = MigrationManager(conn)
+            manager.apply_migrations()
+
             logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
 
     def save_filing(self, metadata: dict, sections: dict):

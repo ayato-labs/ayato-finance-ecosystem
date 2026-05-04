@@ -50,7 +50,7 @@ class EdinetParser:
                 html_files = [
                     f
                     for f in z.namelist()
-                    if f.startswith("PublicDoc/") and f.endswith((".htm", ".html"))
+                    if "PublicDoc/" in f and f.endswith((".htm", ".html"))
                 ]
 
                 combined_results = {}

@@ -45,13 +45,26 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     logger.add(sys.stderr, format=console_format, level=log_level, colorize=True, enqueue=True)
 
     # 2. ファイル出力 (JSON / 構造化ログ)
-    # retention=3 により、最新の3ファイルのみを保持する
+    # retention=2 により、最新の2ファイルのみを保持する
     logger.add(
         str(log_file_pattern),
         format="{message}",
         level=log_level,
         rotation="100 MB",
-        retention=3,
+        retention=2,
+        serialize=True,
+        enqueue=True,
+    )
+
+    # 3. エラーログの隔離保存 (ERROR以上のみ)
+    # 障害調査用に、エラーログは通常のログより長期間（10世代）保持する
+    error_log_path = log_dir / "error.log"
+    logger.add(
+        str(error_log_path),
+        format="{message}",
+        level="ERROR",
+        rotation="10 MB",
+        retention=10,
         serialize=True,
         enqueue=True,
     )
