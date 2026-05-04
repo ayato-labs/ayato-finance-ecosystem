@@ -44,20 +44,23 @@ class FilingStructurer:
     SYSTEM_PROMPT_STRUCTURING = """
     あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、特定の項目について「事実」のみを構造化抽出してください。
 
-    抽出項目と目的:
-    - capex: 将来の投資計画、具体的な投資金額や時期。
-    - rd: 重点研究項目、技術的優位性の根拠。
-    - governance: 資本配分方針、還元方針、ガバナンス体制。
-    - employees: 給与、勤続年数、人員構成の事実。
-    - compensation: 報酬設計のロジック、選任理由、個別報酬額（記載がある場合）。
-    - cross_shareholding: 銘柄別の保有目的、削減方針の有無。
+    【最重要ルール】
+    1. 該当する記述がわずか一行でもあれば、必ず漏らさず抽出してください。
+    2. 数値（金額、件数、人数、年数、パーセント等）が含まれる事実は、投資判断に極めて重要であるため、必ず数値を含めて抽出してください。
+    3. 主観的な解釈や要約は行わず、原文にある客観的な事実（計画、実績、数値、体制）のみを抽出してください。
+    4. 該当する記述が全く見当たらない場合のみ null としてください。
 
-    ルール:
-    - 主観的な解釈は含めない。
-    - 該当する記述がない項目は null とする。
-    - 各項目の "raw_evidence" には、抽出の根拠となった原文の該当箇所を短く引用する。
+    抽出項目と目的:
+    - capex: 将来の投資計画、具体的な投資金額や時期、設備の増設・改修。
+    - rd: 重点研究項目、技術的優位性の根拠、特許、研究開発予算。
+    - governance: 資本配分方針（配当、自社株買い）、ガバナンス体制、取締役会の多様性。
+    - employees: 給与、勤続年数、人員構成、採用方針。
+    - compensation: 報酬設計のロジック（業績連動等）、個別の報酬額、取締役の選任理由。
+    - cross_shareholding: 政策保有株式の銘柄別保有目的、売却・削減方針。
+
+    出力ルール:
     - 以下の構造の JSON 形式のみで回答してください。
-    - "thinking" フィールドに、情報の欠落がないかの注意深い推論過程を記述してください。
+    - "thinking" フィールドに、情報の見落としがないかセクションを精査した推論過程を記述してください。
     {
     "thinking": "推論過程...",
     "capex": {"facts": "...", "raw_evidence": "..."},
@@ -90,6 +93,22 @@ class FilingStructurer:
             
             logger.warning(f"Failed to parse JSON even with JSON mode: {text[:200]}...")
             return {}
+
+    def _chunk_text(self, text: str, max_chars: int = 30000) -> list[str]:
+        """テキストを重複ありのチャンクに分割する。長大なMD&A等の処理用"""
+        if not text or len(text) <= max_chars:
+            return [text] if text else []
+        
+        chunks = []
+        overlap = 2000
+        start = 0
+        while start < len(text):
+            end = min(start + max_chars, len(text))
+            chunks.append(text[start:end])
+            if end >= len(text):
+                break
+            start = end - overlap
+        return chunks
 
     async def _identify_tags(self, tag_names: list[str]) -> dict:
         """
@@ -183,9 +202,16 @@ class FilingStructurer:
 
             final_prompt_parts = []
             for cat, text in context_per_category.items():
-                final_prompt_parts.append(f"## Category: {cat}\n{text}")
+                # カテゴリごとにチャンク分割が必要かチェック
+                chunks = self._chunk_text(text)
+                if len(chunks) > 1:
+                    logger.info(f"Category '{cat}' is too large ({len(text)} chars), split into {len(chunks)} chunks")
+                
+                for i, chunk in enumerate(chunks):
+                    suffix = f" (Part {i+1})" if len(chunks) > 1 else ""
+                    final_prompt_parts.append(f"## Category: {cat}{suffix}\n{chunk}")
 
-            final_prompt = "以下の情報を分析し、各項目の事実を抽出してください:\n\n" + "\n\n".join(final_prompt_parts)
+            final_prompt = "以下の情報をカテゴリ別に精査し、漏れなく事実を抽出してください:\n\n" + "\n\n".join(final_prompt_parts)
 
             # 詳細構造化のスキーマ
             fact_item_schema = {

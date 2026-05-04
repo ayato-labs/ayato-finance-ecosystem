@@ -37,24 +37,36 @@ class Reconciler:
         lake_data = self._get_lake_accessions(storage)
         structured_keys = self._get_structured_accessions(storage)
 
-        # 差分抽出 (Lakeにはあるが、Structuredには無いもの)
+        # 1. 差分抽出 (Lakeにはあるが、Structuredには無いもの) -> キューに追加
         pending_accessions = set(lake_data.keys()) - structured_keys
-
         enqueued_count = 0
         for acc_no in pending_accessions:
             ticker = lake_data[acc_no]
             if self.queue.enqueue_job(acc_no, ticker, market):
                 enqueued_count += 1
 
+        # 2. 逆方向の同期 (Structuredにあるが SQLite で完了になっていないものを救済)
+        # 以前の実行で DuckDB 書き込み成功 -> SQLite 更新前にクラッシュしたケースを修復
+        synced_count = 0
+        for acc_no in structured_keys:
+            # すでに存在する場合は内部でステータスが更新される
+            # (注: 大量にある場合はパフォーマンス向上のため改善の余地ありだが、現状は確実性を優先)
+            self.queue.complete_job(acc_no)
+            synced_count += 1
+
         logger.success(
             f"Reconciliation for {market.upper()} completed. "
             f"Lake: {len(lake_data)}, Structured: {len(structured_keys)}, "
-            f"Newly Enqueued: {enqueued_count}"
+            f"Newly Enqueued: {enqueued_count}, Synced Completed: {synced_count}"
         )
 
     def run(self):
         """日米両市場の調停を実行する"""
         try:
+            # 1. ゾンビジョブ (PROCESSING のまま停滞) のクリーンアップ
+            self.queue.cleanup_zombie_jobs(timeout_minutes=60)
+
+            # 2. 市場ごとの調停
             self.reconcile_market("jp")
             self.reconcile_market("us")
 

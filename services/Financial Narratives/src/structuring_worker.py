@@ -43,7 +43,8 @@ class StructuringWorkerPool:
 
         def fetch_db():
             import time
-            for attempt in range(5):
+            import random
+            for attempt in range(10):
                 try:
                     with duckdb.connect(storage.db_path, read_only=True) as conn:
                         res = conn.execute(
@@ -54,9 +55,11 @@ class StructuringWorkerPool:
                             return json.loads(res[0])
                         return {}
                 except Exception as e:
-                    if "already open" in str(e) or "Unique file handle conflict" in str(e):
-                        logger.warning(f"DB locked, retrying fetch ({attempt+1}/5)...")
-                        time.sleep(1)
+                    err_str = str(e).lower()
+                    if "already open" in err_str or "file handle conflict" in err_str or "io error" in err_str:
+                        wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.2)
+                        logger.warning(f"DB locked, retrying fetch in {wait_time:.2f}s ({attempt+1}/10)...")
+                        time.sleep(wait_time)
                         continue
                     raise e
             return {}
@@ -105,14 +108,17 @@ class StructuringWorkerPool:
                 async with db_lock:
                     def save_db():
                         import time
-                        for attempt in range(10):
+                        import random
+                        for attempt in range(15):
                             try:
                                 storage.save_structuring(acc_no, ticker, facts)
                                 return
                             except Exception as e:
-                                if "already open" in str(e) or "Unique file handle conflict" in str(e):
-                                    logger.warning(f"DB locked, retrying save ({attempt+1}/10)...")
-                                    time.sleep(2)
+                                err_str = str(e).lower()
+                                if "already open" in err_str or "file handle conflict" in err_str or "lock" in err_str:
+                                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.3)
+                                    logger.warning(f"DB locked, retrying save in {wait_time:.2f}s ({attempt+1}/15)...")
+                                    time.sleep(wait_time)
                                     continue
                                 raise e
                     await asyncio.to_thread(save_db)

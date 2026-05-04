@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import uuid
@@ -17,6 +18,14 @@ def setup_logging(unit_name: str, run_id: str | None = None):
         unit_name: ログファイル名に使用する名前
         run_id: 実行セッションを識別するID。未指定時は新規生成。
     """
+    # Windows環境での文字化け対策 (UTF-8強制)
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')
+        except (AttributeError, io.UnsupportedOperation):
+            pass
+
     # 既存のハンドラをクリア
     logger.remove()
 

@@ -116,6 +116,23 @@ class JobQueue:
             ''', (str(error_message), accession_number))
             conn.commit()
 
+    def cleanup_zombie_jobs(self, timeout_minutes: int = 60):
+        """長時間 'PROCESSING' のまま停滞しているジョブを 'PENDING' に戻す (ゾンビジョブ対策)"""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.execute('''
+                    UPDATE jobs
+                    SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+                    WHERE status = 'PROCESSING'
+                    AND datetime(updated_at, 'localtime') < datetime('now', 'localtime', ?)
+                ''', (f'-{timeout_minutes} minutes',))
+                count = cursor.rowcount
+                if count > 0:
+                    logger.warning(f"Reset {count} zombie jobs back to PENDING")
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to cleanup zombie jobs: {e}")
+
     def get_stats(self) -> dict[str, int]:
         """キューの状態を取得する"""
         with sqlite3.connect(str(self.db_path)) as conn:
