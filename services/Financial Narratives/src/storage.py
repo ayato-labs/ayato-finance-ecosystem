@@ -3,6 +3,7 @@ from pathlib import Path
 
 import duckdb
 from loguru import logger
+
 from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT
 
 

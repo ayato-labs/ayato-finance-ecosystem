@@ -7,20 +7,19 @@ from datetime import date, timedelta
 import requests
 from loguru import logger
 
+from src.config import SEC_TICKERS, USER_AGENT
 from src.edgar_fetcher import EdgarFetcher
 from src.edgar_parser import EdgarParser
 from src.edinet_fetcher import EdinetFetcher
 from src.edinet_parser import EdinetParser
 from src.logging_utils import log_memory_usage
 from src.storage import FinancialNarrativeStorage
-from src.structurer import FilingStructurer
-from src.config import USER_AGENT, SEC_TICKERS
 
 # デフォルト銘柄リスト
 TICKERS = ["AAPL", "NVDA", "7203", "9984"]
 
 
-async def batch_fetch(tickers: list[str] = None, run_structuring: bool = False):
+async def batch_fetch(tickers: list[str] | None = None, run_structuring: bool = False):
     """
     日米市場の定性データを一括取得・構造化保存する。
 
@@ -33,7 +32,7 @@ async def batch_fetch(tickers: list[str] = None, run_structuring: bool = False):
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
     edinet_parser = EdinetParser()
-    structurer = FilingStructurer(os.environ.get("GOOGLE_API_KEY")) if os.environ.get("GOOGLE_API_KEY") else None
+    # structurer is initialized lazily in run_structuring_for_filing
 
     if tickers:
         # 1. 特定銘柄のオンデマンド処理
@@ -58,7 +57,9 @@ async def batch_fetch(tickers: list[str] = None, run_structuring: bool = False):
     else:
         # 2. 最新開示ベースの自動同期 (全上場企業対象)
         logger.info("=== Starting Automated Sync for All Listed Companies ===")
-        await sync_recent_jp_filings(edinet_fetcher, edinet_parser, storage, run_structuring=run_structuring)
+        await sync_recent_jp_filings(
+            edinet_fetcher, edinet_parser, storage, run_structuring=run_structuring
+        )
         await sync_recent_us_filings(
             edgar_fetcher, edgar_parser, storage, run_structuring=run_structuring
         )
@@ -239,11 +240,11 @@ async def run_structuring_for_filing(ticker, acc_no, sections, storage):
 
 
 if __name__ == "__main__":
-    from src.logging_utils import setup_logging
     import sys
 
+    from src.logging_utils import setup_logging
+
     setup_logging("batch")
-    
     # コマンドライン引数で銘柄指定がない場合は None (全同期)
     target_tickers = sys.argv[1:] if len(sys.argv) > 1 else None
     asyncio.run(batch_fetch(tickers=target_tickers))

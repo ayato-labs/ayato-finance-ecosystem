@@ -45,7 +45,8 @@ def test_api_full_workflow(mocker, temp_db_path):
     assert resp.json()["status"] == "processing"
 
     # 2. 本来は非同期だが、モックで即保存したのでデータを直接確認
-    # (実際のシステムテストではウェイトやポーリングが必要だが、ここでは同期的に動作するようにモックした)
+    # (実際のシステムテストではウェイトやポーリングが必要だが、
+    # ここでは同期的に動作するようにモックした)
     resp = client.get("/narratives/AAPL")
     assert resp.status_code == 200
     data = resp.json()

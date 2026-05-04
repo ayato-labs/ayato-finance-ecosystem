@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+from typing import ClassVar
 
 from bs4 import BeautifulSoup
 from loguru import logger
@@ -15,8 +16,10 @@ class EdinetParser:
 
     # Mapping of sections to XBRL Tag patterns or header names
     # Note: EDINET uses standardized tags in jpcrp_cor namespace
-    TAG_MAP = {
-        "business_strategy": "jpcrp_cor:BusinessPoliciesBusinessEnvironmentAndIssuesToAddressTextBlock",
+    TAG_MAP: ClassVar[dict[str, str]] = {
+        "business_strategy": (
+            "jpcrp_cor:BusinessPoliciesBusinessEnvironmentAndIssuesToAddressTextBlock"
+        ),
         "mda": "jpcrp_cor:AnalysisOfFinancialPositionOperatingResultsAndCashFlowsTextBlock",
         "risk_factors": "jpcrp_cor:BusinessRisksTextBlock",
         "rd": "jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock",
@@ -75,8 +78,9 @@ class EdinetParser:
         for key, tag_name in self.TAG_MAP.items():
             # EDINET uses <ix:nonNumeric name="jpcrp_cor:..." ...>
             # Beautiful Soup handles ix: tags if using lxml or html.parser
-            # However, sometimes they are namespaced like <ix:nonNumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">
-            element = soup.find(lambda t: t.get("name") == tag_name)
+            # However, sometimes they are namespaced like:
+            # <ix:nonNumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">
+            element = soup.find(lambda t, tn=tag_name: t.get("name") == tn)
 
             if element:
                 # Convert to markdown
@@ -102,5 +106,8 @@ class EdinetParser:
 if __name__ == "__main__":
     # Test with a dummy string
     parser = EdinetParser()
-    dummy_html = '<ix:nonnumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">Test R&D content</ix:nonnumeric>'
+    dummy_html = (
+        '<ix:nonnumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">'
+        "Test R&D content</ix:nonnumeric>"
+    )
     print(parser.parse_ixbrl(dummy_html))

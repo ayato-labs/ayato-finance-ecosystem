@@ -1,5 +1,6 @@
 import re
 import warnings
+from typing import ClassVar
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from loguru import logger
@@ -14,7 +15,7 @@ class EdgarParser:
     """
 
     # セクション特定のためのパターン (Markdown化した後のテキストに対して適用)
-    SECTION_RE = {
+    SECTION_RE: ClassVar[dict[str, list[dict]]] = {
         "10-K": [
             {
                 "key": "business",

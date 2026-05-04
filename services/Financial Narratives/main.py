@@ -3,14 +3,14 @@ import asyncio
 import sys
 
 import uvicorn
-from loguru import logger
 from dotenv import load_dotenv
+from loguru import logger
 
 load_dotenv()
 
 from src.batch_fetch import batch_fetch
-from src.storage import FinancialNarrativeStorage
 from src.config import DEFAULT_PORT
+from src.storage import FinancialNarrativeStorage
 
 # Configure loguru
 logger.remove()

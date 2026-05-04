@@ -106,9 +106,11 @@ class EdgarFetcher:
         return None
 
     def filter_relevant_filings(
-        self, submissions_data: dict, doc_types: list[str] = ["10-K", "10-Q"]
+        self, submissions_data: dict, doc_types: list[str] | None = None
     ) -> list[dict]:
         """10-Kや10-Qなどの特定の書類のみを抽出"""
+        if doc_types is None:
+            doc_types = ["10-K", "10-Q"]
         if not submissions_data or "filings" not in submissions_data:
             return []
 

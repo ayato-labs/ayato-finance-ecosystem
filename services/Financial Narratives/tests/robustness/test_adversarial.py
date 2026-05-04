@@ -16,7 +16,7 @@ def test_storage_invalid_metadata(temp_db_path):
     """必須キーが欠損したメタデータでの保存試行 (Primary KeyがNoneになる場合)"""
     storage = FinancialNarrativeStorage(temp_db_path)
     # 必須キー 'accessionNumber' がない辞書を渡す
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         storage.save_filing({"ticker": "AAPL"}, {"mda": "test"})
 
 

@@ -1,9 +1,10 @@
 import json
+from typing import Annotated
 
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -45,17 +46,19 @@ def read_root():
 
 
 @app.get("/status", response_model=StatsResponse)
-def get_status(storage: FinancialNarrativeStorage = Depends(get_storage)):
+def get_status(storage: Annotated[FinancialNarrativeStorage, Depends(get_storage)]):
     """DBのサマリー統計を取得"""
     try:
         return storage.get_stats()
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/narratives/{ticker}", response_model=list[FilingRecord])
-def get_narratives(ticker: str, storage: FinancialNarrativeStorage = Depends(get_storage)):
+def get_narratives(
+    ticker: str, storage: Annotated[FinancialNarrativeStorage, Depends(get_storage)]
+):
     """特定銘柄の定性データを全て取得"""
     try:
         rows = storage.get_filings_by_ticker(ticker)
@@ -79,7 +82,7 @@ def get_narratives(ticker: str, storage: FinancialNarrativeStorage = Depends(get
         return results
     except Exception as e:
         logger.error(f"Failed to get narratives for {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/sync/{ticker}")

@@ -83,9 +83,6 @@ class EdinetFetcher:
             return None
 
         # Securities code is in '証券コード' column (5 digits usually, includes trailing 0)
-        # Ticker 7203 -> 72030 in the list
-        ticker_search = f"{ticker}0"
-
         # '証券コード' might be float or string
         matches = self.code_map[self.code_map["証券コード"].astype(str).str.startswith(ticker)]
         if not matches.empty:
@@ -115,7 +112,7 @@ class EdinetFetcher:
                 status = metadata.get("status")
                 if status == "200":
                     return data.get("results", [])
-                
+
                 message = metadata.get("message")
                 logger.error(f"EDINET API Error: Status={status}, Message={message}")
                 if status == "403":

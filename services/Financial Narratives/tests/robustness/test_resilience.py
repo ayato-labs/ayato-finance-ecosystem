@@ -15,9 +15,7 @@ def test_edgar_fetcher_retry_logic(mocker):
     # リトライ時のスリープを短縮して高速化
     mocker.patch("time.sleep")
 
-    start_time = time.time()
     fetcher.get_latest_submissions("AAPL")
-    end_time = time.time()
 
     # 2回呼ばれているはず (初回 + リトライ1回)
     assert mock_get.call_count == 2
@@ -41,7 +39,7 @@ def test_edinet_fetcher_malformed_json(mocker):
 def test_edinet_fetcher_server_down(mocker):
     """サーバーダウン時の挙動"""
     fetcher = EdinetFetcher()
-    mock_get = mocker.patch("requests.get", side_effect=Exception("Server Down"))
+    mocker.patch("requests.get", side_effect=Exception("Server Down"))
 
     from datetime import date
 

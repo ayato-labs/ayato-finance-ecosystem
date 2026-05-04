@@ -31,7 +31,8 @@ def test_process_jp_ticker_workflow(mocker, temp_db_path):
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr(
             "PublicDoc/test.htm",
-            '<ix:nonNumeric name="jpcrp_cor:BusinessRisksTextBlock">リスクの内容です</ix:nonNumeric>',
+            '<ix:nonNumeric name="jpcrp_cor:BusinessRisksTextBlock">'
+            "リスクの内容です</ix:nonNumeric>",
         )
     mock_fetcher.download_document.return_value = buf.getvalue()
 

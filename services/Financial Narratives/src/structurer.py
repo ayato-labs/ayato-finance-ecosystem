@@ -1,7 +1,10 @@
 import json
+import re
+
 from google import genai
 from google.genai import types
 from loguru import logger
+
 from src.config import GOOGLE_AI_MODELS
 
 
@@ -18,14 +21,16 @@ class FilingStructurer:
 抽出対象項目:
 1. capex (設備投資): 将来の投資計画、既存設備の更新予定、具体的な投資金額や時期の記述。
 2. rd (研究開発): 重点的な研究開発項目、技術的優位性の根拠となる事実。
-3. governance (ガバナンス/資本配分): 資本配分の方針（株主還元・再投資）、役員報酬の設計、キャッシュの使い道。
+3. governance (ガバナンス/資本配分): 資本配分の方針（株主還元・再投資）、役員報酬の設計、
+   キャッシュの使い道。
 
 出力形式:
 必ず以下の構造のJSON形式で出力してください。該当する事実がない場合は null を設定してください。
 {
   "capex": { "intent": string, "amount_hint": string, "timing": string, "raw_evidence": string },
   "rd": { "priority_items": string[], "technical_advantage": string, "raw_evidence": string },
-  "governance": { "capital_allocation_policy": string, "shareholder_return_policy": string, "raw_evidence": string }
+  "governance": { "capital_allocation_policy": string, "shareholder_return_policy": string,
+                  "raw_evidence": string }
 }
 """
 
@@ -33,21 +38,50 @@ class FilingStructurer:
         self.client = genai.Client(api_key=api_key)
         self.models = GOOGLE_AI_MODELS
 
-    async def extract_facts(self, sections: dict[str, str]) -> dict:
+    def _prepare_prompt(self, sections: dict[str, str]) -> str | None:
         """
-        セクションデータから事実を構造化抽出する
+        結合されたセクションデータから抽出用のプロンプトを作成する。
         """
-        # 抽出対象のテキストを結合
         combined_text = ""
         for key, text in sections.items():
             if text:
                 combined_text += f"### Section: {key}\n{text}\n\n"
 
         if not combined_text.strip():
+            return None
+
+        return f"以下の開示資料から事実を抽出してください:\n\n{combined_text}"
+
+    def _parse_response(self, response_text: str) -> dict:
+        """
+        LLMからのレスポンス文字列をJSONとしてパースする。
+        Markdownのコードブロック（```json ... ```）が含まれている場合は抽出を試みる。
+        """
+        clean_text = response_text.strip()
+        # MarkdownのJSONコードブロックを検索
+        json_match = re.search(r"```json\s*(.*?)\s*```", clean_text, re.DOTALL)
+        if json_match:
+            clean_text = json_match.group(1)
+        else:
+            # ``` ... ``` だけの場合も考慮
+            code_match = re.search(r"```\s*(.*?)\s*```", clean_text, re.DOTALL)
+            if code_match:
+                clean_text = code_match.group(1)
+
+        try:
+            return json.loads(clean_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            raise ValueError(f"Invalid JSON response from LLM: {response_text}") from e
+
+    async def extract_facts(self, sections: dict[str, str]) -> dict:
+        """
+        セクションデータから事実を構造化抽出する
+        """
+        prompt = self._prepare_prompt(sections)
+        if not prompt:
             logger.warning("No text content available for structuring.")
             return {}
-
-        prompt = f"以下の開示資料から事実を抽出してください:\n\n{combined_text}"
 
         for model_name in self.models:
             try:
@@ -62,7 +96,7 @@ class FilingStructurer:
                 )
 
                 if response.text:
-                    structured_data = json.loads(response.text)
+                    structured_data = self._parse_response(response.text)
                     logger.info(f"Successfully extracted structured facts using {model_name}.")
                     return structured_data
 
