@@ -82,7 +82,9 @@ class AIMapper:
         results = self.map_tags_batch(market, [(tag, description)], models[0], session_id)
         return results[0] if results else {}
 
-    def _get_batch_response_schema(self) -> dict[str, Any]:
+    def _get_batch_response_schema(self, valid_labels: list[str]) -> dict[str, Any]:
+        # Include "Other" as a valid option in the enum
+        enum_values = valid_labels + ["Other"]
         return {
             "type": "OBJECT",
             "properties": {
@@ -92,7 +94,7 @@ class AIMapper:
                         "type": "OBJECT",
                         "properties": {
                             "tag_id": {"type": "STRING"},
-                            "mapped_label": {"type": "STRING"},
+                            "mapped_label": {"type": "STRING", "enum": enum_values},
                             "reasoning": {"type": "STRING"},
                             "confidence": {"type": "NUMBER"},
                         },
@@ -132,11 +134,14 @@ class AIMapper:
         {tags_json}
         """
 
+        # Determine valid labels for this market for schema enforcement
+        valid_labels = settings.JQUANTS_V2_LABELS if market in ["EDINET", "JP_EDINET"] else settings.TARGET_LABELS
+
         try:
             config = types.GenerateContentConfig(
                 system_instruction=self._get_system_instruction(market),
                 response_mime_type="application/json",
-                response_schema=self._get_batch_response_schema(),
+                response_schema=self._get_batch_response_schema(valid_labels),
                 temperature=settings.GEMINI_TEMPERATURE,
                 http_options=types.HttpOptions(timeout=60000),
             )
