@@ -13,6 +13,7 @@ from src.edgar_parser import EdgarParser
 from src.edinet_fetcher import EdinetFetcher
 from src.edinet_parser import EdinetParser
 from src.storage import FinancialNarrativeStorage
+from src.db.master_db import JobQueue
 
 # .envファイルをロード
 load_dotenv()
@@ -47,6 +48,7 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
     edinet_parser = EdinetParser()
+    queue = JobQueue()
 
     try:
         if tickers:
@@ -124,6 +126,9 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7):
                         }
                         async with jp_db_write_lock:
                             await asyncio.to_thread(storage.save_filing, metadata, sections)
+                        
+                        # 即座にジョブキューに登録 (構造化ワーカーへの通知)
+                        await asyncio.to_thread(queue.enqueue_job, doc_id, ticker, "jp")
 
                     del zip_bytes
                     gc.collect()
@@ -206,6 +211,9 @@ async def process_us_ticker(ticker, fetcher, parser, storage, days=7):
 
                     async with us_db_write_lock:
                         await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
+                    
+                    # 即座にジョブキューに登録 (構造化ワーカーへの通知)
+                    await asyncio.to_thread(queue.enqueue_job, acc_no, ticker, "us")
 
                 del resp
                 gc.collect()

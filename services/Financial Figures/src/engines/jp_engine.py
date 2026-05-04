@@ -190,8 +190,62 @@ class JPEngine:
 
             from src.core.contracts import JPFactContract
 
+            # 2. Normalize Columns (V2 -> V1/Contract compatible)
+            v2_mapping = {
+                "DiscDate": "DisclosedDate",
+                "DiscTime": "DisclosedTime",
+                "Code": "LocalCode",
+                "DiscNo": "DisclosureNumber",
+                "DocType": "Type",
+                "CurPerType": "FiscalPeriod",
+                "Sales": "NetSales",
+                "OP": "OperatingProfit",
+                "OdP": "OrdinaryProfit",
+                "NP": "Profit",
+                "EPS": "EarningsPerShare",
+                "TA": "TotalAssets",
+                "Eq": "NetAssets",
+                "EqAR": "EquityToAssetRatio",
+                "BPS": "BookValuePerShare",
+                "CFO": "CashFlowsFromOperatingActivities",
+                "CFI": "CashFlowsFromInvestingActivities",
+                "CFF": "CashFlowsFromFinancingActivities",
+                "CashEq": "CashAndCashEquivalents",
+            }
+            # Only rename if columns exist (V2 detection)
+            rename_map = {k: v for k, v in v2_mapping.items() if k in df.columns}
+            if rename_map:
+                df = df.rename(columns=rename_map)
+
+            # Derive FiscalYear from CurFYEn if missing
+            if "FiscalYear" not in df.columns and "CurFYEn" in df.columns:
+                df["FiscalYear"] = (
+                    df["CurFYEn"].astype(str).apply(lambda x: x.split("-")[0] if "-" in x else "")
+                )
+
+            # Ensure numeric fields are actually numeric (handle empty strings in V2)
+            numeric_fields = [
+                "NetSales",
+                "OperatingProfit",
+                "OrdinaryProfit",
+                "Profit",
+                "EarningsPerShare",
+                "TotalAssets",
+                "NetAssets",
+                "Equity",
+                "EquityToAssetRatio",
+                "BookValuePerShare",
+                "CashFlowsFromOperatingActivities",
+                "CashFlowsFromInvestingActivities",
+                "CashFlowsFromFinancingActivities",
+                "CashAndCashEquivalents",
+            ]
+            for field in numeric_fields:
+                if field in df.columns:
+                    df[field] = pd.to_numeric(df[field], errors="coerce")
+
             # 1. Normalize Code (LocalCode or Code)
-            code_col = "LocalCode" if "LocalCode" in df.columns else "Code"
+            code_col = "LocalCode"
             df["LocalCode"] = (
                 df[code_col]
                 .astype(str)

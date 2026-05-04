@@ -90,8 +90,11 @@ class BatchSyncService:
                     self._queue_unmapped_tags("JP", code, session_id)
                 elif task_type == "JP_BULK":
                     _, _date_str, df, session_id = task
-                    for code in df["LocalCode"].unique():
-                        self.jp_engine.ingest_facts(code, df[df["LocalCode"] == code], session_id)
+                    code_col = "LocalCode" if "LocalCode" in df.columns else "Code"
+                    for code in df[code_col].unique():
+                        self.jp_engine.ingest_facts(
+                            str(code), df[df[code_col] == code], session_id
+                        )
                         self._queue_unmapped_tags("JP", str(code), session_id)
                 self.audit_db_queue.put(("TICKER_SYNC", "JP", "bulk", 1, "SUCCESS"))
                 self._increment_stat("SUCCESS")
@@ -163,19 +166,29 @@ class BatchSyncService:
                         db_id = res[0]
 
                 query = "SELECT DISTINCT tag, label FROM company_facts WHERE cik = ?"
+                with db_manager.connect(engine.db_path, read_only=True) as conn:
+                    raw_tags = conn.execute(query, [db_id]).fetchall()
+                if not raw_tags:
+                    return
+                source_tags = [f"{market}:{t[0]}" for t in raw_tags]
+                lookup = {f"{market}:{t[0]}": t for t in raw_tags}
             else:
-                query = "SELECT DISTINCT tag, label FROM company_facts WHERE LocalCode = ?"
+                # Wide format for JP: Get column names that are financial metrics
+                with db_manager.connect(engine.db_path, read_only=True) as conn:
+                    # Get schema to find numeric columns
+                    cols = conn.execute("PRAGMA table_info('company_facts')").fetchall()
+                    # Skip metadata columns
+                    skip = {
+                        "DisclosedDate", "DisclosedTime", "LocalCode", "DisclosureNumber",
+                        "Type", "FiscalYear", "FiscalPeriod", "session_id", "ingested_at"
+                    }
+                    raw_tags = [(c[1], c[1]) for c in cols if c[1] not in skip]
+                if not raw_tags:
+                    return
+                source_tags = [f"{market}:{t[0]}" for t in raw_tags]
+                lookup = {f"{market}:{t[0]}": t for t in raw_tags}
 
-            with db_manager.connect(engine.db_path, read_only=True) as conn:
-                raw_tags = conn.execute(query, [db_id]).fetchall()
-
-            if not raw_tags:
-                return
-
-            source_tags = [f"{market}:{t[0]}" for t in raw_tags]
             unmapped_source = audit_manager.get_unmapped_tags(market, source_tags)
-
-            lookup = {f"{market}:{t[0]}": t for t in raw_tags}
             unmapped_final = [lookup[ut] for ut in unmapped_source]
 
             if unmapped_final:
@@ -252,13 +265,19 @@ class BatchSyncService:
     @track_performance("sync_jp_market_batch")
     def _sync_jp_market(self, session_id, limit, dry_run, incremental):
         self.jp_engine.sync_tickers(session_id)
-        end = datetime.date.today()
-        # Sync last 90 days of summaries
-        logger.info("Fetching JP financial summaries for last 90 days...")
-        for i in range(90):
-            d = end - datetime.timedelta(days=i)
+        # J-Quants Free Plan: 12-week (84 days) delay
+        # We start syncing from (today - 84 days) going backwards to (today - 84 - 90 days)
+        delay_days = 84
+        sync_range = 90
+        base_date = datetime.date.today() - datetime.timedelta(days=delay_days)
+        logger.info(
+            f"Fetching JP financial summaries for Free Plan (Window: {base_date} backwards)..."
+        )
+        for i in range(sync_range):
+            d = base_date - datetime.timedelta(days=i)
             if d.weekday() < 5:
                 try:
+                    # V2 API uses date_yyyymmdd
                     df = self.jp_engine.cli.get_fin_summary(date_yyyymmdd=d.strftime("%Y%m%d"))
                     if df is not None and not df.empty:
                         logger.info(
@@ -268,8 +287,11 @@ class BatchSyncService:
                     else:
                         logger.debug(f"No JP summary found for {d.strftime('%Y-%m-%d')}")
                 except Exception as e:
-                    logger.error(f"Error fetching JP summary for {d.strftime('%Y-%m-%d')}: {e}")
+                    if "400" in str(e) and "subscription" in str(e).lower():
+                        logger.warning(f"J-Quants limit reached for {d}: {e}")
+                    else:
+                        logger.error(f"Error fetching JP summary for {d.strftime('%Y-%m-%d')}: {e}")
 
-                # J-Quants Rate Limit: 50 requests per minute
+                # J-Quants Rate Limit: Be respectful
                 time.sleep(1.2)
 

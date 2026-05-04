@@ -27,8 +27,9 @@ class FilingStructurer:
 5. compensation: 役員報酬の内容、設計、個別の報酬、インセンティブ
 6. cross_shareholding: 政策保有株式、持ち合い株、投資株式の保有目的
 
-出力形式:
-以下の構造の JSON 形式のみで回答してください。
+出力ルール:
+- 出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理してください。
+- 最後に以下の構造の JSON を ```json と ``` で囲んで出力してください。
 {
   "capex": [tag_name1, tag_name2, ...],
   "rd": [...],
@@ -54,8 +55,8 @@ class FilingStructurer:
 - 主観的な解釈は含めない。
 - 該当する記述がない項目は null とする。
 - "raw_evidence" には、抽出の根拠となった原文の該当箇所を短く引用する。
-
-出力形式: JSON
+- 出力の前に、情報の欠落がないか注意深く「思考（Thinking）」を記述してください。
+- 最後に必ず結果をJSON形式で、```json と ``` で囲んで出力してください。
 """
 
     def __init__(self, api_key: str, model_name: str | None = None):
@@ -69,17 +70,23 @@ class FilingStructurer:
         """
         try:
             # MarkdownのJSONブロックを探す
-            match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-            if not match:
-                # 裸のJSONを探す
-                match = re.search(r"(\{.*\})", text, re.DOTALL)
+            match = re.search(r"```(?:json|JSON)?\s*(.*?)\s*```", text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    pass # フォールバックへ
 
+            # 裸のJSONを探す
+            match = re.search(r"(\{.*\})", text, re.DOTALL)
             if match:
                 return json.loads(match.group(1))
+                
             return json.loads(text)
         except Exception:
             logger.warning(f"Failed to parse JSON from LLM output: {text[:200]}...")
             return {}
+
 
     async def _identify_tags(self, tag_names: list[str]) -> dict:
         """
@@ -155,9 +162,9 @@ class FilingStructurer:
 """ + "\n\n".join(final_prompt_parts)
 
             # model_name が指定されている場合はそれのみを使用
-        models_to_try = [self.model_name] if self.model_name else self.models
+            models_to_try = [self.model_name] if self.model_name else self.models
 
-        for model_name in models_to_try:
+            for model_name in models_to_try:
                 try:
                     logger.info(f"Structuring facts using {model_name}...")
                     response = self.client.models.generate_content(
