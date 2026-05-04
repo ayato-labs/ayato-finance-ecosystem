@@ -7,13 +7,14 @@ from loguru import logger
 
 from src.core.config import settings
 from src.core.db import db_manager
+from src.core.logging import track_performance
 from src.mappers.ai_mapper import AIMapper
 
 from .client import EDINETClient
 from .mapping import EDINETMapper
 from .parser import EDINETParser
 from .storage import EDINETStorage
-from src.core.logging import track_performance
+
 
 class EDINETSyncWorker:
     """
@@ -217,7 +218,7 @@ class EDINETSyncWorker:
             else:
                 logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
         except Exception as e:
-            doc_id_label = doc_id if 'doc_id' in locals() else 'unknown'
+            doc_id_label = doc_id if "doc_id" in locals() else "unknown"
             logger.error(f"[MAP] Failed to map facts for {doc_id_label}: {e}")
             raise
 
@@ -338,7 +339,9 @@ class EDINETSyncWorker:
 
             for i in range(delta.days + 1):
                 target_date = start_date + timedelta(days=i)
-                logger.info(f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---")
+                logger.info(
+                    f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---"
+                )
                 self.sync_date(target_date, target_edinet_codes=target_codes)
         except Exception as e:
             logger.error(f"Incremental sync failed: {e}")

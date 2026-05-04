@@ -147,7 +147,7 @@ class AuditManager:
         with self._lock:
             with db_manager.connect(self.db_path, read_only=True) as conn:
                 placeholders = ",".join(["?"] * len(source_tags))
-                query = f"SELECT source_tag FROM mapping_audit WHERE source_tag IN ({placeholders})"  # nosec S608
+                query = f"SELECT source_tag FROM mapping_audit WHERE source_tag IN ({placeholders})"  # noqa: S608
                 res = conn.execute(query, source_tags).fetchall()
                 found = set(r[0] for r in res)
                 return [t for t in source_tags if t not in found]

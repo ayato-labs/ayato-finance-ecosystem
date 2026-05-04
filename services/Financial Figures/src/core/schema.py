@@ -266,7 +266,7 @@ def generate_schema_docs(output_path: str = "docs/schema_definition.md"):
             lines.append("```")
             lines.append("")
 
-        if shard in INDEX_SCHEMAS and INDEX_SCHEMAS[shard]:
+        if INDEX_SCHEMAS.get(shard):
             lines.append("### Indexes")
             lines.append("```sql")
             for idx in INDEX_SCHEMAS[shard]:

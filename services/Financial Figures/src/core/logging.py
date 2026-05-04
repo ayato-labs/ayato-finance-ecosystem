@@ -1,4 +1,7 @@
 import sys
+import time
+from contextlib import contextmanager
+from functools import wraps
 
 from loguru import logger
 
@@ -63,9 +66,6 @@ def setup_logging():
 
     logger.info("Logging system initialized (JSON + Error Isolation)")
 
-import time
-from functools import wraps
-from contextlib import contextmanager
 
 @contextmanager
 def perf_tracker(task_name: str):

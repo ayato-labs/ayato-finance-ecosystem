@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -42,7 +42,7 @@ def test_jp_engine_full_sync_flow(tmp_path, mock_jquants):
             ]
         )
 
-        engine = JPEngine(refresh_token="fake-token")
+        engine = JPEngine(refresh_token="fake-token")  # noqa: S106
 
         # 2. Sync Tickers
         count = engine.sync_tickers(session_id="test-session")
@@ -101,7 +101,7 @@ def test_jp_engine_retry_on_api_error(tmp_path, mock_jquants):
         # We need to reduce the retry wait for faster tests
         tenacity = pytest.importorskip("tenacity")
         with patch("tenacity.wait_exponential", return_value=tenacity.wait_fixed(0.1)):
-            engine = JPEngine(refresh_token="fake-token")
+            engine = JPEngine(refresh_token="fake-token")  # noqa: S106
             count = engine.sync_tickers()
             assert count == 1
             assert mock_jquants.get_list.call_count == 3
@@ -119,7 +119,7 @@ def test_jp_engine_malformed_api_data(tmp_path, mock_jquants):
             [{"Code": "72030", "MarketCodeName": "Prime"}]
         )
 
-        engine = JPEngine(refresh_token="fake-token")
+        engine = JPEngine(refresh_token="fake-token")  # noqa: S106
 
         # Should raise KeyError as per JPEngine logic (it expects code/name)
         with pytest.raises(KeyError):
@@ -133,7 +133,7 @@ def test_jp_engine_partial_contract_failure(tmp_path, mock_jquants):
     db_path = tmp_path / "jp_partial.duckdb"
 
     with patch.object(settings, "DB_PATH_JP", db_path):
-        engine = JPEngine(refresh_token="fake-token")
+        engine = JPEngine(refresh_token="fake-token")  # noqa: S106
 
         # One valid, one missing required 'DisclosedDate'
         df = pd.DataFrame(

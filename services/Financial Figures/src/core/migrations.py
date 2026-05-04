@@ -4,11 +4,9 @@ import duckdb
 from loguru import logger
 
 from src.core.db import db_manager
+from src.core.logging import track_performance
 from src.core.schema import INDEX_SCHEMAS, TABLE_SCHEMAS
 
-
-
-from src.core.logging import track_performance
 
 class MigrationManager:
     """
@@ -64,7 +62,8 @@ class MigrationManager:
 
                         table_exists = (
                             conn.execute(
-                                "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                                "SELECT count(*) FROM information_schema.tables "
+                                "WHERE table_name = ?",
                                 [table_name],
                             ).fetchone()[0]
                             > 0
@@ -105,7 +104,9 @@ class MigrationManager:
                             # Log and continue for indexes as they might already exist
                             # but we could check for specific 'already exists' error
                             if "already exists" in str(e).lower():
-                                logger.debug(f"  [Migration] Index already exists: {idx_sql[:50]}...")
+                                logger.debug(
+                                    f"  [Migration] Index already exists: {idx_sql[:50]}..."
+                                )
                             else:
                                 logger.warning(f"  [Migration] Index error: {e}")
 

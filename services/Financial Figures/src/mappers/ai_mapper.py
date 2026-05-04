@@ -74,7 +74,7 @@ class AIMapper:
         4. OUTPUT ONLY A VALID JSON OBJECT matching the requested schema.
         5. Provide a brief, concise reasoning for your choice.
         6. Do not enter an infinite loop. If you cannot find a match, stop and return "Other".
-        """  # nosec S608
+        """  # noqa: S608
 
     def map_tag(self, market: str, tag: str, description: str, session_id: str) -> dict[str, Any]:
         """Maps a single tag using the batch interface."""

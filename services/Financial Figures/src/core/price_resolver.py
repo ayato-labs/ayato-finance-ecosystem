@@ -23,7 +23,7 @@ def get_safe_price_view_sql(parquet_path: str) -> str:
         COLUMNS('(?i)close') AS close,
         COLUMNS('(?i)volume') AS volume
     FROM read_parquet('{parquet_path}', hive_partitioning=1)
-    """  # nosec S608
+    """  # noqa: S608
 
 
 if __name__ == "__main__":
@@ -39,6 +39,6 @@ if __name__ == "__main__":
             logger.info("Safe View Created. Testing column selection...")
             # Safe internal query for testing
             df = conn.execute("SELECT ticker, date, close FROM v_safe_prices LIMIT 1").df()
-            logger.info(f"\n{df}")  # nosec S608
+            logger.info(f"\n{df}")
         except Exception as e:
             logger.error(f"Price resolver test failed: {e}")

@@ -10,6 +10,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from src.core.config import settings
 from src.core.db import db_manager
+from src.core.logging import track_performance
 
 
 class SECRateLimiter:
@@ -32,9 +33,6 @@ class SECRateLimiter:
 # Global SEC rate limiter instance
 sec_limiter = SECRateLimiter(10)
 
-
-
-from src.core.logging import track_performance
 
 class USEngine:
     HTTP_NOT_FOUND = 404
@@ -252,7 +250,7 @@ class USEngine:
                         fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
                     )
                     SELECT
-                        md5(concat_ws('|', cik, taxonomy, tag, end_date, accession_number)) 
+                        md5(concat_ws('|', cik, taxonomy, tag, end_date, accession_number))
                           as fact_id,
                         cik, taxonomy, tag, label, unit, value, end_date,
                         fiscal_year, fiscal_period, form, filed_date, accession_number, session_id

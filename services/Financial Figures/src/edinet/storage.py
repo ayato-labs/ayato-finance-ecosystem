@@ -118,10 +118,11 @@ class EDINETStorage:
                 val_list = ", ".join([f"source.{c}" for c in columns])
 
                 conn.register("ingest_df", ingest_df)
-                conn.execute(f"""
+                query = f"""
                     INSERT OR IGNORE INTO company_facts ({col_list})
                     SELECT {val_list} FROM ingest_df AS source
-                """)  # nosec S608
+                """  # noqa: S608
+                conn.execute(query)
         except Exception as e:
             logger.error(f"Critical error saving normalized facts: {e}", exc_info=True)
             raise

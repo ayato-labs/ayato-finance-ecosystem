@@ -1,20 +1,15 @@
-import logging
-
 import pandas as pd
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from src.core.config import settings
+from src.core.db import db_manager
+from src.core.logging import track_performance
 
 try:
     import jquantsapi
 except ImportError:
     jquantsapi = None
-
-from src.core.config import settings
-from src.core.db import db_manager
-
-
-
-from src.core.logging import track_performance
 
 class JPEngine:
     JP_TICKER_LEN_WITH_ZERO = 5
@@ -201,7 +196,9 @@ class JPEngine:
                 df[code_col]
                 .astype(str)
                 .apply(
-                    lambda c: c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+                    lambda c: c[:4]
+                    if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0")
+                    else c
                 )
             )
 
@@ -240,10 +237,11 @@ class JPEngine:
                 val_list = ", ".join([f"source.{c}" for c in columns])
 
                 conn.register("source_df", valid_df)
-                conn.execute(f"""
+                query = f"""
                     INSERT OR IGNORE INTO company_facts ({col_list})
                     SELECT {val_list} FROM source_df AS source
-                """)  # nosec S608
+                """  # noqa: S608
+                conn.execute(query)
                 logger.info(f"Successfully ingested JP facts for {code}.")
         except Exception as e:
             logger.error(f"Ingestion failed for JP Ticker {code}: {e}")
@@ -253,8 +251,6 @@ class JPEngine:
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
-
-    logging.basicConfig(level=logging.INFO)
     load_dotenv()
     engine = JPEngine()
     logger.info("JP Engine Initialized.")

@@ -9,10 +9,11 @@ from loguru import logger
 from src.core.audit_manager import audit_manager
 from src.core.config import settings
 from src.core.db import db_manager
+from src.core.logging import track_performance
 from src.engines.jp_engine import JPEngine
 from src.engines.us_engine import USEngine
 from src.mappers.ai_mapper import AIMapper
-from src.core.logging import track_performance
+
 
 class BatchSyncService:
     def __init__(self, start_workers: bool = True):
@@ -268,7 +269,7 @@ class BatchSyncService:
                         logger.debug(f"No JP summary found for {d.strftime('%Y-%m-%d')}")
                 except Exception as e:
                     logger.error(f"Error fetching JP summary for {d.strftime('%Y-%m-%d')}: {e}")
-                
+
                 # J-Quants Rate Limit: 50 requests per minute
                 time.sleep(1.2)
 

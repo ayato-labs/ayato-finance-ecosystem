@@ -56,14 +56,15 @@ class EDINETParser:
                     unit = row[unit_idx].strip() if unit_idx < len(row) else ""
                     raw_value = row[val_idx].strip()
 
-                    if not raw_value or raw_value in ["-", "―", "－"]: # Handle various dash characters
+                    # Handle various dash characters
+                    if not raw_value or raw_value in ["-", "―", "－"]:
                         continue
 
                     # Numeric cleaning
                     clean_val = raw_value.replace(",", "").replace("\u3000", "").replace(" ", "")
                     if clean_val.startswith("(") and clean_val.endswith(")"):
                         clean_val = "-" + clean_val[1:-1]
-                    
+
                     if not clean_val:
                         continue
 
