@@ -3,6 +3,7 @@ import gc
 import os
 import time
 from datetime import date, timedelta
+from pathlib import Path
 
 import requests
 from loguru import logger
@@ -56,22 +57,23 @@ async def batch_fetch(
                     logger.exception(f"Unexpected error processing ticker | ticker={ticker}")
         else:
             # 2. 自動同期 (全上場企業対象)
-            logger.info(f"Starting automated sync | lookback_days={days}")
-            # 日本市場
-            try:
-                await sync_recent_jp_filings(
+            logger.info(f"Starting automated parallel sync | lookback_days={days}")
+            
+            # 日米の市場を並列で同期する (専門家の提言: レート制限は市場ごとに独立しているため)
+            # asyncio.gather により、JPとUSのパイプラインを同時に走らせる
+            tasks = [
+                sync_recent_jp_filings(
                     edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
-                )
-            except Exception:
-                logger.exception("Failed during JP historical sync")
-
-            # 米国市場
-            try:
-                await sync_recent_us_filings(
+                ),
+                sync_recent_us_filings(
                     edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
                 )
+            ]
+            
+            try:
+                await asyncio.gather(*tasks)
             except Exception:
-                logger.exception("Failed during US historical sync")
+                logger.exception("Global failure during parallel market synchronization")
 
     except Exception:
         logger.exception("Critical error in batch_fetch orchestration")
@@ -88,7 +90,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
         logger.info(f"Syncing JP filings | date={target_date}")
         
         try:
-            docs = fetcher.list_documents(target_date)
+            docs = await asyncio.to_thread(fetcher.list_documents, target_date)
             # 有報(120), 四半期(140) 等を抽出
             target_forms = ["120", "140"]
             relevant_docs = [d for d in docs if d.get("docTypeCode") in target_forms]
@@ -101,7 +103,8 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                         continue
 
                     logger.info(f"Downloading JP filing | ticker={ticker} | doc_id={doc_id}")
-                    zip_bytes = fetcher.download_document(doc_id, doc_type=1)
+                    # ブロッキングなI/Oを別スレッドで実行
+                    zip_bytes = await asyncio.to_thread(fetcher.download_document, doc_id, doc_type=1)
                     if zip_bytes:
                         sections = parser.parse_zip(zip_bytes)
                         if sections:
@@ -118,7 +121,8 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                                 await run_structuring_for_filing(ticker, doc_id, sections, storage)
                     del zip_bytes
                     gc.collect()
-                    time.sleep(0.1)
+                    # 非同期スリープにより他タスクに制御を譲る
+                    await asyncio.sleep(0.1)
                 except Exception:
                     logger.exception(f"Error processing JP document | doc_id={doc.get('docID')}")
         except Exception:
@@ -134,8 +138,8 @@ async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuri
         for ticker in all_tickers:
             try:
                 await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
-                # SEC Rate Limit (10 requests/second) を遵守
-                time.sleep(0.11)
+                # SEC Rate Limit (10 requests/second) を遵守しつつ非同期で譲る
+                await asyncio.sleep(0.11)
             except Exception:
                 logger.exception(f"Unexpected error in US ticker loop | ticker={ticker}")
     except Exception:
@@ -145,8 +149,8 @@ async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuri
 async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False, days=7):
     """指定期間内の SEC EDGAR 提出書類を処理"""
     try:
-        # 1. 提出書類リスト取得
-        subs = fetcher.get_latest_submissions(ticker)
+        # 1. 提出書類リスト取得 (ブロッキング回避)
+        subs = await asyncio.to_thread(fetcher.get_latest_submissions, ticker)
         if not subs:
             return
 
@@ -170,13 +174,13 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                 doc_name = filing["primaryDocument"]
                 url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-                # 3. ダウンロード
+                # 3. ダウンロード (ブロッキングI/Oを回避)
                 logger.info(
                     f"Downloading US filing | ticker={ticker} | acc_no={acc_no} | "
                     f"date={filing['filingDate']}"
                 )
-                resp = requests.get(url, headers=fetcher.headers, timeout=30)
-                time.sleep(0.1)
+                resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+                await asyncio.sleep(0.1)
 
                 if resp.status_code != 200:
                     logger.error(f"Failed to download US filing | ticker={ticker} | status={resp.status_code}")
