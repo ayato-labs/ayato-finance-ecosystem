@@ -16,6 +16,7 @@ class FilingRecord(BaseModel):
     filing_date: date
     sections: dict
     metadata: dict
+    structured_facts: dict | None = None
     updated_at: datetime
 
 

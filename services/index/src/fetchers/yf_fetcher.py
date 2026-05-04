@@ -29,13 +29,17 @@ class YFinanceFetcher:
         return "yfinance"
 
     @retry(
-        wait=wait_exponential(multiplier=1, min=4, max=60),
+        wait=wait_exponential(multiplier=2, min=10, max=120),
         stop=stop_after_attempt(5),
-        retry=retry_if_exception_type((YFRateLimitError, Exception)),
+        retry=retry_if_exception_type((YFRateLimitError, Exception, RuntimeError)),
         reraise=True,
     )
     def _download_with_retry(self, ticker, start_date_str):
-        return yf.download(ticker, start=start_date_str, progress=False)
+        df = yf.download(ticker, start=start_date_str, progress=False)
+        if df is None or df.empty:
+            # yfinance often returns empty instead of raising on rate limits
+            raise RuntimeError(f"yfinance returned empty data for {ticker} (possible rate limit)")
+        return df
 
     def fetch(self, ticker: str, start_date: datetime) -> pd.DataFrame:
         """

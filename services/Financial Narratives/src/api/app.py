@@ -71,6 +71,7 @@ def get_narratives(ticker: str, storage: FinancialNarrativeStorage = Depends(get
                     filing_date=r[2],
                     sections=json.loads(r[3]),
                     metadata=json.loads(r[4]),
+                    structured_facts=storage.get_structuring_by_ticker(ticker),
                     updated_at=r[5],
                     accession_number=json.loads(r[4]).get("accessionNumber", "unknown"),
                 )
@@ -87,13 +88,13 @@ def trigger_sync(ticker: str, background_tasks: BackgroundTasks):
     logger.info(f"Triggering sync for {ticker} via API")
     # 数字の場合はそのまま、英字の場合は大文字にする
     processed_ticker = ticker if ticker.isdigit() else ticker.upper()
-    background_tasks.add_task(batch_fetch, [processed_ticker])
-    return {"message": f"Sync started for {ticker}", "status": "processing"}
+    background_tasks.add_task(batch_fetch, [processed_ticker], run_structuring=True)
+    return {"message": f"Sync and Structuring started for {ticker}", "status": "processing"}
 
 
 @app.post("/sync/all")
 def trigger_sync_all(background_tasks: BackgroundTasks):
-    """全銘柄の同期をバックグラウンドで開始"""
+    """全銘柄の同期と構造化をバックグラウンドで開始"""
     logger.info("Triggering full sync via API")
-    background_tasks.add_task(batch_fetch)
-    return {"message": "Full sync started", "status": "processing"}
+    background_tasks.add_task(batch_fetch, run_structuring=True)
+    return {"message": "Full sync and structuring started", "status": "processing"}

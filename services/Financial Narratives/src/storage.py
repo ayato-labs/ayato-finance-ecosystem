@@ -35,6 +35,14 @@ class FinancialNarrativeStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS structured_data (
+                    accession_number VARCHAR PRIMARY KEY,
+                    ticker VARCHAR,
+                    structured_facts JSON,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             logger.info(f"Initialized DuckDB at {self.db_path} with 2GB limit")
 
     def save_filing(self, metadata: dict, sections: dict):
@@ -72,6 +80,34 @@ class FinancialNarrativeStorage:
                 ),
             )
             logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
+
+    def save_structuring(self, accession_number: str, ticker: str, structured_facts: dict):
+        """
+        AIによって構造化された事実情報を保存する
+        """
+        facts_json = json.dumps(structured_facts)
+        with duckdb.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO structured_data (
+                    accession_number, ticker, structured_facts, updated_at
+                ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+                (accession_number, ticker.upper(), facts_json),
+            )
+            logger.success(f"Saved structured facts for {ticker} ({accession_number})")
+
+    def get_structuring_by_ticker(self, ticker: str):
+        """特定銘柄の構造化事実を取得"""
+        with duckdb.connect(self.db_path) as conn:
+            query = """
+                SELECT structured_facts, updated_at
+                FROM structured_data WHERE ticker = ? ORDER BY updated_at DESC
+            """
+            res = conn.execute(query, (ticker.upper(),)).fetchone()
+            if res:
+                return json.loads(res[0])
+            return None
 
 
 

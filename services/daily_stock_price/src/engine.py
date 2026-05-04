@@ -11,6 +11,7 @@ from loguru import logger
 from .catalog import CatalogManager
 from .fetchers.base import BaseFetcher
 from .logger import SyncLogger
+from .validator import DataValidator
 
 
 class MarketDataEngine:
@@ -32,6 +33,7 @@ class MarketDataEngine:
 
         self.sync_logger = SyncLogger(log_dir=str(self.log_dir))
         self.catalog = CatalogManager(db_path=self.base_dir.parent / "catalog.sqlite")
+        self.validator = DataValidator()
 
         logger.info(
             f"Initialized MarketDataEngine with base_dir: {self.base_dir} "
@@ -206,8 +208,14 @@ class MarketDataEngine:
         if df.empty:
             return
 
+        # データの妥当性検証
+        df_clean = self.validator.validate(df)
+        if df_clean.empty:
+            logger.warning("No valid data remaining after validation. Skipping save.")
+            return
+
         # 年と月を抽出してグループ化
-        df_working = df.copy()
+        df_working = df_clean.copy()
         df_working["_pyear"] = df_working["Date"].dt.year
         df_working["_pmonth"] = df_working["Date"].dt.month
 
