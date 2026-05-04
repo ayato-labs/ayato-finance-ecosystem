@@ -77,7 +77,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_analysis=
 
         for doc in relevant_docs:
             doc_id = doc["docID"]
-            ticker = doc.get("secCode", "")[:4]  # 証券コード4桁
+            ticker = (doc.get("secCode") or "")[:4]  # 証券コード4桁
             if not ticker:
                 continue
 

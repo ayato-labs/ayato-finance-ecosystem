@@ -73,7 +73,33 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
 
 if __name__ == "__main__":
-    host = os.getenv("CRYPTO_API_HOST", "127.0.0.1")
-    port = int(os.getenv("CRYPTO_API_PORT", "5012"))
-    logger.info(f"Starting Crypto Price API on {host}:{port}...")
-    uvicorn.run(app, host=host, port=port)
+    import argparse
+    parser = argparse.ArgumentParser(description="Daily Crypto Price API")
+    parser.add_argument("--api", action="store_true", help="Start the API server")
+    parser.add_argument("--sync", nargs="*", help="Sync specific tickers (e.g., BTC, ETH)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host for the API server")
+    parser.add_argument("--port", type=int, default=5012, help="Port for the API server")
+    
+    args = parser.parse_args()
+
+    if args.sync is not None:
+        tickers = args.sync if args.sync else ["BTC", "ETH", "SOL", "XRP", "BNB"]
+        logger.info(f"Starting crypto sync for: {tickers}")
+        for t in tickers:
+            try:
+                df = fetcher.fetch_daily_data(t)
+                if not df.empty:
+                    db.save_prices(t, df)
+                meta = fetcher.fetch_metadata(t)
+                if meta:
+                    db.save_metadata(t, meta)
+                logger.info(f"Successfully synced {t}")
+                # Rate limiting buffer
+                time.sleep(2)
+            except Exception as e:
+                logger.error(f"Failed to sync {t}: {e}")
+        print("Crypto sync complete.")
+        
+    elif args.api or (not args.sync and not args.api):
+        logger.info(f"Starting Crypto Price API on {args.host}:{args.port}...")
+        uvicorn.run(app, host=args.host, port=args.port)
