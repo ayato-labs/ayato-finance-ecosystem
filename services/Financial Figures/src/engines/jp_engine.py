@@ -50,48 +50,15 @@ class JPEngine:
         self._init_db()
 
     def _init_db(self):
-        """Initialize the Japan market database."""
+        """Initialize the Japan market database using MigrationManager."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         if settings.db_read_only:
             logger.info("Skipping JP DB initialization in READ_ONLY mode.")
             return
 
-        with db_manager.connect(self.db_path) as conn:
-            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
-            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tickers (
-                    code VARCHAR PRIMARY KEY,
-                    name VARCHAR,
-                    market_section VARCHAR,
-                    sector VARCHAR,
-                    last_session_id VARCHAR
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS company_facts (
-                    fact_id VARCHAR PRIMARY KEY,
-                    code VARCHAR,
-                    disclosed_date DATE,
-                    fiscal_year INTEGER,
-                    fiscal_period VARCHAR,
-                    taxonomy VARCHAR,
-                    tag VARCHAR,
-                    label VARCHAR,
-                    value DOUBLE,
-                    unit VARCHAR,
-                    accession_number VARCHAR,
-                    session_id VARCHAR,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+        from src.core.migrations import MigrationManager
 
-            # Indexes for performance
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_jp_facts_lookup "
-                "ON company_facts (code, tag, disclosed_date)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_jp_tickers_symbol ON tickers (code)")
+        MigrationManager.apply_migrations(self.db_path, "jp")
 
     @retry(
         wait=wait_exponential(multiplier=2, min=4, max=60),
@@ -112,6 +79,8 @@ class JPEngine:
         if df.empty:
             return 0
 
+        from src.core.contracts import JPTickerContract
+
         def get_col(df, options):
             for opt in options:
                 if opt in df.columns:
@@ -124,21 +93,26 @@ class JPEngine:
         if not code_col or not name_col:
             raise KeyError(f"Could not find code or name columns. Columns: {df.columns.tolist()}")
 
-        codes = df[code_col].astype(str).tolist()
-        normalized_codes = [
-            c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
-            for c in codes
-        ]
+        records = []
+        for _, row in df.iterrows():
+            code = str(row[code_col])
+            # Normalize JP code (5 digits ending in 0 -> 4 digits)
+            if len(code) == self.JP_TICKER_LEN_WITH_ZERO and code.endswith("0"):
+                code = code[:4]
 
-        df_mapped = pd.DataFrame(  # noqa: F841
-            {
-                "code": normalized_codes,
-                "name": df[name_col],
-                "market_section": df.get("MarketCodeName", df.get("Section", "")),
-                "sector": df.get("Sector17CodeName", ""),
-                "last_session_id": session_id,
-            }
-        )
+            try:
+                contract = JPTickerContract(
+                    code=code,
+                    name=row[name_col],
+                    market_section=row.get("MarketCodeName", row.get("Section", "")),
+                    sector=row.get("Sector17CodeName", ""),
+                    last_session_id=session_id,
+                )
+                records.append(contract.model_dump())
+            except Exception as e:
+                logger.error(f"JP Ticker validation failed for {code}: {e}")
+
+        df_mapped = pd.DataFrame(records)  # noqa: F841
 
         with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
@@ -184,91 +158,60 @@ class JPEngine:
         self.ingest_facts(code, df, session_id)
 
     def ingest_facts(self, code: str, df: pd.DataFrame, session_id: str):
-        """Flatten and ingest J-Quants statement data into DuckDB using vectorized operations."""
+        """Ingest J-Quants statement data into DuckDB using WIDE-FORMAT (Direct Column Mapping)."""
         if df is None or df.empty:
             return
 
-        # 1. Identify key columns
-        date_options = ["DisclosedDate", "Date", "DiscDate"]
-        date_col = next((c for c in date_options if c in df.columns), None)
-        if not date_col:
-            return
+        from src.core.contracts import JPFactContract
 
-        ignore_cols = [
-            "LocalCode",
-            "DisclosedDate",
-            "FiscalYear",
-            "FiscalPeriod",
-            "DocType",
-            "CurPerType",
-            "CurPerSt",
-            "CurPerEn",
-            "CurFYSt",
-            "CurFYEn",
-            "NxtFYSt",
-            "NxtFYEn",
-            "DEPS",
-            "REPS",
-            "Type",
-            "Code",
-        ]
-
-        id_vars = [
-            c
-            for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"]
-            if c in df.columns
-        ]
-
-        # 2. Vectorized Unpivot (Melt)
-        melted = df.melt(id_vars=id_vars, var_name="tag", value_name="value")
-
-        # 3. Filter and Clean
-        melted = melted[~melted["tag"].isin(ignore_cols)]
-        melted = melted.dropna(subset=["value"])
-
-        # Numeric conversion (Coerce errors to NaN then drop)
-        melted["value"] = pd.to_numeric(melted["value"], errors="coerce")
-        melted = melted.dropna(subset=["value"])
-
-        if melted.empty:
-            return
-
-        # 4. Map columns to schema
-        melted["code"] = melted.get("LocalCode", melted.get("Code", code)).astype(str)
-        # Normalize JP code (5 digits ending in 0 -> 4 digits)
-        melted["code"] = melted["code"].apply(
-            lambda c: c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+        # 1. Normalize Code (LocalCode or Code)
+        code_col = "LocalCode" if "LocalCode" in df.columns else "Code"
+        df["LocalCode"] = (
+            df[code_col]
+            .astype(str)
+            .apply(
+                lambda c: c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+            )
         )
 
-        melted["disclosed_date"] = pd.to_datetime(melted[date_col]).dt.strftime("%Y-%m-%d")
-        melted["fiscal_year"] = melted.get("FiscalYear")
-        melted["fiscal_period"] = melted.get("FiscalPeriod")
-        melted["taxonomy"] = "JP-GAAP"
-        melted["label"] = melted["tag"]
-        melted["unit"] = "JPY"
-        melted["session_id"] = session_id
-        melted["accession_number"] = melted["code"] + "-" + melted["disclosed_date"]
+        # 2. Add Session ID and timestamps
+        df["session_id"] = session_id
 
-        # 5. Bulk Ingest to DuckDB
-        logger.info(f"Ingesting {len(melted)} fact records for JP Ticker {code}...")
+        # 3. Contract Validation & Cleaning
+        # Filter for rows that meet the core contract
+        valid_records = []
+        for _, row in df.iterrows():
+            try:
+                # We use model_validate and model_dump to ensure type safety and cleaning
+                # The contract defines the standard set of fields we want to persist.
+                contract = JPFactContract(**row.to_dict())
+                valid_records.append(contract.model_dump())
+            except Exception as e:
+                logger.error(f"JP Fact validation failed for {code}: {e}")
+
+        if not valid_records:
+            return
+
+        valid_df = pd.DataFrame(valid_records)
+
+        # 4. Bulk Ingest to DuckDB (Wide Format)
+        logger.info(f"Ingesting {len(valid_df)} wide-format records for JP Ticker {code}...")
 
         with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.execute("PRAGMA disable_optimizer")
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO company_facts (
-                    fact_id, code, disclosed_date, fiscal_year, fiscal_period,
-                    taxonomy, tag, label, value, unit, accession_number, session_id
-                )
-                SELECT
-                    md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
-                    code, disclosed_date, fiscal_year, fiscal_period,
-                    taxonomy, tag, label, value, unit, accession_number, session_id
-                FROM melted
-                """
-            )
+
+            # Dynamically build the INSERT list based on valid_df columns to match schema
+            columns = [c for c in valid_df.columns if c != "ingested_at"]
+            col_list = ", ".join(columns)
+            val_list = ", ".join([f"source.{c}" for c in columns])
+
+            conn.register("source_df", valid_df)
+            conn.execute(f"""
+                INSERT OR IGNORE INTO company_facts ({col_list})
+                SELECT {val_list} FROM source_df AS source
+            """)  # nosec S608
 
 
 if __name__ == "__main__":

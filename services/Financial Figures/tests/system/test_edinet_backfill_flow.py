@@ -15,7 +15,7 @@ def test_backfill_cli_invalid_csv_path():
 
     env["PYTHONPATH"] = "."
     cmd = [sys.executable, "main.py", "--edinet-backfill", "non_existent.csv"]
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
 
     full_output = result.stdout + result.stderr
     assert "EDINET Backfill failed" in full_output or "No such file" in full_output
@@ -29,7 +29,7 @@ def test_backfill_cli_missing_api_key():
     env["PYTHONPATH"] = "."
 
     cmd = [sys.executable, "main.py", "--edinet-backfill", "dummy.csv"]
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
 
     full_output = result.stdout + result.stderr
     assert "EDINET_API_KEY" in full_output

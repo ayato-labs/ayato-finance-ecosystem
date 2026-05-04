@@ -115,10 +115,8 @@ class EdgarFetcher:
     def filter_relevant_filings(
         self, submissions_data: dict, doc_types: list[str] | None = None
     ) -> list[dict]:
-        """10-Kや10-Qなどの特定の書類のみを抽出"""
+        """特定の書類を抽出（doc_typesがNoneまたは空の場合は全書類を返す）"""
         try:
-            if doc_types is None:
-                doc_types = ["10-K", "10-Q"]
             if not submissions_data or "filings" not in submissions_data:
                 return []
 
@@ -126,7 +124,7 @@ class EdgarFetcher:
             relevant_filings = []
 
             for i in range(len(recent["form"])):
-                if recent["form"][i] in doc_types:
+                if doc_types is None or len(doc_types) == 0 or recent["form"][i] in doc_types:
                     filing = {
                         "accessionNumber": recent["accessionNumber"][i],
                         "filingDate": recent["filingDate"][i],

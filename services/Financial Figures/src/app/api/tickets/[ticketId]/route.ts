@@ -16,7 +16,14 @@ export async function GET(req: Request, { params }: { params: { ticketId: string
 
     return NextResponse.json(ticket);
   } catch (error) {
-    console.error("[TICKET_GET]", error);
+    console.error(JSON.stringify({
+      level: "ERROR",
+      message: "Internal error during ticket retrieval",
+      context: "[TICKET_GET]",
+      ticketId: params.ticketId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    }));
     return new NextResponse("Internal error", { status: 500 });
   }
 }
@@ -35,7 +42,14 @@ export async function DELETE(
 
     return NextResponse.json(ticket);
   } catch (error) {
-    console.error("[TICKET_DELETE]", error);
+    console.error(JSON.stringify({
+      level: "ERROR",
+      message: "Internal error during ticket deletion",
+      context: "[TICKET_DELETE]",
+      ticketId: params.ticketId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    }));
     return new NextResponse("Internal error", { status: 500 });
   }
 }

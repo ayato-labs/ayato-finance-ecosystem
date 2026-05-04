@@ -61,7 +61,7 @@ def test_resilience_split_logic(mapper):
         tags = [("tag1", "desc1"), ("tag2", "desc2")]
         results = mapper.map_tags_bulk("EDINET", tags, "test-session")
 
-        assert len(results) == 2  # noqa: PLR2004
+        assert len(results) == 2
         assert results[0]["mapped_label"] == "NetSales"
         assert results[1]["mapped_label"] == "OperatingProfit"
-        assert mock_gen.call_count == 3  # noqa: PLR2004
+        assert mock_gen.call_count == 3

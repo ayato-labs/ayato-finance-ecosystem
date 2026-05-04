@@ -13,6 +13,8 @@ DEFAULT_PORT = 5013
 
 # Storage Configuration
 DEFAULT_DB_PATH = "data/financial_narratives.duckdb"
+JP_DB_PATH = "data/narratives_jp.duckdb"
+US_DB_PATH = "data/narratives_us.duckdb"
 DUCKDB_MEMORY_LIMIT = "2GB"
 
 # Market Configuration

@@ -43,54 +43,15 @@ class USEngine:
         self.client = httpx.Client(headers={"User-Agent": settings.SEC_USER_AGENT})
 
     def _init_db(self):
-        """Initialize the US market database tables."""
+        """Initialize the US market database tables using MigrationManager."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         if settings.db_read_only:
             logger.info("Skipping US DB initialization in READ_ONLY mode.")
             return
 
-        with db_manager.connect(self.db_path) as conn:
-            conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
-            conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
-            conn.execute("PRAGMA disable_optimizer")
-            # Table for Ticker to CIK mapping
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tickers (
-                    ticker VARCHAR PRIMARY KEY,
-                    cik VARCHAR,
-                    name VARCHAR,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_session_id VARCHAR
-                )
-            """)
+        from src.core.migrations import MigrationManager
 
-            # Table for Financial Facts (Domain Data)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS company_facts (
-                    fact_id VARCHAR PRIMARY KEY,
-                    cik VARCHAR,
-                    taxonomy VARCHAR,
-                    tag VARCHAR,
-                    label VARCHAR,
-                    unit VARCHAR,
-                    value DOUBLE,
-                    end_date DATE,
-                    fiscal_year INTEGER,
-                    fiscal_period VARCHAR,
-                    form VARCHAR,
-                    filed_date DATE,
-                    accession_number VARCHAR,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    session_id VARCHAR
-                )
-            """)
-
-            # Indexes for performance
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
-                "ON company_facts (cik, tag, end_date)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_us_tickers_symbol ON tickers (ticker)")
+        MigrationManager.apply_migrations(self.db_path, "us")
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -106,15 +67,28 @@ class USEngine:
         response.raise_for_status()
         data = response.json()
 
-        # Convert to list of tuples for DuckDB insertion
+        from src.core.contracts import USTickerContract
+
+        # Convert to list of tuples for DuckDB insertion with validation
         records = []
         for key in data:
             item = data[key]
             # SEC CIKs in URLs must be 10 digits
             cik_str = str(item["cik_str"]).zfill(10)
-            records.append((item["ticker"], cik_str, item["title"], session_id))
 
-        df = pd.DataFrame(records, columns=["ticker", "cik", "name", "last_session_id"])  # noqa: F841
+            # Contract Validation
+            try:
+                contract = USTickerContract(
+                    ticker=item["ticker"],
+                    cik=cik_str,
+                    name=item["title"],
+                    last_session_id=session_id,
+                )
+                records.append(contract.model_dump())
+            except Exception as e:
+                logger.error(f"Ticker validation failed for {item.get('ticker')}: {e}")
+
+        df = pd.DataFrame(records)  # noqa: F841
 
         with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
@@ -179,6 +153,8 @@ class USEngine:
         cik = str(facts_data.get("cik", "")).zfill(10)
         facts = facts_data.get("facts", {})
 
+        from src.core.contracts import USFactContract
+
         all_records = []
 
         for taxonomy, tags in facts.items():
@@ -187,23 +163,30 @@ class USEngine:
                 label = details.get("label", tag)  # Store the descriptive label
                 for unit, data_points in units_dict.items():
                     for dp in data_points:
-                        all_records.append(
-                            {
-                                "cik": cik,
-                                "taxonomy": taxonomy,
-                                "tag": tag,
-                                "label": label,
-                                "unit": unit,
-                                "value": dp.get("val"),
-                                "end_date": dp.get("end"),
-                                "fiscal_year": dp.get("fy"),
-                                "fiscal_period": dp.get("fp"),
-                                "form": dp.get("form"),
-                                "filed_date": dp.get("filed"),
-                                "accession_number": dp.get("accn"),
-                                "session_id": session_id,
-                            }
-                        )
+                        record = {
+                            "cik": cik,
+                            "taxonomy": taxonomy,
+                            "tag": tag,
+                            "label": label,
+                            "unit": unit,
+                            "value": dp.get("val"),
+                            "end_date": dp.get("end"),
+                            "fiscal_year": dp.get("fy"),
+                            "fiscal_period": dp.get("fp"),
+                            "form": dp.get("form"),
+                            "filed_date": dp.get("filed"),
+                            "accession_number": dp.get("accn"),
+                            "session_id": session_id,
+                        }
+
+                        # Contract Validation
+                        try:
+                            contract = USFactContract(**record)
+                            all_records.append(contract.model_dump())
+                        except Exception as e:
+                            # Too many logs if we log every fact, so we log once per tag if it fails
+                            logger.error(f"Fact validation failed for {ticker} tag {tag}: {e}")
+                            break
 
         if not all_records:
             logger.info(f"No valid fact records extracted for US Ticker {ticker}.")

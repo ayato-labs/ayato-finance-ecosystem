@@ -7,6 +7,10 @@ from pathlib import Path
 
 import requests
 from loguru import logger
+from dotenv import load_dotenv
+
+# .envファイルをロード
+load_dotenv()
 
 from src.config import SEC_TICKERS, USER_AGENT
 from src.edgar_fetcher import EdgarFetcher
@@ -31,7 +35,8 @@ async def batch_fetch(
         f"run_structuring={run_structuring} | days={days}"
     )
 
-    storage = FinancialNarrativeStorage()
+    storage_jp = FinancialNarrativeStorage(market="jp")
+    storage_us = FinancialNarrativeStorage(market="us")
     edgar_fetcher = EdgarFetcher(USER_AGENT)
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
@@ -46,11 +51,11 @@ async def batch_fetch(
                     is_jp = ticker.isdigit()
                     if is_jp:
                         await process_jp_ticker(
-                            ticker, edinet_fetcher, edinet_parser, storage, run_structuring
+                            ticker, edinet_fetcher, edinet_parser, storage_jp, run_structuring
                         )
                     else:
                         await process_us_ticker(
-                            ticker, edgar_fetcher, edgar_parser, storage, run_structuring, days=3650
+                            ticker, edgar_fetcher, edgar_parser, storage_us, run_structuring, days=3650
                         )
                     gc.collect()
                 except Exception:
@@ -63,10 +68,10 @@ async def batch_fetch(
             # asyncio.gather により、JPとUSのパイプラインを同時に走らせる
             tasks = [
                 sync_recent_jp_filings(
-                    edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
+                    edinet_fetcher, edinet_parser, storage_jp, days=days, run_structuring=run_structuring
                 ),
                 sync_recent_us_filings(
-                    edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
+                    edgar_fetcher, edgar_parser, storage_us, days=days, run_structuring=run_structuring
                 )
             ]
             
@@ -77,13 +82,65 @@ async def batch_fetch(
 
     except Exception:
         logger.exception("Critical error in batch_fetch orchestration")
-    finally:
-        logger.info("Batch fetch orchestration completed")
 
+# 同時実行数の制御
+MAX_CONCURRENT_JP_DOCS = 5
+MAX_CONCURRENT_US_TICKERS = 10
+
+jp_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JP_DOCS)
+us_semaphore = asyncio.Semaphore(MAX_CONCURRENT_US_TICKERS)
+db_write_lock = asyncio.Lock()
 
 async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuring=False):
     """EDINETの書類一覧APIを使用して、指定日数の全上場企業の開示を同期"""
     today = date.today()
+
+    async def process_jp_doc(doc):
+        async with jp_semaphore:
+            try:
+                doc_id = doc.get("docID")
+                if not doc_id:
+                    return
+                
+                # XBRLフラグがないものは一旦スキップ (Zipが存在しないため)
+                if doc.get("xbrlFlag") != "1":
+                    logger.debug(f"Skipping JP document without XBRL | doc_id={doc_id} | title={doc.get('docDescription')}")
+                    return
+
+                # Tickerがない場合でも EdinetCode や filerName を使って保存を強行する (真のGreedy)
+                ticker = (doc.get("secCode") or "")[:4]
+                if not ticker:
+                    ticker = doc.get("edinetCode") or "UNKNOWN"
+                
+                if storage.filing_exists(doc_id):
+                    return
+
+                logger.info(f"Downloading JP filing | filer={doc.get('filerName')} | doc_id={doc_id} | title={doc.get('docDescription')}")
+                zip_bytes = await asyncio.to_thread(fetcher.download_document, doc_id, doc_type=1)
+                
+                if zip_bytes:
+                    # パース処理も重い可能性があるので thread で実行
+                    sections = await asyncio.to_thread(parser.parse_zip, zip_bytes)
+                    if sections:
+                        metadata = {
+                            "accessionNumber": doc_id,
+                            "ticker": ticker,
+                            "cik": doc.get("edinetCode"),
+                            "form": doc.get("formCode"),
+                            "filingDate": doc.get("filingDate"),
+                            "filerName": doc.get("filerName"),
+                        }
+                        
+                        # DB書き込みはロックを取って1件ずつ行う
+                        async with db_write_lock:
+                            await asyncio.to_thread(storage.save_filing, metadata, sections)
+                            
+                        if run_structuring:
+                            await run_structuring_for_filing(ticker, doc_id, sections, storage)
+                    del zip_bytes
+                    gc.collect()
+            except Exception:
+                logger.exception(f"Error processing JP document | doc_id={doc.get('docID')}")
 
     for i in range(days):
         target_date = today - timedelta(days=i)
@@ -91,40 +148,17 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
         
         try:
             docs = await asyncio.to_thread(fetcher.list_documents, target_date)
-            # 有報(120), 四半期(140) 等を抽出
-            target_forms = ["120", "140"]
-            relevant_docs = [d for d in docs if d.get("docTypeCode") in target_forms]
-
-            for doc in relevant_docs:
-                try:
-                    doc_id = doc["docID"]
-                    ticker = (doc.get("secCode") or "")[:4]
-                    if not ticker or storage.filing_exists(doc_id):
-                        continue
-
-                    logger.info(f"Downloading JP filing | ticker={ticker} | doc_id={doc_id}")
-                    # ブロッキングなI/Oを別スレッドで実行
-                    zip_bytes = await asyncio.to_thread(fetcher.download_document, doc_id, doc_type=1)
-                    if zip_bytes:
-                        sections = parser.parse_zip(zip_bytes)
-                        if sections:
-                            metadata = {
-                                "accessionNumber": doc_id,
-                                "ticker": ticker,
-                                "cik": doc.get("edinetCode"),
-                                "form": doc.get("formCode"),
-                                "filingDate": doc.get("filingDate"),
-                                "filerName": doc.get("filerName"),
-                            }
-                            storage.save_filing(metadata, sections)
-                            if run_structuring:
-                                await run_structuring_for_filing(ticker, doc_id, sections, storage)
-                    del zip_bytes
-                    gc.collect()
-                    # 非同期スリープにより他タスクに制御を譲る
-                    await asyncio.sleep(0.1)
-                except Exception:
-                    logger.exception(f"Error processing JP document | doc_id={doc.get('docID')}")
+            if not docs:
+                logger.warning(f"No documents found on {target_date}")
+                continue
+                
+            # 全ての書類を抽出対象にする
+            relevant_docs = [d for d in docs if d.get("xbrlFlag") == "1"]
+            logger.info(f"Found {len(docs)} documents on {target_date} | {len(relevant_docs)} have XBRL")
+            
+            if relevant_docs:
+                tasks = [process_jp_doc(doc) for doc in relevant_docs]
+                await asyncio.gather(*tasks)
         except Exception:
             logger.exception(f"Failed to fetch JP document list | date={target_date}")
 
@@ -154,8 +188,8 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
         if not subs:
             return
 
-        # 2. 指定期間内の 10-K/Q を抽出
-        filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K", "10-Q"])
+        # 2. 全ての提出書類を抽出対象とする (doc_types=None)
+        filings = fetcher.filter_relevant_filings(subs, doc_types=None)
         if not filings:
             return
 
@@ -186,13 +220,17 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                     logger.error(f"Failed to download US filing | ticker={ticker} | status={resp.status_code}")
                     continue
 
-                # 4. パース
-                sections = parser.extract_all_sections(resp.text, filing["form"])
+                # 4. パース (重い処理を thread に逃がす)
+                sections = await asyncio.to_thread(parser.extract_all_sections, resp.text, filing["form"])
                 if sections:
                     filing_metadata = filing.copy()
                     filing_metadata["ticker"] = ticker
                     filing_metadata["cik"] = cik
-                    storage.save_filing(filing_metadata, sections)
+                    
+                    # DB書き込みはロックを取って1件ずつ行う
+                    async with db_write_lock:
+                        await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
+                        
                     if run_structuring:
                         await run_structuring_for_filing(ticker, acc_no, sections, storage)
 

@@ -27,7 +27,7 @@ def test_ai_mapper_map_tag_success(mock_genai, tmp_path):
 
     assert result["mapped_label"] == "TotalAssets"
     assert result["reasoning"] == "Standard mapping"
-    assert result["confidence"] == 0.99  # noqa: PLR2004
+    assert result["confidence"] == 0.99
 
 
 def test_ai_mapper_parsing_error_retry(mock_genai):
@@ -62,4 +62,4 @@ def test_ai_mapper_parsing_error_retry(mock_genai):
         mapper = AIMapper()
         result = mapper.map_tags_bulk("US", [("Profit", "Net profit")], "session-123")
         assert result[0]["mapped_label"] == "NetIncome"
-        assert mock_client_instance.models.generate_content.call_count == 2  # noqa: PLR2004
+        assert mock_client_instance.models.generate_content.call_count == 2

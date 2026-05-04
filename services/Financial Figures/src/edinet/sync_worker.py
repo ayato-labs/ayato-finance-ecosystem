@@ -102,11 +102,14 @@ class EDINETSyncWorker:
                     self.storage.save_document(doc)
 
                     # 2. Download statutory CSV zip
+                    logger.debug(f"[SYNC] Downloading ZIP for {doc_id}...")
                     zip_content = self.client.download_document_csv(doc_id)
                     if not zip_content:
+                        logger.warning(f"[SYNC] No content returned for {doc_id}")
                         continue
 
                     # 3. Extract and Parse CSVs
+                    logger.debug(f"[SYNC] Extracting CSVs from ZIP {doc_id}...")
                     csv_files = self.client.extract_csv_from_zip(zip_content)
                     all_facts = []
                     for _filename, content in csv_files:
@@ -115,18 +118,24 @@ class EDINETSyncWorker:
 
                     # 4. Save Raw Facts for Audit
                     if all_facts:
-                        logger.info(f"[SYNC] Saving {len(all_facts)} raw facts for audit trail.")
+                        logger.info(
+                            f"[SYNC] Saving {len(all_facts)} raw facts for audit trail "
+                            f"(doc_id={doc_id})."
+                        )
                         self.storage.save_facts(doc_id, all_facts)
 
                         # 5. Map to Standardized Facts
-                        self._map_and_save_facts(doc, all_facts)
+                        try:
+                            self._map_and_save_facts(doc, all_facts)
+                        except Exception as e:
+                            logger.error(f"[MAP] Failed to map and save facts for {doc_id}: {e}")
                     else:
                         logger.warning(f"No numeric facts extracted from {doc_id}")
 
                     processed_count += 1
 
                 except Exception as e:
-                    logger.error(f"Failed to process document {doc_id}: {e}", exc_info=True)
+                    logger.exception(f"Failed to process document {doc_id}: {e}")
                     continue
 
                 # Rate limiting: Be respectful to EDINET servers (1s per doc download)
@@ -141,7 +150,7 @@ class EDINETSyncWorker:
     def _map_and_save_facts(self, doc: dict, raw_facts: list[dict]):
         """
         Uses AI Mapper to translate EDINET raw facts to standardized labels
-        and saves them to the company_facts table.
+        and saves them to the wide-format company_facts table.
         """
         doc_id = doc["docID"]
         ticker = doc.get("secCode")
@@ -151,17 +160,11 @@ class EDINETSyncWorker:
             if len(ticker) == ticker_len_full and ticker.endswith("0"):
                 ticker = ticker[:4]
             elif len(ticker) == ticker_len_full:
-                # Still fallback to 4 digits for JP market consistency if 5th is non-zero?
                 ticker = ticker[:4]
-                # Actually, EDINET secCode 72030 is 7203.
-                # Let's stick to the common pattern.
 
         submission_date = doc.get("submissionPeriod")
         session_id = f"edinet-sync-{date.today()}"
 
-        # PRIORITY CHECK: If J-Quants already has data, we can skip AI mapping to save tokens,
-        # or at least mark it as lower priority. The user requested:
-        # "優先度はJクオンツのデータがなかった時にEDINETの方を見る"
         if self._has_jquants_data(ticker, submission_date):
             logger.info(f"[MAP] Skipping AI mapping for {ticker} as J-Quants data already exists.")
             return
@@ -181,35 +184,34 @@ class EDINETSyncWorker:
             mappings = self.ai_mapper.map_tags_bulk("EDINET", tags_to_map, session_id)
             tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in mappings}
 
-            normalized_facts = []
+            # 1. Pivot the raw facts into a single wide-format record
+            # We initialize with basic metadata
+            wide_record = {
+                "DisclosedDate": submission_date,
+                "LocalCode": ticker,
+                "FiscalYear": str(fiscal_year) if fiscal_year else None,
+                "FiscalPeriod": fiscal_period,
+                "session_id": session_id,
+                "accession_number": doc_id,
+            }
+
+            # 2. Map facts to columns
             for f in raw_facts:
                 label = tag_to_label.get(f["id"])
+                # If the AI mapped this tag to a standard J-Quants label, put it in that column
                 if label and label != "Other":
-                    normalized_facts.append(
-                        {
-                            "code": ticker,
-                            "disclosed_date": submission_date,
-                            "fiscal_year": fiscal_year,
-                            "fiscal_period": fiscal_period,
-                            "taxonomy": "EDINET",
-                            "tag": f["id"],
-                            "label": label,
-                            "value": f["value"],
-                            "unit": f["unit"],
-                            "accession_number": doc_id,
-                            "session_id": session_id,
-                        }
-                    )
+                    # We store the latest value if there are multiple (EDINET has duplicates)
+                    wide_record[label] = str(f["value"])
+                    # Also keep track of the original tag and label for traceability
+                    # or just rely on the wide-format for standard queries.
+                    wide_record["tag"] = f["id"]
+                    wide_record["label"] = label
 
-            if normalized_facts:
-                self.storage.save_normalized_facts(normalized_facts)
-                logger.info(f"[MAP] Successfully saved {len(normalized_facts)} facts for {ticker}.")
+            if len(wide_record) > 6:  # More than just the metadata
+                self.storage.save_normalized_facts([wide_record])
+                logger.info(f"[MAP] Successfully saved wide-format record for {ticker}.")
             else:
-                mapping_preview = list(tag_to_label.values())[:5]
-                logger.warning(
-                    f"[MAP] No facts mapped to standard labels for {ticker}. "
-                    f"(Found: {mapping_preview}...)"
-                )
+                logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
 
         except Exception as e:
             logger.error(f"[MAP] Failed to map facts for {doc_id}: {e}")

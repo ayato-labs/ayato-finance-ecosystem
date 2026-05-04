@@ -66,6 +66,8 @@ def create_mock_zip():
     """Create a valid ZIP in memory containing a CSV."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        csv_content = "要素ID\t項目名\tコンテキストID\tユニットID\t単位\t値\njpcrp_cor:NetSales\t売上高\tCurrentYear\tJPY\t円\t123456\n"
+        header = "要素ID\t項目名\tコンテキストID\tユニットID\t単位\t値\n"
+        row = "jpcrp_cor:NetSales\t売上高\tCurrentYear\tJPY\t円\t123456\n"
+        csv_content = header + row
         z.writestr("test.csv", csv_content.encode("utf-16"))
     return buf.getvalue()

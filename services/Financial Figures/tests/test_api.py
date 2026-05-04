@@ -75,20 +75,20 @@ def setup_api_data(test_settings):
 def test_api_unified_financials(setup_api_data, test_settings):
     with patch("src.api.server.settings", test_settings):
         response = client.get("/financials/AAPL")
-        assert response.status_code == 200  # noqa: PLR2004
+        assert response.status_code == 200
         data = response.json()
         assert len(data) > 0
         assert data[0]["market"] == "US"
 
         response = client.get("/financials/8697")
-        assert response.status_code == 200  # noqa: PLR2004
+        assert response.status_code == 200
         assert response.json()[0]["market"] == "JP"
 
 
 def test_api_tickers_filtering_and_pagination(setup_api_data, test_settings):
     # 1. Search
     response = client.get("/tickers?search=apple")
-    assert response.status_code == 200  # noqa: PLR2004
+    assert response.status_code == 200
     assert any(t["symbol"] == "AAPL" for t in response.json())
 
     # 2. Pagination
@@ -107,7 +107,7 @@ def test_api_stats(setup_api_data, test_settings):
         conn.execute("CREATE TABLE IF NOT EXISTS sync_sessions (session_id VARCHAR PRIMARY KEY)")
 
     response = client.get("/stats")
-    assert response.status_code == 200  # noqa: PLR2004
+    assert response.status_code == 200
     data = response.json()
     assert "us_tickers" in data
     assert data["us_tickers"] == 1

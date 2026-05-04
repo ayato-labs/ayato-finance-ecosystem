@@ -4,7 +4,7 @@ from pathlib import Path
 import duckdb
 from loguru import logger
 
-from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT
+from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT, JP_DB_PATH, US_DB_PATH
 from src.db.migrations import MigrationManager
 
 
@@ -13,10 +13,21 @@ class FinancialNarrativeStorage:
     抽出された定性情報をDuckDBに永続化するクラス
     """
 
-    def __init__(self, db_path: str = DEFAULT_DB_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None, market: str = None):
+        if db_path:
+            self.db_path = db_path
+        elif market:
+            if market.lower() == "jp":
+                self.db_path = JP_DB_PATH
+            elif market.lower() == "us":
+                self.db_path = US_DB_PATH
+            else:
+                self.db_path = DEFAULT_DB_PATH
+        else:
+            self.db_path = DEFAULT_DB_PATH
+            
         # データベースファイルの親ディレクトリを確実に作成
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self):

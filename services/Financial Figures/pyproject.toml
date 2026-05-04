@@ -37,8 +37,12 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF"]
+select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF", "S"]
 ignore = ["PLR0913", "PLR0912", "PLR0915", "PLR2004", "PLC0415", "E402", "RUF001", "RUF002", "RUF003"] # Allow complex financial functions and AI mapping logic
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+"scratch/*" = ["S101"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -14,103 +14,150 @@ class FilingStructurer:
     解釈や分析は行わず、テキストに含まれる事実の特定に特化する。
     """
 
-    SYSTEM_PROMPT = """
-あなたは高度な金融データエンジニアです。提供された企業の開示資料（定性情報）から、以下の項目について「事実」のみを構造化抽出してください。
-主観的な解釈や感情的な分析は一切含めないでください。
+    SYSTEM_PROMPT_MAPPING = """
+あなたは高度な金融データエンジニアです。
+提供された EDINET XBRL のタグ名リストから、以下の 6 つのカテゴリのいずれかに関連する可能性があるタグを特定してください。
 
-抽出対象項目:
-1. capex (設備投資): 将来の投資計画、既存設備の更新予定、具体的な投資金額や時期の記述。
-2. rd (研究開発): 重点的な研究開発項目、技術的優位性の根拠となる事実。
-3. governance (ガバナンス/資本配分): 資本配分の方針（株主還元・再投資）、役員報酬の設計、
-   キャッシュの使い道。
+カテゴリ:
+1. capex: 設備投資、主要な設備の状況、投資計画
+2. rd: 研究開発活動、技術開発、知的財産
+3. governance: コーポレート・ガバナンスの状況、資本配分の方針、株主還元、取締役会
+4. employees: 従業員の状況、平均給与、勤続年数、セグメント別従業員数
+5. compensation: 役員報酬の内容、設計、個別の報酬、インセンティブ
+6. cross_shareholding: 政策保有株式、持ち合い株、投資株式の保有目的
 
 出力形式:
-必ず以下の構造のJSON形式で出力してください。該当する事実がない場合は null を設定してください。
+以下の構造の JSON 形式のみで回答してください。
 {
-  "capex": { "intent": string, "amount_hint": string, "timing": string, "raw_evidence": string },
-  "rd": { "priority_items": string[], "technical_advantage": string, "raw_evidence": string },
-  "governance": { "capital_allocation_policy": string, "shareholder_return_policy": string,
-                  "raw_evidence": string }
+  "capex": [tag_name1, tag_name2, ...],
+  "rd": [...],
+  "governance": [...],
+  "employees": [...],
+  "compensation": [...],
+  "cross_shareholding": [...]
 }
+"""
+
+    SYSTEM_PROMPT_STRUCTURING = """
+あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、特定の項目について「事実」のみを構造化抽出してください。
+
+抽出項目と目的:
+- capex: 将来の投資計画、具体的な投資金額や時期。
+- rd: 重点研究項目、技術的優位性の根拠。
+- governance: 資本配分方針、還元方針、ガバナンス体制。
+- employees: 給与、勤続年数、人員構成の事実。
+- compensation: 報酬設計のロジック、選任理由、個別報酬額（記載がある場合）。
+- cross_shareholding: 銘柄別の保有目的、削減方針の有無。
+
+ルール:
+- 主観的な解釈は含めない。
+- 該当する記述がない項目は null とする。
+- "raw_evidence" には、抽出の根拠となった原文の該当箇所を短く引用する。
+
+出力形式: JSON
 """
 
     def __init__(self, api_key: str):
         self.client = genai.Client(api_key=api_key)
         self.models = GOOGLE_AI_MODELS
 
-    def _prepare_prompt(self, sections: dict[str, str]) -> str | None:
+    def _parse_json(self, text: str) -> dict:
         """
-        結合されたセクションデータから抽出用のプロンプトを作成する。
-        """
-        combined_text = ""
-        for key, text in sections.items():
-            if text:
-                combined_text += f"### Section: {key}\n{text}\n\n"
-
-        if not combined_text.strip():
-            return None
-
-        return f"以下の開示資料から事実を抽出してください:\n\n{combined_text}"
-
-    def _parse_response(self, response_text: str) -> dict:
-        """
-        LLMからのレスポンス文字列をJSONとしてパースする。
+        LLMの出力からJSONブロックを抽出してパースする。
         """
         try:
-            clean_text = response_text.strip()
-            # MarkdownのJSONコードブロックを検索
-            json_match = re.search(r"```json\s*(.*?)\s*```", clean_text, re.DOTALL)
-            if json_match:
-                clean_text = json_match.group(1)
-            else:
-                # ``` ... ``` だけの場合も考慮
-                code_match = re.search(r"```\s*(.*?)\s*```", clean_text, re.DOTALL)
-                if code_match:
-                    clean_text = code_match.group(1)
-
-            return json.loads(clean_text)
-        except json.JSONDecodeError:
-            logger.exception(f"Failed to parse LLM response | raw_text={response_text[:500]}")
-            raise ValueError(f"Invalid JSON response from LLM")
+            # MarkdownのJSONブロックを探す
+            match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+            if not match:
+                # 裸のJSONを探す
+                match = re.search(r"(\{.*\})", text, re.DOTALL)
+            
+            if match:
+                return json.loads(match.group(1))
+            return json.loads(text)
         except Exception:
-            logger.exception("Unexpected error during JSON parsing")
-            raise
+            logger.warning(f"Failed to parse JSON from LLM output: {text[:200]}...")
+            return {}
+
+    async def _identify_tags(self, tag_names: list[str]) -> dict:
+        """
+        全タグ名から関連するタグをLLMに特定させる（第1段階）
+        """
+        if not tag_names:
+            return {}
+
+        tag_list_str = "\n".join(tag_names)
+        prompt = f"""{self.SYSTEM_PROMPT_MAPPING}
+
+以下のタグ名リストから関連タグを抽出してJSON形式で回答してください:
+
+{tag_list_str}"""
+
+        try:
+            model_name = self.models[0]
+            response = self.client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            if response.text:
+                return self._parse_json(response.text)
+        except Exception as e:
+            logger.error(f"Tag mapping failed: {e}")
+            return {}
+        return {}
 
     async def extract_facts(self, sections: dict[str, str]) -> dict:
         """
-        セクションデータから事実を構造化抽出する
+        2段階のプロセスで事実を構造化抽出する
         """
         try:
-            prompt = self._prepare_prompt(sections)
-            if not prompt:
-                logger.warning("No text content available for structuring")
+            # 1. タグのマッピング
+            tag_names = list(sections.keys())
+            mapping = await self._identify_tags(tag_names)
+            
+            if not mapping:
+                logger.warning("No tag mapping generated")
                 return {}
+
+            # 2. 関連するテキストの集約
+            context_per_category = {}
+            for category, mapped_tags in mapping.items():
+                combined_text = ""
+                for tag in mapped_tags:
+                    if tag in sections and sections[tag]:
+                        combined_text += f"--- Tag: {tag} ---\n{sections[tag]}\n\n"
+                if combined_text.strip():
+                    context_per_category[category] = combined_text
+
+            if not context_per_category:
+                logger.warning("No relevant content found after mapping")
+                return {}
+
+            # 3. 各カテゴリの詳細構造化
+            final_prompt_parts = []
+            for cat, text in context_per_category.items():
+                final_prompt_parts.append(f"## Category: {cat}\n{text}")
+            
+            final_prompt = f"""{self.SYSTEM_PROMPT_STRUCTURING}
+
+以下の情報を元に、各項目の事実をJSON形式で抽出してください:
+
+""" + "\n\n".join(final_prompt_parts)
 
             for model_name in self.models:
                 try:
-                    logger.info(f"LLM Extraction attempt | model={model_name}")
+                    logger.info(f"Structuring attempt | model={model_name}")
                     response = self.client.models.generate_content(
                         model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=self.SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                        ),
+                        contents=final_prompt
                     )
-
                     if response.text:
-                        structured_data = self._parse_response(response.text)
-                        logger.info(f"LLM Extraction successful | model={model_name}")
-                        return structured_data
-                    else:
-                        logger.warning(f"LLM returned empty response | model={model_name}")
-
-                except Exception:
-                    logger.exception(f"Model extraction failed | model={model_name}")
+                        return self._parse_json(response.text)
+                except Exception as e:
+                    logger.error(f"Structuring failed with {model_name}: {e}")
                     continue
 
-            logger.error("All models failed for extraction")
             return {}
-        except Exception:
-            logger.exception("Critical error in extract_facts orchestration")
+        except Exception as e:
+            logger.exception(f"Critical error in extract_facts: {e}")
             return {}

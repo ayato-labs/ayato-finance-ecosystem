@@ -1,11 +1,13 @@
 import io
 import re
+import sys
 import zipfile
-from typing import ClassVar
-
 from bs4 import BeautifulSoup
 from loguru import logger
 from markdownify import markdownify as md
+
+# Increase recursion depth for deep iXBRL HTML structures
+sys.setrecursionlimit(5000)
 
 
 class EdinetParser:
@@ -13,19 +15,6 @@ class EdinetParser:
     Parser for Japanese EDINET documents (Yuho/Quarterly reports).
     Supports extraction from Inline XBRL (iXBRL) which is essentially HTML.
     """
-
-    # Mapping of sections to XBRL Tag patterns or header names
-    # Note: EDINET uses standardized tags in jpcrp_cor namespace
-    TAG_MAP: ClassVar[dict[str, str]] = {
-        "business_strategy": (
-            "jpcrp_cor:BusinessPoliciesBusinessEnvironmentAndIssuesToAddressTextBlock"
-        ),
-        "mda": "jpcrp_cor:AnalysisOfFinancialPositionOperatingResultsAndCashFlowsTextBlock",
-        "risk_factors": "jpcrp_cor:BusinessRisksTextBlock",
-        "rd": "jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock",
-        "capex": "jpcrp_cor:FacilitiesChangesAndPlansTextBlock",
-        "governance": "jpcrp_cor:CorporateGovernanceSummaryTextBlock",
-    }
 
     def __init__(self):
         pass
@@ -75,44 +64,67 @@ class EdinetParser:
 
     def parse_ixbrl(self, html_content: str) -> dict[str, str]:
         """
-        Extract sections from Inline XBRL (HTML) using Beautiful Soup.
+        Ultra-fast extraction: Split by regex first, then parse fragments.
+        Avoids BeautifulSoup recursion depth issues on 10MB+ documents.
         """
-        soup = BeautifulSoup(html_content, "lxml")
         results = {}
-
-        for key, tag_name in self.TAG_MAP.items():
-            # EDINET uses <ix:nonNumeric name="jpcrp_cor:..." ...>
-            # Beautiful Soup handles ix: tags if using lxml or html.parser
-            # However, sometimes they are namespaced like:
-            # <ix:nonNumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">
-            element = soup.find(lambda t, tn=tag_name: t.get("name") == tn)
-
-            if element:
-                # Convert to markdown
-                markdown_content = md(
-                    str(element),
-                    heading_style="ATX",
-                    bullets="-",
-                    strip=["script", "style", "head"],
-                    table_conversion="github",
-                )
-                results[key] = self.clean_text(markdown_content)
-                logger.info(f"Extracted JP section: {key} (size: {len(results[key])})")
-
+        
+        # 1. まずは ix:nonNumeric タグのブロックをすべて抜き出す (属性の順序に依存しない)
+        tag_pattern = re.compile(r'<(ix:nonNumeric)[^>]*>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
+        
+        # 2. 抜き出したタグの中から name 属性を抽出する (シングル/ダブルクォート両対応)
+        name_pattern = re.compile(r'name\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+        
+        match_count = 0
+        for match in tag_pattern.finditer(html_content):
+            match_count += 1
+            opening_tag = match.group(0).split(">")[0]
+            content = match.group(2)
+            
+            name_match = name_pattern.search(opening_tag)
+            if not name_match:
+                continue
+                
+            key = name_match.group(1)
+            
+            try:
+                # フラグメントをパース
+                fragment_soup = BeautifulSoup(content, "html.parser")
+                
+                # 1. 第一志望: マークダウン化
+                try:
+                    text = md(
+                        str(fragment_soup),
+                        heading_style="ATX",
+                        bullets="-",
+                        strip=["script", "style", "head"],
+                        table_conversion="github",
+                    )
+                except (RecursionError, Exception):
+                    # 2. フォールバック: 生テキスト
+                    text = fragment_soup.get_text(separator="\n", strip=True)
+            except Exception:
+                # 3. 最終手段: タグ除去
+                text = re.sub(r'<[^>]+>', '', content)
+            
+            cleaned_text = self.clean_text(text)
+            if cleaned_text:
+                if key in results:
+                    results[key] += "\n\n" + cleaned_text
+                else:
+                    results[key] = cleaned_text
+        
+        if match_count > 0:
+            logger.debug(f"Found {match_count} ix:nonNumeric blocks in HTML fragment")
+                    
         return results
-
-    def extract_from_html(self, html_content: str) -> dict[str, str]:
-        """Generic extraction for non-XBRL HTML (PDF-to-HTML) based on headers."""
-        # This is a fallback if XBRL tags are missing
-        # For now, we prioritize XBRL
-        return self.parse_ixbrl(html_content)
-
 
 if __name__ == "__main__":
     # Test with a dummy string
     parser = EdinetParser()
     dummy_html = (
-        '<ix:nonnumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">'
-        "Test R&D content</ix:nonnumeric>"
+        '<ix:nonNumeric name="jpcrp_cor:ResearchAndDevelopmentActivitiesTextBlock">'
+        "Test R&D content</ix:nonNumeric>"
     )
-    print(parser.parse_ixbrl(dummy_html))
+    result = parser.parse_ixbrl(dummy_html)
+    print(f"Test Result: {result}")

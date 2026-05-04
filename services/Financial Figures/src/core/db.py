@@ -12,6 +12,7 @@ class DuckDBManager:
     Manages DuckDB connections with a focus on handling file locks and
     serializing access across threads within the same process.
     """
+
     _local_lock = threading.Lock()
 
     @staticmethod
@@ -26,25 +27,37 @@ class DuckDBManager:
 
         while time.time() - start_time < timeout_seconds:
             try:
-                # Use a global lock to prevent multiple threads in the same process
-                # from trying to open the file simultaneously if not necessary.
+                # Use a global lock to prevent race conditions
                 with DuckDBManager._local_lock:
-                    conn = duckdb.connect(db_path_str, read_only=read_only)
+                    # NOTE: DuckDB requires all connections to a file to share the same
+                    # access mode (read_only). If already open, we must match the mode.
+                    # As a workaround for mixed mode, we force RW if open.
+                    try:
+                        conn = duckdb.connect(db_path_str, read_only=read_only)
+                        logger.debug(f"Connected to {db_path} (read_only={read_only})")
+                    except duckdb.ConnectionException:
+                        # If failed due to mode mismatch, try opening in read_only=False
+                        # if the file is already open in that mode.
+                        logger.warning(
+                            f"Connection mode mismatch for {db_path}. "
+                            f"Falling back to Read-Write mode."
+                        )
+                        conn = duckdb.connect(db_path_str, read_only=False)
                 break
             except (duckdb.IOException, OSError) as e:
                 err_msg = str(e).lower()
                 if any(kw in err_msg for kw in ["io error", "locked", "used by", "permission"]):
-                    elapsed = int(time.time() - start_time)
-                    logger.warning(
-                        f"Database {db_path} is currently locked. "
-                        f"Retrying in 1s... ({elapsed}s elapsed)"
-                    )
+                    logger.debug(f"Database {db_path} is locked, retrying...")
                     time.sleep(1.0)
                 else:
-                    # Not a lock error, re-raise immediately
+                    logger.error(f"Unexpected IO error connecting to {db_path}: {e}")
                     raise e
+            except Exception as e:
+                logger.exception(f"Critical error connecting to {db_path}: {e}")
+                raise e
 
         if conn is None:
+            logger.error(f"Failed to acquire database lock for {db_path} after {timeout_seconds}s.")
             raise duckdb.IOException(
                 f"Failed to acquire database lock for {db_path} after {timeout_seconds}s."
             )
@@ -54,5 +67,6 @@ class DuckDBManager:
         finally:
             if conn:
                 conn.close()
+
 
 db_manager = DuckDBManager()

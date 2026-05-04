@@ -99,7 +99,8 @@ def test_chaos_mixed_api_responses(tmp_path, mocker):
     from src.edinet.client import EDINETClient
     from tests.integration.test_edinet_sync_chain import create_mock_zip
 
-    # We use a real client but mock its network methods to ensure logic like extract_csv_from_zip works
+    # We use a real client but mock its network methods to ensure logic like
+    # extract_csv_from_zip works
     real_client = EDINETClient(api_key="test")
     worker.client = mocker.Mock(spec=real_client)
     worker.client.download_document_csv.side_effect = [

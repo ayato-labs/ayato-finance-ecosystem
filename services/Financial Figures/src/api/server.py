@@ -9,8 +9,12 @@ from pydantic import BaseModel, Field
 
 from src.core.config import settings
 from src.core.db import db_manager
+from src.core.logging import setup_logging
 from src.edinet.sync_worker import EDINETSyncWorker
 from src.services.market_sync import BatchSyncService
+
+# Initialize logging
+setup_logging()
 
 
 def run_background_sync(service: BatchSyncService):
@@ -223,58 +227,94 @@ def get_financials(
     is_jp = symbol.isdigit() and len(symbol) == jp_ticker_len
     market = "JP" if is_jp else "US"
 
-    # Fetch facts and ticker info
+    records = []
+
     try:
         if is_jp:
+            # 1. Fetch from J-Quants Native Table (Wide Format)
             query = """
-                SELECT f.tag, f.value, f.unit, CAST(f.disclosed_date AS VARCHAR) as period_date,
-                       f.fiscal_year, t.name
+                SELECT f.*, t.name
                 FROM company_facts f
-                JOIN tickers t ON f.code = t.code
-                WHERE f.code = ?
+                JOIN tickers t ON f.LocalCode = t.code
+                WHERE f.LocalCode = ?
             """
             with db.get_jp_conn() as conn:
-                facts = conn.execute(query, [symbol]).fetchall()
+                facts_df = conn.execute(query, [symbol]).df()
 
-            # FALLBACK: Try EDINET DB for additional history/tags
+            if not facts_df.empty:
+                company_name = facts_df["name"].iloc[0]
+                # Map wide columns to standard labels
+                standard_labels = settings.JQUANTS_V2_LABELS
+                for _, row in facts_df.iterrows():
+                    for label in standard_labels:
+                        if label in row and row[label] is not None and str(row[label]) != "":
+                            try:
+                                val = float(row[label])
+                                record = FinancialRecord(
+                                    market="JP",
+                                    symbol=symbol,
+                                    company_name=company_name,
+                                    target_label=label,
+                                    value=val,
+                                    unit="JPY",
+                                    period_date=str(row["DisclosedDate"]),
+                                    fiscal_year=(
+                                        int(row["FiscalYear"]) if row["FiscalYear"] else None
+                                    ),
+                                    reasoning="Direct J-Quants Native Mapping",
+                                )
+                                records.append(record)
+                            except (ValueError, TypeError):
+                                continue
+
+            # 2. FALLBACK: Try EDINET DB for additional history/tags
             try:
-                # We use 'label' from EDINET as it contains the AI-standardized tag name
                 edinet_query = """
-                    SELECT label as tag, value, unit,
-                           CAST(COALESCE(disclosed_date, ingested_at) AS VARCHAR) as period_date,
-                           fiscal_year
+                    SELECT *
                     FROM company_facts
-                    WHERE code = ?
+                    WHERE LocalCode = ?
                 """
                 with db.get_edinet_conn() as conn:
-                    edinet_facts = conn.execute(edinet_query, [symbol]).fetchall()
+                    edinet_df = conn.execute(edinet_query, [symbol]).df()
 
-                if edinet_facts:
-                    # Map EDINET standardized labels to J-Quants shorthand tags if necessary
-                    # to match the existing mapping_audit table entries.
-                    tag_map = {
-                        "NetSales": "Sales",
-                        "OperatingProfit": "OP",
-                        "OrdinaryProfit": "OdP",
-                        "Profit": "NP",
-                        "Equity": "Eq",
-                        "TotalAssets": "TA",
-                        "EquityToAssetRatio": "EqAR",
-                    }
+                if not edinet_df.empty:
+                    # Supplement the records list, avoiding duplicates
+                    existing_keys = {(r.target_label, r.period_date) for r in records}
+                    fallback_name = "Unknown (EDINET)"
+                    company_name = locals().get("company_name", fallback_name)
 
-                    # Supplement the facts list
-                    existing_keys = {(f[0], f[3]) for f in facts}  # (tag, period_date)
-                    for ef in edinet_facts:
-                        raw_tag = ef[0]
-                        normalized_tag = tag_map.get(raw_tag, raw_tag)
-
-                        key = (normalized_tag, ef[3])
-                        if key not in existing_keys:
-                            # Append with normalized tag and placeholder for name
-                            facts.append((normalized_tag, *ef[1:], None))
+                    standard_labels = settings.JQUANTS_V2_LABELS
+                    for _, row in edinet_df.iterrows():
+                        for label in standard_labels:
+                            if label in row and row[label] is not None and str(row[label]) != "":
+                                key = (label, str(row["DisclosedDate"]))
+                                if key not in existing_keys:
+                                    try:
+                                        val = float(row[label])
+                                        records.append(
+                                            FinancialRecord(
+                                                market="JP",
+                                                symbol=symbol,
+                                                company_name=company_name,
+                                                target_label=label,
+                                                value=val,
+                                                unit="JPY",
+                                                period_date=str(row["DisclosedDate"]),
+                                                fiscal_year=(
+                                                    int(row["FiscalYear"])
+                                                    if row["FiscalYear"]
+                                                    else None
+                                                ),
+                                                reasoning=f"AI Mapped EDINET -> {label}",
+                                            )
+                                        )
+                                    except (ValueError, TypeError):
+                                        continue
             except Exception as e:
                 logger.warning(f"Fallback to EDINET failed for {symbol}: {e}")
+
         else:
+            # 3. US Market (Long Format - SEC Native)
             query = """
                 SELECT f.tag, f.value, f.unit, CAST(f.end_date AS VARCHAR) as period_date,
                        f.fiscal_year, t.name
@@ -284,46 +324,40 @@ def get_financials(
             """
             with db.get_us_conn() as conn:
                 facts = conn.execute(query, [symbol]).fetchall()
-    except Exception as e:
-        raise HTTPException(
-            status_code=404, detail=f"Database error or symbol not found: {e}"
-        ) from e
 
-    if not facts:
+            if facts:
+                company_name = next((f[5] for f in facts if f[5] is not None), "Unknown Company")
+                # Fetch mappings from audit DB
+                with db.get_audit_conn() as conn:
+                    mapping_res = conn.execute(
+                        "SELECT source_tag, mapped_label, reasoning FROM mapping_audit "
+                        "WHERE source_tag LIKE 'US:%'"
+                    ).fetchall()
+                    mappings = {r[0]: (r[1], r[2]) for r in mapping_res}
+
+                for f in facts:
+                    source_tag = f"US:{f[0]}"
+                    mapping = mappings.get(source_tag)
+                    if mapping and mapping[0] != "Other":
+                        records.append(
+                            FinancialRecord(
+                                market="US",
+                                symbol=symbol,
+                                company_name=company_name,
+                                target_label=mapping[0],
+                                value=f[1],
+                                unit=f[2],
+                                period_date=f[3],
+                                fiscal_year=f[4],
+                                reasoning=mapping[1],
+                            )
+                        )
+    except Exception as e:
+        logger.error(f"Database error for symbol {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
+
+    if not records:
         raise HTTPException(status_code=404, detail=f"No financials found for symbol {symbol}")
-
-    # Extract company name from the first record that has it
-    company_name = next((f[5] for f in facts if f[5] is not None), "Unknown Company")
-
-    # Fetch mappings
-    try:
-        with db.get_audit_conn() as conn:
-            mapping_res = conn.execute(
-                "SELECT source_tag, mapped_label, reasoning FROM mapping_audit"
-            ).fetchall()
-            mappings = {r[0]: (r[1], r[2]) for r in mapping_res}
-    except Exception as e:
-        logger.error(f"Error fetching mappings from audit DB: {e}")
-        mappings = {}
-
-    records = []
-    for f in facts:
-        source_tag = f"{market}:{f[0]}"
-        mapping = mappings.get(source_tag)
-        if mapping and mapping[0] != "Other":
-            records.append(
-                FinancialRecord(
-                    market=market,
-                    symbol=symbol,
-                    company_name=company_name,
-                    target_label=mapping[0],
-                    value=f[1],
-                    unit=f[2],
-                    period_date=f[3],
-                    fiscal_year=f[4],
-                    reasoning=mapping[1],
-                )
-            )
 
     # Sort and paginate
     records.sort(key=lambda x: x.period_date, reverse=True)

@@ -25,77 +25,14 @@ class EDINETStorage:
             raise RuntimeError("Database Initialization Failure") from e
 
     def _init_db(self):
-        """Schema definition with performance and traceability indexes."""
+        """Initialize the EDINET database using MigrationManager."""
         if settings.db_read_only:
             logger.info("Skipping EDINET DB initialization in READ_ONLY mode.")
             return
-        with db_manager.connect(self.db_path) as con:
-            # Document Metadata
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS documents (
-                    doc_id VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    filer_name VARCHAR,
-                    doc_description VARCHAR,
-                    submission_date DATE,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
 
-            # Raw Facts from CSV (Audit trail of original data)
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS raw_facts (
-                    doc_id VARCHAR,
-                    element_id VARCHAR,
-                    element_name VARCHAR,
-                    context_id VARCHAR,
-                    amount_value DOUBLE,
-                    unit_name VARCHAR,
-                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id)
-                )
-            """)
+        from src.core.migrations import MigrationManager
 
-            # Normalized Facts (Mirrors J-Quants schema)
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS company_facts (
-                    fact_id VARCHAR PRIMARY KEY,
-                    code VARCHAR,
-                    disclosed_date DATE,
-                    fiscal_year INTEGER,
-                    fiscal_period VARCHAR,
-                    taxonomy VARCHAR,
-                    tag VARCHAR,
-                    label VARCHAR,
-                    value DOUBLE,
-                    unit VARCHAR,
-                    accession_number VARCHAR,
-                    session_id VARCHAR,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # Reconciliation Audit Log (Who won and why)
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS reconciliation_audit (
-                    audit_id VARCHAR PRIMARY KEY,
-                    code VARCHAR,
-                    disclosed_date DATE,
-                    label VARCHAR,
-                    jquants_val DOUBLE,
-                    edinet_val DOUBLE,
-                    merged_val DOUBLE,
-                    strategy VARCHAR,
-                    reasoning VARCHAR,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            con.execute("CREATE INDEX IF NOT EXISTS idx_facts_doc ON raw_facts(doc_id)")
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup "
-                "ON company_facts (code, tag, disclosed_date)"
-            )
-            logger.info("EDINET database schema verified and indexes created.")
+        MigrationManager.apply_migrations(self.db_path, "edinet")
 
     def save_document(self, doc_data: dict):
         """Saves document metadata with conflict handling."""
@@ -167,29 +104,24 @@ class EDINETStorage:
             raise
 
     def save_normalized_facts(self, facts: list[dict]):
-        """Saves AI-mapped facts into company_facts table."""
+        """Saves AI-mapped facts into WIDE-FORMAT company_facts table."""
         if not facts:
             return
 
-        logger.info(f"[DB] Saving {len(facts)} normalized facts to company_facts...")
+        logger.info(f"[DB] Saving {len(facts)} normalized records to company_facts (WIDE)...")
         try:
             ingest_df = pd.DataFrame(facts)
             with db_manager.connect(self.db_path, read_only=settings.db_read_only) as conn:
-                # Use register to ensure DuckDB sees the dataframe reliably
+                # Dynamically build columns to match schema
+                columns = [c for c in ingest_df.columns if c != "ingested_at"]
+                col_list = ", ".join(columns)
+                val_list = ", ".join([f"source.{c}" for c in columns])
+
                 conn.register("ingest_df", ingest_df)
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO company_facts (
-                        fact_id, code, disclosed_date, fiscal_year, fiscal_period,
-                        taxonomy, tag, label, value, unit, accession_number, session_id
-                    )
-                    SELECT
-                        md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
-                        code, disclosed_date, fiscal_year, fiscal_period,
-                        taxonomy, tag, label, value, unit, accession_number, session_id
-                    FROM ingest_df
-                    """
-                )
+                conn.execute(f"""
+                    INSERT OR IGNORE INTO company_facts ({col_list})
+                    SELECT {val_list} FROM ingest_df AS source
+                """)  # nosec S608
         except Exception as e:
             logger.error(f"Critical error saving normalized facts: {e}", exc_info=True)
             raise

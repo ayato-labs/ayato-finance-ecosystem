@@ -1,21 +1,22 @@
 import duckdb
 import pandas as pd
+from loguru import logger
 
 from src.core.config import settings
 
 
 def run_unified_audit():
-    print("\n=== Unified Market Data Audit (J-Quants vs EDINET) ===")
+    logger.info("=== Unified Market Data Audit (J-Quants vs EDINET) ===")
 
     jp_db = settings.DB_PATH_JP
     edinet_db = settings.DB_PATH_EDINET
 
     if not jp_db.exists() or not edinet_db.exists():
-        print(f"Error: Database missing. JP: {jp_db.exists()}, EDINET: {edinet_db.exists()}")
+        logger.error(f"Database missing. JP: {jp_db.exists()}, EDINET: {edinet_db.exists()}")
         return
 
     # 1. Label Coverage Comparison
-    print("\n[1] Label Distribution (Top 15)")
+    logger.info("[1] Label Distribution (Top 15)")
 
     # J-Quants
     conn_jp = duckdb.connect(str(jp_db), read_only=True)
@@ -56,23 +57,24 @@ def run_unified_audit():
     conn_edinet.close()
 
     intersection = tickers_jp.intersection(tickers_edinet)
-    print("\n[2] Ticker Coverage")
-    print(f"  J-Quants Tickers: {len(tickers_jp):,}")
-    print(f"  EDINET Tickers:   {len(tickers_edinet):,}")
-    print(f"  Intersection:     {len(intersection):,} (Companies with data from both)")
+    logger.info("[2] Ticker Coverage")
+    logger.info(f"  J-Quants Tickers: {len(tickers_jp):,}")
+    logger.info(f"  EDINET Tickers:   {len(tickers_edinet):,}")
+    logger.info(f"  Intersection:     {len(intersection):,} (Companies with data from both)")
 
     # 3. Value Consistency Check (Sample for a few common tickers)
     if intersection:
-        print("\n[3] Value Consistency (Sample: NetSales for top intersected companies)")
+        logger.info("[3] Value Consistency (Sample: NetSales for top intersected companies)")
         sample_tickers = list(intersection)[:5]
 
         # Attach both DBs to one connection for comparison
         conn = duckdb.connect(":memory:")
+        # Path is from settings, so f-string is acceptable but we keep it clean
         conn.execute(f"ATTACH '{jp_db}' AS jp (READ_ONLY)")
         conn.execute(f"ATTACH '{edinet_db}' AS edinet (READ_ONLY)")
 
-        comparison = conn.execute(
-            f"""
+        placeholders = ",".join(["?" for _ in sample_tickers])
+        query = f"""
             SELECT
                 j.code,
                 j.disclosed_date,
@@ -85,17 +87,16 @@ def run_unified_audit():
              AND j.disclosed_date = e.disclosed_date
              AND j.label = e.label
             WHERE j.label = 'NetSales'
-              AND j.code IN ({",".join(["?" for _ in sample_tickers])})
+              AND j.code IN ({placeholders})
             ORDER BY j.disclosed_date DESC
             LIMIT 10
-        """,
-            sample_tickers,
-        ).df()
+        """  # nosec S608
+        comparison = conn.execute(query, sample_tickers).df()
 
         if not comparison.empty:
             print(comparison.to_string(index=False))
         else:
-            print("  No direct date/label matches found for NetSales in the sample intersection.")
+            logger.info("  No direct date/label matches found for NetSales.")
 
         conn.close()
 
