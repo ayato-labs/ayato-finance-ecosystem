@@ -15,49 +15,55 @@ class FilingStructurer:
     """
 
     SYSTEM_PROMPT_MAPPING = """
-あなたは高度な金融データエンジニアです。
-提供された EDINET XBRL のタグ名リストから、以下の 6 つのカテゴリのいずれかに関連する可能性
-があるタグを特定してください。
+    あなたは高度な金融データエンジニアです。
+    提供された EDINET XBRL のタグ名リストから、以下の 6 つのカテゴリのいずれかに関連する可能性
+    があるタグを特定してください。
 
-カテゴリ:
-1. capex: 設備投資、主要な設備の状況、投資計画
-2. rd: 研究開発活動、技術開発、知的財産
-3. governance: コーポレート・ガバナンスの状況、資本配分の方針、株主還元、取締役会
-4. employees: 従業員の状況、平均給与、勤続年数、セグメント別従業員数
-5. compensation: 役員報酬の内容、設計、個別の報酬、インセンティブ
-6. cross_shareholding: 政策保有株式、持ち合い株、投資株式の保有目的
+    カテゴリ:
+    1. capex: 設備投資、主要な設備の状況、投資計画
+    2. rd: 研究開発活動、技術開発、知的財産
+    3. governance: コーポレート・ガバナンスの状況、資本配分の方針、株主還元、取締役会
+    4. employees: 従業員の状況、平均給与、勤続年数、セグメント別従業員数
+    5. compensation: 役員報酬の内容、設計、個別の報酬、インセンティブ
+    6. cross_shareholding: 政策保有株式、持ち合い株、投資株式の保有目的
 
-出力ルール:
-- 出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理してください。
-- 最後に以下の構造の JSON を ```json と ``` で囲んで出力してください。
-{
-  "capex": [tag_name1, tag_name2, ...],
-  "rd": [...],
-  "governance": [...],
-  "employees": [...],
-  "compensation": [...],
-  "cross_shareholding": [...]
-}
-"""
+    出力ルール:
+    - 以下の構造の JSON 形式のみで回答してください。
+    - "thinking" フィールドに、どのタグがなぜ重要かの推論過程を記述してください。
+    {
+    "thinking": "推論過程...",
+    "capex": ["tag_name1", "tag_name2", ...],
+    "rd": [...],
+    "governance": [...],
+    "employees": [...],
+    "compensation": [...],
+    "cross_shareholding": [...]
+    }
+    """
 
     SYSTEM_PROMPT_STRUCTURING = """
-あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、特定の項目について「事実」のみを構造化抽出してください。
+    あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、特定の項目について「事実」のみを構造化抽出してください。
 
-抽出項目と目的:
-- capex: 将来の投資計画、具体的な投資金額や時期。
-- rd: 重点研究項目、技術的優位性の根拠。
-- governance: 資本配分方針、還元方針、ガバナンス体制。
-- employees: 給与、勤続年数、人員構成の事実。
-- compensation: 報酬設計のロジック、選任理由、個別報酬額（記載がある場合）。
-- cross_shareholding: 銘柄別の保有目的、削減方針の有無。
+    抽出項目と目的:
+    - capex: 将来の投資計画、具体的な投資金額や時期。
+    - rd: 重点研究項目、技術的優位性の根拠。
+    - governance: 資本配分方針、還元方針、ガバナンス体制。
+    - employees: 給与、勤続年数、人員構成の事実。
+    - compensation: 報酬設計のロジック、選任理由、個別報酬額（記載がある場合）。
+    - cross_shareholding: 銘柄別の保有目的、削減方針の有無。
 
-ルール:
-- 主観的な解釈は含めない。
-- 該当する記述がない項目は null とする。
-- "raw_evidence" には、抽出の根拠となった原文の該当箇所を短く引用する。
-- 出力の前に、情報の欠落がないか注意深く「思考（Thinking）」を記述してください。
-- 最後に必ず結果をJSON形式で、```json と ``` で囲んで出力してください。
-"""
+    ルール:
+    - 主観的な解釈は含めない。
+    - 該当する記述がない項目は null とする。
+    - 各項目の "raw_evidence" には、抽出の根拠となった原文の該当箇所を短く引用する。
+    - 以下の構造の JSON 形式のみで回答してください。
+    - "thinking" フィールドに、情報の欠落がないかの注意深い推論過程を記述してください。
+    {
+    "thinking": "推論過程...",
+    "capex": {"facts": "...", "raw_evidence": "..."},
+    ...
+    }
+    """
 
     def __init__(self, api_key: str, model_name: str | None = None):
         self.client = genai.Client(api_key=api_key)
@@ -69,24 +75,24 @@ class FilingStructurer:
         LLMの出力からJSONブロックを抽出してパースする。
         """
         try:
-            # MarkdownのJSONブロックを探す
-            match = re.search(r"```(?:json|JSON)?\s*(.*?)\s*```", text, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    pass # フォールバックへ
-
-            # 裸のJSONを探す
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
-            if match:
-                return json.loads(match.group(1))
-                
+            # JSONモードを有効にするため、通常はそのままパース可能
             return json.loads(text)
-        except Exception:
+        except json.JSONDecodeError:
+            try:
+                # MarkdownのJSONブロックを探す（フォールバック）
+                match = re.search(r"```(?:json|JSON)?\s*(.*?)\s*```", text, re.DOTALL)
+                if match:
+                    return json.loads(match.group(1))
+
+                # 裸のJSONを探す
+                match = re.search(r"(\{.*\})", text, re.DOTALL)
+                if match:
+                    return json.loads(match.group(1))
+            except Exception:
+                pass
+
             logger.warning(f"Failed to parse JSON from LLM output: {text[:200]}...")
             return {}
-
 
     async def _identify_tags(self, tag_names: list[str]) -> dict:
         """
@@ -95,13 +101,24 @@ class FilingStructurer:
         if not tag_names:
             return {}
 
+        # SEC documents (US market) typically store the entire MD&A in a single 'full_content' key.
+        # In this case, we bypass the LLM mapping and map it to all categories.
+        if len(tag_names) == 1 and tag_names[0] == "full_content":
+            return {
+                "capex": ["full_content"],
+                "rd": ["full_content"],
+                "governance": ["full_content"],
+                "employees": ["full_content"],
+                "compensation": ["full_content"],
+                "cross_shareholding": ["full_content"]
+            }
+
         tag_list_str = "\n".join(tag_names)
         prompt = f"""以下のタグ名リストを分析し、
-指定されたカテゴリに関連するものを抽出してください。
-出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理し、
-最後にJSON形式で結果をまとめてください:
+    指定されたカテゴリに関連するものを抽出してください。
+    必ずJSON形式で出力してください:
 
-{tag_list_str}"""
+    {tag_list_str}"""
 
         # model_name が指定されている場合はそれのみを使用
         models_to_try = [self.model_name] if self.model_name else self.models
@@ -114,6 +131,7 @@ class FilingStructurer:
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=self.SYSTEM_PROMPT_MAPPING,
+                        response_mime_type="application/json",
                     ),
                 )
                 if response.text:
@@ -137,9 +155,13 @@ class FilingStructurer:
                 logger.warning("No tag mapping generated")
                 return {}
 
+            logger.info(f"Generated Mapping: {json.dumps(mapping, ensure_ascii=False)}")
+
             # 2. 関連するテキストの集約
             context_per_category = {}
             for category, mapped_tags in mapping.items():
+                if category == "thinking": # thinkingフィールドは無視
+                    continue
                 combined_text = ""
                 for tag in mapped_tags:
                     if sections.get(tag):
@@ -156,10 +178,10 @@ class FilingStructurer:
             for cat, text in context_per_category.items():
                 final_prompt_parts.append(f"## Category: {cat}\n{text}")
 
-            final_prompt = """以下の情報を分析し、各項目の事実をJSON形式で抽出してください。
-情報の欠落がないか注意深く思考（Thinking）した上で、最終的な抽出結果をJSONで出力してください:
+            final_prompt = """以下の情報を分析し、各項目の事実を抽出してください。
+    必ずJSON形式で出力してください:
 
-""" + "\n\n".join(final_prompt_parts)
+    """ + "\n\n".join(final_prompt_parts)
 
             # model_name が指定されている場合はそれのみを使用
             models_to_try = [self.model_name] if self.model_name else self.models
@@ -172,6 +194,7 @@ class FilingStructurer:
                         contents=final_prompt,
                         config=types.GenerateContentConfig(
                             system_instruction=self.SYSTEM_PROMPT_STRUCTURING,
+                            response_mime_type="application/json",
                         ),
                     )
                     if response.text:
