@@ -17,23 +17,27 @@ from src.edgar_fetcher import EdgarFetcher
 from src.edgar_parser import EdgarParser
 from src.edinet_fetcher import EdinetFetcher
 from src.edinet_parser import EdinetParser
-from src.logging_utils import log_memory_usage
 from src.storage import FinancialNarrativeStorage
 
 # デフォルト銘柄リスト
 TICKERS = ["AAPL", "NVDA", "7203", "9984"]
 
+# 同時実行数の制御
+MAX_CONCURRENT_JP_DOCS = 5
+MAX_CONCURRENT_US_TICKERS = 10
 
-async def batch_fetch(
-    tickers: list[str] | None = None, run_structuring: bool = False, days: int = 7
-):
+jp_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JP_DOCS)
+us_semaphore = asyncio.Semaphore(MAX_CONCURRENT_US_TICKERS)
+jp_db_write_lock = asyncio.Lock()
+us_db_write_lock = asyncio.Lock()
+
+
+async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
     """
-    日米市場の定性データを一括取得・構造化保存する。
+    日米市場の定性データを一括取得・Data Lake(DuckDB)へ保存する。
+    構造化は別プロセスのReconciler/Workerに委譲するためここでは行わない。
     """
-    logger.info(
-        f"Starting batch_fetch | tickers_specified={tickers is not None} | "
-        f"run_structuring={run_structuring} | days={days}"
-    )
+    logger.info(f"Starting batch_fetch (Ingestion Only) | tickers_specified={tickers is not None} | days={days}")
 
     storage_jp = FinancialNarrativeStorage(market="jp")
     storage_us = FinancialNarrativeStorage(market="us")
@@ -50,13 +54,9 @@ async def batch_fetch(
                     logger.info(f"Processing ticker (on-demand) | ticker={ticker}")
                     is_jp = ticker.isdigit()
                     if is_jp:
-                        await process_jp_ticker(
-                            ticker, edinet_fetcher, edinet_parser, storage_jp, run_structuring
-                        )
+                        await process_jp_ticker(ticker, edinet_fetcher, edinet_parser, storage_jp)
                     else:
-                        await process_us_ticker(
-                            ticker, edgar_fetcher, edgar_parser, storage_us, run_structuring, days=3650
-                        )
+                        await process_us_ticker(ticker, edgar_fetcher, edgar_parser, storage_us, days=3650)
                     gc.collect()
                 except Exception:
                     logger.exception(f"Unexpected error processing ticker | ticker={ticker}")
@@ -64,15 +64,9 @@ async def batch_fetch(
             # 2. 自動同期 (全上場企業対象)
             logger.info(f"Starting automated parallel sync | lookback_days={days}")
             
-            # 日米の市場を並列で同期する (専門家の提言: レート制限は市場ごとに独立しているため)
-            # asyncio.gather により、JPとUSのパイプラインを同時に走らせる
             tasks = [
-                sync_recent_jp_filings(
-                    edinet_fetcher, edinet_parser, storage_jp, days=days, run_structuring=run_structuring
-                ),
-                sync_recent_us_filings(
-                    edgar_fetcher, edgar_parser, storage_us, days=days, run_structuring=run_structuring
-                )
+                sync_recent_jp_filings(edinet_fetcher, edinet_parser, storage_jp, days=days),
+                sync_recent_us_filings(edgar_fetcher, edgar_parser, storage_us, days=days)
             ]
             
             try:
@@ -83,16 +77,8 @@ async def batch_fetch(
     except Exception:
         logger.exception("Critical error in batch_fetch orchestration")
 
-# 同時実行数の制御
-MAX_CONCURRENT_JP_DOCS = 5
-MAX_CONCURRENT_US_TICKERS = 10
 
-jp_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JP_DOCS)
-us_semaphore = asyncio.Semaphore(MAX_CONCURRENT_US_TICKERS)
-db_write_lock = asyncio.Lock()
-
-async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuring=False):
-    """EDINETの書類一覧APIを使用して、指定日数の全上場企業の開示を同期"""
+async def sync_recent_jp_filings(fetcher, parser, storage, days=7):
     today = date.today()
 
     async def process_jp_doc(doc):
@@ -102,12 +88,9 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                 if not doc_id:
                     return
                 
-                # XBRLフラグがないものは一旦スキップ (Zipが存在しないため)
                 if doc.get("xbrlFlag") != "1":
-                    logger.debug(f"Skipping JP document without XBRL | doc_id={doc_id} | title={doc.get('docDescription')}")
                     return
 
-                # Tickerがない場合でも EdinetCode や filerName を使って保存を強行する (真のGreedy)
                 ticker = (doc.get("secCode") or "")[:4]
                 if not ticker:
                     ticker = doc.get("edinetCode") or "UNKNOWN"
@@ -115,11 +98,10 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                 if storage.filing_exists(doc_id):
                     return
 
-                logger.info(f"Downloading JP filing | filer={doc.get('filerName')} | doc_id={doc_id} | title={doc.get('docDescription')}")
+                logger.info(f"Downloading JP filing | filer={doc.get('filerName')} | doc_id={doc_id}")
                 zip_bytes = await asyncio.to_thread(fetcher.download_document, doc_id, doc_type=1)
                 
                 if zip_bytes:
-                    # パース処理も重い可能性があるので thread で実行
                     sections = await asyncio.to_thread(parser.parse_zip, zip_bytes)
                     if sections:
                         metadata = {
@@ -130,13 +112,9 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
                             "filingDate": doc.get("filingDate"),
                             "filerName": doc.get("filerName"),
                         }
-                        
-                        # DB書き込みはロックを取って1件ずつ行う
-                        async with db_write_lock:
+                        async with jp_db_write_lock:
                             await asyncio.to_thread(storage.save_filing, metadata, sections)
                             
-                        if run_structuring:
-                            await run_structuring_for_filing(ticker, doc_id, sections, storage)
                     del zip_bytes
                     gc.collect()
             except Exception:
@@ -149,13 +127,9 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
         try:
             docs = await asyncio.to_thread(fetcher.list_documents, target_date)
             if not docs:
-                logger.warning(f"No documents found on {target_date}")
                 continue
                 
-            # 全ての書類を抽出対象にする
             relevant_docs = [d for d in docs if d.get("xbrlFlag") == "1"]
-            logger.info(f"Found {len(docs)} documents on {target_date} | {len(relevant_docs)} have XBRL")
-            
             if relevant_docs:
                 tasks = [process_jp_doc(doc) for doc in relevant_docs]
                 await asyncio.gather(*tasks)
@@ -163,37 +137,32 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
             logger.exception(f"Failed to fetch JP document list | date={target_date}")
 
 
-async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuring=False):
-    """全米国上場企業の提出書類をスキャンし、指定期間内のものを取得"""
+async def sync_recent_us_filings(fetcher, parser, storage, days=7):
     try:
         all_tickers = fetcher.get_all_tickers()
         logger.info(f"Scanning US tickers | count={len(all_tickers)} | days={days}")
 
         for ticker in all_tickers:
             try:
-                await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
-                # SEC Rate Limit (10 requests/second) を遵守しつつ非同期で譲る
+                await process_us_ticker(ticker, fetcher, parser, storage, days=days)
                 await asyncio.sleep(0.11)
             except Exception:
                 logger.exception(f"Unexpected error in US ticker loop | ticker={ticker}")
+                
     except Exception:
         logger.exception("Critical failure during US ticker list retrieval")
 
 
-async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=False, days=7):
-    """指定期間内の SEC EDGAR 提出書類を処理"""
+async def process_us_ticker(ticker, fetcher, parser, storage, days=7):
     try:
-        # 1. 提出書類リスト取得 (ブロッキング回避)
         subs = await asyncio.to_thread(fetcher.get_latest_submissions, ticker)
         if not subs:
             return
 
-        # 2. 全ての提出書類を抽出対象とする (doc_types=None)
         filings = fetcher.filter_relevant_filings(subs, doc_types=None)
         if not filings:
             return
 
-        # 期間フィルター
         threshold_date = (date.today() - timedelta(days=days)).isoformat()
         target_filings = [f for f in filings if f["filingDate"] >= threshold_date]
 
@@ -208,31 +177,21 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                 doc_name = filing["primaryDocument"]
                 url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-                # 3. ダウンロード (ブロッキングI/Oを回避)
-                logger.info(
-                    f"Downloading US filing | ticker={ticker} | acc_no={acc_no} | "
-                    f"date={filing['filingDate']}"
-                )
+                logger.info(f"Downloading US filing | ticker={ticker} | acc_no={acc_no}")
                 resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
                 await asyncio.sleep(0.1)
 
                 if resp.status_code != 200:
-                    logger.error(f"Failed to download US filing | ticker={ticker} | status={resp.status_code}")
                     continue
 
-                # 4. パース (重い処理を thread に逃がす)
                 sections = await asyncio.to_thread(parser.extract_all_sections, resp.text, filing["form"])
                 if sections:
                     filing_metadata = filing.copy()
                     filing_metadata["ticker"] = ticker
                     filing_metadata["cik"] = cik
                     
-                    # DB書き込みはロックを取って1件ずつ行う
-                    async with db_write_lock:
+                    async with us_db_write_lock:
                         await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
-                        
-                    if run_structuring:
-                        await run_structuring_for_filing(ticker, acc_no, sections, storage)
 
                 del resp
                 gc.collect()
@@ -243,17 +202,14 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
         logger.exception(f"Failed to process US ticker | ticker={ticker}")
 
 
-async def process_jp_ticker(ticker, fetcher, parser, storage, run_structuring=False):
-    """Process EDINET for JP tickers (On-demand)."""
+async def process_jp_ticker(ticker, fetcher, parser, storage):
     try:
         edinet_code = fetcher.get_edinet_code(ticker)
         if not edinet_code:
-            logger.warning(f"EDINET Code not found for ticker {ticker}")
             return
 
         today = date.today()
         found_doc = None
-        # 過去1年分を遡って最新の有報を探す
         for i in range(365):
             target_date = today - timedelta(days=i)
             docs = fetcher.list_documents(target_date)
@@ -265,12 +221,10 @@ async def process_jp_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                 break
 
         if not found_doc:
-            logger.warning(f"No recent Yuho found for {ticker}")
             return
 
         doc_id = found_doc["docID"]
         if storage.filing_exists(doc_id):
-            logger.info(f"Filing {doc_id} already exists in DB.")
             return
 
         zip_bytes = fetcher.download_document(doc_id, doc_type=1)
@@ -285,37 +239,13 @@ async def process_jp_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                     "filingDate": found_doc.get("filingDate"),
                     "filerName": found_doc.get("filerName"),
                 }
-                storage.save_filing(metadata, sections)
-                if run_structuring:
-                    await run_structuring_for_filing(ticker, doc_id, sections, storage)
+                
+                async with jp_db_write_lock:
+                    storage.save_filing(metadata, sections)
 
         time.sleep(0.5)
     except Exception as e:
         logger.error(f"Failed to process JP ticker {ticker}: {e}")
-
-
-async def run_structuring_for_filing(ticker, acc_no, sections, storage):
-    """AIによる高度な事実抽出（構造化）を実行し保存する"""
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        logger.warning("GOOGLE_API_KEY not set, skipping structuring.")
-        return
-
-    # すでに構造化済みかチェック
-    existing_facts = storage.get_structuring_by_ticker(ticker)
-    if existing_facts:
-        logger.info(f"Structured facts already exist for {ticker}. Skipping.")
-        return
-
-    try:
-        from src.structurer import FilingStructurer
-        structurer = FilingStructurer(api_key=api_key)
-        facts = await structurer.extract_facts(sections)
-        if facts:
-            storage.save_structuring(acc_no, ticker, facts)
-            logger.info(f"Structured facts saved for {ticker} ({acc_no})")
-    except Exception as e:
-        logger.error(f"Failed to structure {ticker}: {e}")
 
 
 if __name__ == "__main__":
@@ -325,15 +255,10 @@ if __name__ == "__main__":
 
     setup_logging("batch")
     
-    parser = argparse.ArgumentParser(description="Financial Narratives Batch Fetcher")
+    parser = argparse.ArgumentParser(description="Financial Narratives Data Lake Ingestion")
     parser.add_argument("--days", type=int, default=7, help="Number of days to look back")
     parser.add_argument("--tickers", nargs="+", help="Specific tickers to fetch")
-    parser.add_argument("--structure", action="store_true", help="Run AI structuring after fetch")
     
     args = parser.parse_args()
 
-    asyncio.run(batch_fetch(
-        tickers=args.tickers, 
-        run_structuring=args.structure, 
-        days=args.days
-    ))
+    asyncio.run(batch_fetch(tickers=args.tickers, days=args.days))

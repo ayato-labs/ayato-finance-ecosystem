@@ -41,7 +41,9 @@ def main():
     )
     parser.add_argument("--sync", nargs="*", help="Tickers to sync (empty for default list)")
     parser.add_argument("--days", type=int, default=7, help="Days to look back for automated sync")
-    parser.add_argument("--struct", action="store_true", help="Run AI structuring after fetch")
+    parser.add_argument("--reconcile", action="store_true", help="Run the reconciler to find un-structured documents")
+    parser.add_argument("--work", action="store_true", help="Start the structuring worker pool")
+    parser.add_argument("--workers", type=int, default=10, help="Number of concurrent LLM workers")
     parser.add_argument("--diag", action="store_true", help="Run database diagnostics")
     parser.add_argument("--api", action="store_true", help="Start the FastAPI server")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port for the API server")
@@ -58,9 +60,23 @@ def main():
 
         if args.sync is not None:
             tickers = args.sync if args.sync else None
-            logger.info(f"Starting batch fetch task | tickers={tickers} | days={args.days}")
-            asyncio.run(batch_fetch(tickers=tickers, run_structuring=args.struct, days=args.days))
+            logger.info(f"Starting batch fetch task (Ingestion) | tickers={tickers} | days={args.days}")
+            asyncio.run(batch_fetch(tickers=tickers, days=args.days))
             run_diagnostics()
+            return
+            
+        if args.reconcile:
+            from src.reconciler import Reconciler
+            logger.info("Starting Reconciler...")
+            reconciler = Reconciler()
+            reconciler.run()
+            return
+            
+        if args.work:
+            from src.structuring_worker import StructuringWorkerPool
+            logger.info(f"Starting Worker Pool with {args.workers} workers...")
+            pool = StructuringWorkerPool(num_workers=args.workers)
+            asyncio.run(pool.run_forever())
             return
 
         if args.diag:
