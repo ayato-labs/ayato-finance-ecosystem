@@ -62,3 +62,34 @@ def setup_logging():
     )
 
     logger.info("Logging system initialized (JSON + Error Isolation)")
+
+import time
+from functools import wraps
+from contextlib import contextmanager
+
+@contextmanager
+def perf_tracker(task_name: str):
+    """
+    Context manager to measure and log the execution time of a block of code.
+    """
+    start_time = time.perf_counter()
+    logger.info(f"START: {task_name}")
+    try:
+        yield
+    finally:
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+        logger.info(f"DONE: {task_name} (Duration: {duration:.4f}s)")
+
+def track_performance(task_name: str | None = None):
+    """
+    Decorator to measure and log the execution time of a function.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            name = task_name or func.__name__
+            with perf_tracker(name):
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator

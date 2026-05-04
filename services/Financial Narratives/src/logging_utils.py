@@ -12,7 +12,7 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     コンポーネントごとのロギング構成を初期化する。
     - コンソール: 色付き標準出力
     - ファイル: logs/{unit_name}.log (JSON形式)
-    
+
     Args:
         unit_name: ログファイル名に使用する名前
         run_id: 実行セッションを識別するID。未指定時は新規生成。
@@ -26,7 +26,7 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     # ログ保存先ディレクトリの作成
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # 実行ごとに新しいログファイルを作成し、最新3回分のみ保持する設定
     # {time} を含めることで、起動のたびに新しいファイルが生成される
     log_file_pattern = log_dir / f"{unit_name}_{{time:YYYYMMDD_HHmmss}}.log"
@@ -69,7 +69,10 @@ def setup_logging(unit_name: str, run_id: str | None = None):
         enqueue=True,
     )
 
-    logger.info(f"Logging initialized | unit={unit_name} | run_id={run_id} | pattern={log_file_pattern}")
+    logger.info(
+        f"Logging initialized | unit={unit_name} | run_id={run_id} | "
+        f"pattern={log_file_pattern}"
+    )
     return logger
 
 

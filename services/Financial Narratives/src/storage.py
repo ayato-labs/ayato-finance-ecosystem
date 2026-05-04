@@ -13,7 +13,7 @@ class FinancialNarrativeStorage:
     抽出された定性情報をDuckDBに永続化するクラス
     """
 
-    def __init__(self, db_path: str = None, market: str = None):
+    def __init__(self, db_path: str | None = None, market: str | None = None):
         if db_path:
             self.db_path = db_path
         elif market:
@@ -25,7 +25,7 @@ class FinancialNarrativeStorage:
                 self.db_path = DEFAULT_DB_PATH
         else:
             self.db_path = DEFAULT_DB_PATH
-            
+
         # データベースファイルの親ディレクトリを確実に作成
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -36,7 +36,7 @@ class FinancialNarrativeStorage:
             # RAM使用効率の向上のため制限を設定
             conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
             conn.execute("SET threads=4")
-            
+
             # 並列書き込み時のパフォーマンスと整合性のための設定
             conn.execute("SET checkpoint_threshold='1GB'")
 
@@ -110,8 +110,6 @@ class FinancialNarrativeStorage:
                 return json.loads(res[0])
             return None
 
-
-
     def filing_exists(self, accession_number: str) -> bool:
         """
         指定された書類が既にDBに存在するか確認する
@@ -139,8 +137,6 @@ class FinancialNarrativeStorage:
             """
             res = conn.execute(query, (ticker.upper(),)).fetchall()
             return res
-
-
 
     def get_stats(self):
         """データベース全体の統計情報を取得"""

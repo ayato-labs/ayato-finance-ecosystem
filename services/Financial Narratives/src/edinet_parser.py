@@ -2,6 +2,7 @@ import io
 import re
 import sys
 import zipfile
+
 from bs4 import BeautifulSoup
 from loguru import logger
 from markdownify import markdownify as md
@@ -68,29 +69,29 @@ class EdinetParser:
         Avoids BeautifulSoup recursion depth issues on 10MB+ documents.
         """
         results = {}
-        
+
         # 1. まずは ix:nonNumeric タグのブロックをすべて抜き出す (属性の順序に依存しない)
         tag_pattern = re.compile(r'<(ix:nonNumeric)[^>]*>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
-        
+
         # 2. 抜き出したタグの中から name 属性を抽出する (シングル/ダブルクォート両対応)
         name_pattern = re.compile(r'name\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
-        
+
         match_count = 0
         for match in tag_pattern.finditer(html_content):
             match_count += 1
             opening_tag = match.group(0).split(">")[0]
             content = match.group(2)
-            
+
             name_match = name_pattern.search(opening_tag)
             if not name_match:
                 continue
-                
+
             key = name_match.group(1)
-            
+
             try:
                 # フラグメントをパース
                 fragment_soup = BeautifulSoup(content, "html.parser")
-                
+
                 # 1. 第一志望: マークダウン化
                 try:
                     text = md(
@@ -106,17 +107,17 @@ class EdinetParser:
             except Exception:
                 # 3. 最終手段: タグ除去
                 text = re.sub(r'<[^>]+>', '', content)
-            
+
             cleaned_text = self.clean_text(text)
             if cleaned_text:
                 if key in results:
                     results[key] += "\n\n" + cleaned_text
                 else:
                     results[key] = cleaned_text
-        
+
         if match_count > 0:
             logger.debug(f"Found {match_count} ix:nonNumeric blocks in HTML fragment")
-                    
+
         return results
 
 if __name__ == "__main__":

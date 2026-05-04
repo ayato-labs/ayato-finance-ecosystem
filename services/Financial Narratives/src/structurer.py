@@ -16,7 +16,8 @@ class FilingStructurer:
 
     SYSTEM_PROMPT_MAPPING = """
 あなたは高度な金融データエンジニアです。
-提供された EDINET XBRL のタグ名リストから、以下の 6 つのカテゴリのいずれかに関連する可能性があるタグを特定してください。
+提供された EDINET XBRL のタグ名リストから、以下の 6 つのカテゴリのいずれかに関連する可能性
+があるタグを特定してください。
 
 カテゴリ:
 1. capex: 設備投資、主要な設備の状況、投資計画
@@ -57,8 +58,9 @@ class FilingStructurer:
 出力形式: JSON
 """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model_name: str | None = None):
         self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
         self.models = GOOGLE_AI_MODELS
 
     def _parse_json(self, text: str) -> dict:
@@ -71,7 +73,7 @@ class FilingStructurer:
             if not match:
                 # 裸のJSONを探す
                 match = re.search(r"(\{.*\})", text, re.DOTALL)
-            
+
             if match:
                 return json.loads(match.group(1))
             return json.loads(text)
@@ -87,12 +89,17 @@ class FilingStructurer:
             return {}
 
         tag_list_str = "\n".join(tag_names)
-        prompt = f"""以下のタグ名リストを分析し、指定されたカテゴリに関連するものを抽出してください。
-出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理し、最後にJSON形式で結果をまとめてください:
+        prompt = f"""以下のタグ名リストを分析し、
+指定されたカテゴリに関連するものを抽出してください。
+出力の前に、まずどのタグがなぜ重要かを「思考（Thinking）」として整理し、
+最後にJSON形式で結果をまとめてください:
 
 {tag_list_str}"""
 
-        for model_name in self.models:
+        # model_name が指定されている場合はそれのみを使用
+        models_to_try = [self.model_name] if self.model_name else self.models
+
+        for model_name in models_to_try:
             try:
                 logger.info(f"Identifying tags using {model_name}...")
                 response = self.client.models.generate_content(
@@ -118,7 +125,7 @@ class FilingStructurer:
             # 1. タグのマッピング
             tag_names = list(sections.keys())
             mapping = await self._identify_tags(tag_names)
-            
+
             if not mapping:
                 logger.warning("No tag mapping generated")
                 return {}
@@ -128,7 +135,7 @@ class FilingStructurer:
             for category, mapped_tags in mapping.items():
                 combined_text = ""
                 for tag in mapped_tags:
-                    if tag in sections and sections[tag]:
+                    if sections.get(tag):
                         combined_text += f"--- Tag: {tag} ---\n{sections[tag]}\n\n"
                 if combined_text.strip():
                     context_per_category[category] = combined_text
@@ -141,13 +148,16 @@ class FilingStructurer:
             final_prompt_parts = []
             for cat, text in context_per_category.items():
                 final_prompt_parts.append(f"## Category: {cat}\n{text}")
-            
-            final_prompt = f"""以下の情報を分析し、各項目の事実をJSON形式で抽出してください。
+
+            final_prompt = """以下の情報を分析し、各項目の事実をJSON形式で抽出してください。
 情報の欠落がないか注意深く思考（Thinking）した上で、最終的な抽出結果をJSONで出力してください:
 
 """ + "\n\n".join(final_prompt_parts)
 
-            for model_name in self.models:
+            # model_name が指定されている場合はそれのみを使用
+        models_to_try = [self.model_name] if self.model_name else self.models
+
+        for model_name in models_to_try:
                 try:
                     logger.info(f"Structuring facts using {model_name}...")
                     response = self.client.models.generate_content(

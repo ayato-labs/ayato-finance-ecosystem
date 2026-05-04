@@ -26,6 +26,7 @@ class EDINETParser:
         f = io.StringIO(csv_content.strip())
         reader = csv.reader(f, delimiter=delimiter)
 
+
         try:
             header = next(reader)
             # Find column indices dynamically
@@ -55,13 +56,16 @@ class EDINETParser:
                     unit = row[unit_idx].strip() if unit_idx < len(row) else ""
                     raw_value = row[val_idx].strip()
 
-                    if not raw_value or raw_value in ["-", "-"]:
+                    if not raw_value or raw_value in ["-", "―", "－"]: # Handle various dash characters
                         continue
 
                     # Numeric cleaning
                     clean_val = raw_value.replace(",", "").replace("\u3000", "").replace(" ", "")
                     if clean_val.startswith("(") and clean_val.endswith(")"):
                         clean_val = "-" + clean_val[1:-1]
+                    
+                    if not clean_val:
+                        continue
 
                     value = float(clean_val)
                     facts.append(
@@ -76,18 +80,24 @@ class EDINETParser:
                     )
 
                 except (ValueError, TypeError) as e:
+                    # Very common in EDINET CSVs to have non-numeric values in numeric columns
                     logger.debug(f"Row {row_count} skipped: Not a numeric value ({e})")
                     continue
                 except Exception as e:
                     logger.warning(f"Row {row_count} unexpected parse error: {e}")
+                    # Don't fail the whole file sync, but log it
                     continue
 
             logger.info(f"[TRACE] Parsed {row_count} rows. Extracted {len(facts)} facts.")
             return facts
 
+        except StopIteration:
+            logger.warning("Empty CSV content encountered.")
+            return []
         except Exception as e:
             logger.error(f"Critical failure during CSV parsing: {e}", exc_info=True)
-            return []
+            raise # Raise critical failure
+
 
     @staticmethod
     def _find_col(header: list[str], targets: list[str]) -> int | None:

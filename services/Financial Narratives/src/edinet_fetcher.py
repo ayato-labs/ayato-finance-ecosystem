@@ -54,7 +54,9 @@ class EdinetFetcher:
                                 self.code_map = pd.read_csv(
                                     io.BytesIO(content), encoding="cp932", skiprows=1
                                 )
-                                logger.info(f"EDINET code list cached | entries={len(self.code_map)}")
+                                logger.info(
+                                    f"EDINET code list cached | entries={len(self.code_map)}"
+                                )
                                 return
             else:
                 logger.error(f"Failed to download EDINET code list | status={response.status_code}")
@@ -114,7 +116,10 @@ class EdinetFetcher:
                 if status == "403":
                     logger.error("403 Forbidden: Check if your EDINET_API_KEY is valid.")
             else:
-                logger.error(f"EDINET request failed | status={response.status_code} | body={response.text[:200]}")
+                logger.error(
+                    f"EDINET request failed | status={response.status_code} | "
+                    f"body={response.text[:200]}"
+                )
         except Exception:
             logger.exception(f"Exception during EDINET document listing | date={target_date}")
 
@@ -134,11 +139,15 @@ class EdinetFetcher:
                 content_type = response.headers.get("Content-Type", "")
                 if "application/json" in content_type:
                     error_data = response.json()
-                    logger.error(f"EDINET download error in body | doc_id={doc_id} | error={error_data}")
+                    logger.error(
+                        f"EDINET download error in body | doc_id={doc_id} | error={error_data}"
+                    )
                     return None
                 return response.content
             else:
-                logger.error(f"EDINET download failed | doc_id={doc_id} | status={response.status_code}")
+                logger.error(
+                    f"EDINET download failed | doc_id={doc_id} | status={response.status_code}"
+                )
         except Exception:
             logger.exception(f"Exception during EDINET document download | doc_id={doc_id}")
 

@@ -1,9 +1,12 @@
 import os
-import pytest
 from datetime import date
+
+import pytest
+
+from src.config import USER_AGENT
 from src.edgar_fetcher import EdgarFetcher
 from src.edinet_fetcher import EdinetFetcher
-from src.config import USER_AGENT
+
 
 @pytest.mark.skipif(not os.getenv("EDINET_API_KEY"), reason="EDINET_API_KEY not set")
 def test_edinet_fetcher_real_list():

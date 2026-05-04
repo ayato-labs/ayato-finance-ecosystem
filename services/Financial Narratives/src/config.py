@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,7 +9,9 @@ load_dotenv()
 GOOGLE_AI_MODELS = ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]
 
 # API Configuration
-USER_AGENT = os.environ.get("USER_AGENT", "ayato-labs-finance-sync/1.0 (contact: ayato-labs@example.com)")
+USER_AGENT = os.environ.get(
+    "USER_AGENT", "ayato-labs-finance-sync/1.0 (contact: ayato-labs@example.com)"
+)
 DEFAULT_PORT = 5013
 
 # Storage Configuration

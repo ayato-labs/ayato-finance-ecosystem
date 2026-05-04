@@ -3,10 +3,11 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
-class SectionData(BaseModel):
-    # Dynamic sections like "Item 1", "Item 1A", etc.
-    # We use a dict since section names vary
-    sections: dict[str, str | None]
+class PipelineStats(BaseModel):
+    PENDING: int
+    PROCESSING: int
+    COMPLETED: int
+    FAILED: int
 
 
 class FilingRecord(BaseModel):
@@ -23,3 +24,4 @@ class FilingRecord(BaseModel):
 class StatsResponse(BaseModel):
     total_filings: int
     ticker_stats: list[dict]
+    pipeline_stats: PipelineStats | None = None

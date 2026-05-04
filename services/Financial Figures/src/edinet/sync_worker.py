@@ -13,7 +13,7 @@ from .client import EDINETClient
 from .mapping import EDINETMapper
 from .parser import EDINETParser
 from .storage import EDINETStorage
-
+from src.core.logging import track_performance
 
 class EDINETSyncWorker:
     """
@@ -25,30 +25,36 @@ class EDINETSyncWorker:
     RELEVANT_DOC_TYPES: ClassVar[set[str]] = {"120", "130", "140", "150"}
 
     def __init__(self):
-        self.client = EDINETClient()
-        self.storage = EDINETStorage()
-        self.parser = EDINETParser()
-        self.mapper = EDINETMapper(str(self.storage.db_path))
-        self.ai_mapper = AIMapper()
-        logger.info("EDINETSyncWorker initialized with Mapping Support and AI Mapper.")
+        try:
+            self.client = EDINETClient()
+            self.storage = EDINETStorage()
+            self.parser = EDINETParser()
+            self.mapper = EDINETMapper(str(self.storage.db_path))
+            self.ai_mapper = AIMapper()
+            logger.info("EDINETSyncWorker initialized with Mapping Support and AI Mapper.")
+        except Exception as e:
+            logger.error(f"Failed to initialize EDINETSyncWorker: {e}")
+            raise
 
+    @track_performance("ensure_ticker_master_edinet")
     def ensure_ticker_master(self, force_update: bool = False):
         """
         Ensures the EDINET ticker master table is populated.
         Downloads the CSV from EDINET if it's empty or force_update is True.
         """
-        target_codes = self.mapper.get_all_target_edinet_codes()
-        if not target_codes or force_update:
-            logger.info("EDINET ticker master is empty or update requested. Syncing from EDINET...")
-            master_dir = Path(self.storage.db_path).parent / "master"
-            try:
+        try:
+            target_codes = self.mapper.get_all_target_edinet_codes()
+            if not target_codes or force_update:
+                logger.info("EDINET ticker master is empty or update requested. Syncing...")
+                master_dir = Path(self.storage.db_path).parent / "master"
                 csv_path = self.client.download_edinet_code_list(master_dir)
                 self.mapper.load_csv(str(csv_path))
-            except Exception as e:
-                logger.error(f"Failed to auto-sync ticker master: {e}")
-                if not target_codes:
-                    raise RuntimeError("Ticker master is empty and auto-sync failed.") from e
+        except Exception as e:
+            logger.error(f"Failed to auto-sync ticker master: {e}")
+            if not self.mapper.get_all_target_edinet_codes():
+                raise RuntimeError("Ticker master is empty and auto-sync failed.") from e
 
+    @track_performance("sync_date_edinet")
     def sync_date(
         self,
         target_date: date,
@@ -129,6 +135,7 @@ class EDINETSyncWorker:
                             self._map_and_save_facts(doc, all_facts)
                         except Exception as e:
                             logger.error(f"[MAP] Failed to map and save facts for {doc_id}: {e}")
+                            # Don't fail the whole day sync if one doc mapping fails
                     else:
                         logger.warning(f"No numeric facts extracted from {doc_id}")
 
@@ -136,6 +143,7 @@ class EDINETSyncWorker:
 
                 except Exception as e:
                     logger.exception(f"Failed to process document {doc_id}: {e}")
+                    # Log but continue to next document
                     continue
 
                 # Rate limiting: Be respectful to EDINET servers (1s per doc download)
@@ -147,45 +155,45 @@ class EDINETSyncWorker:
             logger.error(f"Critical error during sync for {target_date}: {e}", exc_info=True)
             raise
 
+    @track_performance("map_and_save_facts_edinet")
     def _map_and_save_facts(self, doc: dict, raw_facts: list[dict]):
         """
         Uses AI Mapper to translate EDINET raw facts to standardized labels
         and saves them to the wide-format company_facts table.
         """
-        doc_id = doc["docID"]
-        ticker = doc.get("secCode")
-        if ticker:
-            ticker = str(ticker)
-            ticker_len_full = 5
-            if len(ticker) == ticker_len_full and ticker.endswith("0"):
-                ticker = ticker[:4]
-            elif len(ticker) == ticker_len_full:
-                ticker = ticker[:4]
-
-        submission_date = doc.get("submissionPeriod")
-        session_id = f"edinet-sync-{date.today()}"
-
-        if self._has_jquants_data(ticker, submission_date):
-            logger.info(f"[MAP] Skipping AI mapping for {ticker} as J-Quants data already exists.")
-            return
-
-        # Unique tags for efficient mapping
-        unique_tags = {}
-        for f in raw_facts:
-            tag = f["id"]
-            if tag not in unique_tags:
-                unique_tags[tag] = f["name"]
-
-        tags_to_map = [(tag, desc) for tag, desc in unique_tags.items()]
-        logger.info(f"[MAP] Mapping {len(tags_to_map)} unique tags for {ticker}...")
-
         try:
+            doc_id = doc["docID"]
+            ticker = doc.get("secCode")
+            if ticker:
+                ticker = str(ticker)
+                ticker_len_full = 5
+                if len(ticker) == ticker_len_full and ticker.endswith("0"):
+                    ticker = ticker[:4]
+                elif len(ticker) == ticker_len_full:
+                    ticker = ticker[:4]
+
+            submission_date = doc.get("submissionPeriod")
+            session_id = f"edinet-sync-{date.today()}"
+
+            if self._has_jquants_data(ticker, submission_date):
+                logger.info(f"[MAP] Skipping AI mapping for {ticker} (exists in J-Quants).")
+                return
+
+            # Unique tags for efficient mapping
+            unique_tags = {}
+            for f in raw_facts:
+                tag = f["id"]
+                if tag not in unique_tags:
+                    unique_tags[tag] = f["name"]
+
+            tags_to_map = [(tag, desc) for tag, desc in unique_tags.items()]
+            logger.info(f"[MAP] Mapping {len(tags_to_map)} unique tags for {ticker}...")
+
             fiscal_year, fiscal_period = self._extract_fiscal_info(doc)
             mappings = self.ai_mapper.map_tags_bulk("EDINET", tags_to_map, session_id)
             tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in mappings}
 
             # 1. Pivot the raw facts into a single wide-format record
-            # We initialize with basic metadata
             wide_record = {
                 "DisclosedDate": submission_date,
                 "LocalCode": ticker,
@@ -198,12 +206,8 @@ class EDINETSyncWorker:
             # 2. Map facts to columns
             for f in raw_facts:
                 label = tag_to_label.get(f["id"])
-                # If the AI mapped this tag to a standard J-Quants label, put it in that column
                 if label and label != "Other":
-                    # We store the latest value if there are multiple (EDINET has duplicates)
                     wide_record[label] = str(f["value"])
-                    # Also keep track of the original tag and label for traceability
-                    # or just rely on the wide-format for standard queries.
                     wide_record["tag"] = f["id"]
                     wide_record["label"] = label
 
@@ -212,9 +216,10 @@ class EDINETSyncWorker:
                 logger.info(f"[MAP] Successfully saved wide-format record for {ticker}.")
             else:
                 logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
-
         except Exception as e:
-            logger.error(f"[MAP] Failed to map facts for {doc_id}: {e}")
+            doc_id_label = doc_id if 'doc_id' in locals() else 'unknown'
+            logger.error(f"[MAP] Failed to map facts for {doc_id_label}: {e}")
+            raise
 
     def _extract_fiscal_info(self, doc: dict) -> tuple[int | None, str | None]:
         """
@@ -252,9 +257,8 @@ class EDINETSyncWorker:
             return False
         try:
             with db_manager.connect(settings.DB_PATH_JP, read_only=True) as conn:
-                # Use disclosed_date to match submissionPeriod
                 res = conn.execute(
-                    "SELECT count(*) FROM company_facts WHERE code = ? AND disclosed_date = ?",
+                    "SELECT count(*) FROM company_facts WHERE LocalCode = ? AND DisclosedDate = ?",
                     (ticker, submission_date),
                 ).fetchone()
                 return res[0] > 0 if res else False
@@ -262,86 +266,97 @@ class EDINETSyncWorker:
             logger.debug(f"Failed to check J-Quants DB: {e}")
             return False
 
+    @track_performance("run_historical_backfill_edinet")
     def run_historical_backfill(self, years: int = 5, csv_path: str | None = None):
         """
         Performs a full historical backfill of statutory data in 2 phases:
         Phase 1: Latest 30 days - Priority Reports (Annual/Quarterly)
         Phase 2: Full Range - All Reports
         """
-        # Always update master at the start of backfill
-        if csv_path:
-            self.mapper.load_csv(csv_path)
-        else:
-            self.ensure_ticker_master(force_update=True)
+        try:
+            if csv_path:
+                self.mapper.load_csv(csv_path)
+            else:
+                self.ensure_ticker_master(force_update=True)
 
-        target_codes = set(self.mapper.get_all_target_edinet_codes())
-        if not target_codes:
-            logger.error("No target EDINET codes found in mapping. Cannot perform backfill.")
-            return
+            target_codes = set(self.mapper.get_all_target_edinet_codes())
+            if not target_codes:
+                logger.error("No target EDINET codes found in mapping. Cannot perform backfill.")
+                return
 
-        actual_years = min(years, 5)
-        end_date = date.today()
-        start_date = end_date - timedelta(days=actual_years * 365)
+            actual_years = min(years, 5)
+            end_date = date.today()
+            start_date = end_date - timedelta(days=actual_years * 365)
 
-        # PHASE 1: Priority Lane (Latest 30 days, 120/130 only)
-        logger.info("=== [Phase 1] Priority Sync: Latest 30 days (Annual/Quarterly Reports) ===")
-        priority_range = 30
-        priority_types = {"120", "130"}
-        for i in range(priority_range + 1):
-            target_date = end_date - timedelta(days=i)
-            self.sync_date(
-                target_date, target_edinet_codes=target_codes, allowed_types=priority_types
+            # PHASE 1: Priority Lane (Latest 30 days, 120/130 only)
+            logger.info("=== [Phase 1] Priority Sync: Annual/Quarterly Reports ===")
+            priority_range = 30
+            priority_types = {"120", "130"}
+            for i in range(priority_range + 1):
+                target_date = end_date - timedelta(days=i)
+                self.sync_date(
+                    target_date, target_edinet_codes=target_codes, allowed_types=priority_types
+                )
+
+            # PHASE 2: Deep Backfill (Full range, all relevant types)
+            logger.info(
+                f"=== [Phase 2] Historical Backfill: {actual_years} years ==="
             )
+            delta = end_date - start_date
+            for i in range(delta.days + 1):
+                target_date = end_date - timedelta(days=i)
+                self.sync_date(target_date, target_edinet_codes=target_codes)
+                time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Historical backfill failed: {e}")
+            raise
 
-        # PHASE 2: Deep Backfill (Full range, all relevant types)
-        logger.info(
-            f"=== [Phase 2] Historical Backfill: {actual_years} years (All relevant reports) ==="
-        )
-        delta = end_date - start_date
-        for i in range(delta.days + 1):
-            target_date = end_date - timedelta(days=i)
-            # Process everything that wasn't skipped or handled in Phase 1
-            self.sync_date(target_date, target_edinet_codes=target_codes)
-
-            # Additional safety sleep between days
-            time.sleep(0.5)
-
+    @track_performance("run_incremental_sync_edinet")
     def run_incremental_sync(self, default_days: int = 30):
         """Syncs from the last stored date to today."""
-        # Always update master at the start of sync
-        self.ensure_ticker_master(force_update=True)
+        try:
+            self.ensure_ticker_master(force_update=True)
 
-        last_date = self.storage.get_last_sync_date()
-        if not last_date:
-            logger.warning(f"No previous sync data found. Defaulting to last {default_days} days.")
-            last_date = date.today() - timedelta(days=default_days)
+            last_date = self.storage.get_last_sync_date()
+            if not last_date:
+                logger.warning(f"No previous sync data found. Defaulting to {default_days} days.")
+                last_date = date.today() - timedelta(days=default_days)
 
-        start_date = last_date
-        end_date = date.today()
+            start_date = last_date
+            end_date = date.today()
 
-        delta = end_date - start_date
-        logger.info(f"Incremental sync: {start_date} to {end_date} ({delta.days} days)")
+            delta = end_date - start_date
+            logger.info(f"Incremental sync: {start_date} to {end_date} ({delta.days} days)")
 
-        target_codes = set(self.mapper.get_all_target_edinet_codes())
-        if not target_codes:
-            logger.warning(
-                "Ticker master is empty. Syncing all statutory documents without filtering."
-            )
-        else:
-            logger.info(f"Filtering sync for {len(target_codes)} listed companies.")
+            target_codes = set(self.mapper.get_all_target_edinet_codes())
+            if not target_codes:
+                logger.warning(
+                    "Ticker master is empty. Syncing all statutory documents without filtering."
+                )
+            else:
+                logger.info(f"Filtering sync for {len(target_codes)} listed companies.")
 
-        for i in range(delta.days + 1):
-            target_date = start_date + timedelta(days=i)
-            logger.info(f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---")
-            self.sync_date(target_date, target_edinet_codes=target_codes)
+            for i in range(delta.days + 1):
+                target_date = start_date + timedelta(days=i)
+                logger.info(f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---")
+                self.sync_date(target_date, target_edinet_codes=target_codes)
+        except Exception as e:
+            logger.error(f"Incremental sync failed: {e}")
+            raise
 
+    @track_performance("run_backfill_edinet")
     def run_backfill(self, days: int = 7):
         """Backfill data for the last N days sequentially."""
-        logger.info(f"Starting backfill for the last {days} days.")
-        end_date = date.today()
-        for i in range(days):
-            target_date = end_date - timedelta(days=i)
-            self.sync_date(target_date)
+        try:
+            logger.info(f"Starting backfill for the last {days} days.")
+            end_date = date.today()
+            for i in range(days):
+                target_date = end_date - timedelta(days=i)
+                self.sync_date(target_date)
+        except Exception as e:
+            logger.error(f"Backfill failed: {e}")
+            raise
+
 
 
 if __name__ == "__main__":

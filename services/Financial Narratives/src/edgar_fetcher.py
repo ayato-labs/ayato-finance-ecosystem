@@ -55,7 +55,9 @@ class EdgarFetcher:
 
             except requests.RequestException:
                 wait_time = (2**attempt) + random.uniform(0, 1)
-                logger.exception(f"Network error during SEC request | url={url} | retry_in={wait_time:.2f}s")
+                logger.exception(
+                    f"Network error during SEC request | url={url} | retry_in={wait_time:.2f}s"
+                )
                 time.sleep(wait_time)
 
         logger.error(f"Max retries reached for SEC API | url={url}")
