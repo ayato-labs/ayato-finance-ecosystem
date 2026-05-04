@@ -91,6 +91,10 @@ class CryptoPriceFetcher:
         try:
             ticker = yf.Ticker(yf_symbol)
             info = self._get_info_with_retry(ticker)
+            
+            if not info:
+                logger.warning(f"No metadata found for {yf_symbol}")
+                return {}
 
             return {
                 "circulating_supply": info.get("circulatingSupply"),
