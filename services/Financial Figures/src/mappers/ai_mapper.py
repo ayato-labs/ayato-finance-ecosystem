@@ -59,11 +59,12 @@ class AIMapper:
 
         return f"""
         You are a professional financial data analyst specializing in XBRL and GAAP standards.
-        Your task is to map a market-specific financial tag to the MOST APPROPRIATE standardized target label from the provided list.
+        Your task is to map a market-specific financial tag to the MOST APPROPRIATE standardized
+        target label from the provided list.
 
         {market_context}
-        
-        VALID TARGET LABELS (Pick ONE): 
+
+        VALID TARGET LABELS (Pick ONE):
         {", ".join(target_labels)}, Other
 
         CRITICAL INSTRUCTIONS:
@@ -73,7 +74,7 @@ class AIMapper:
         4. OUTPUT ONLY A VALID JSON OBJECT matching the requested schema.
         5. Provide a brief, concise reasoning for your choice.
         6. Do not enter an infinite loop. If you cannot find a match, stop and return "Other".
-        """
+        """  # noqa: S608
 
     def map_tag(self, market: str, tag: str, description: str, session_id: str) -> dict[str, Any]:
         """Maps a single tag using the batch interface."""
@@ -202,6 +203,12 @@ class AIMapper:
             # Detect 500 or 429 and specifically flag as retryable
             error_str = str(e).upper()
             is_retryable = any(term in error_str for term in ["500", "INTERNAL", "429", "RATE"])
+
+            if is_retryable:
+                logger.warning(f"Transient AI API failure ({model_name}): {e}")
+            else:
+                logger.error(f"Non-retryable AI API failure ({model_name}): {e}")
+
             raise AIMappingError(
                 f"API Failure ({model_name}): {e}", is_retryable=is_retryable
             ) from e

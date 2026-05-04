@@ -76,6 +76,6 @@ def test_edinet_full_system_flow(mock_get, tmp_path):
 
             # Should have 2 facts
             facts = con.execute("SELECT amount_value FROM raw_facts").fetchall()
-            assert len(facts) == 2  # noqa: PLR2004
-            assert facts[0][0] == 100.0  # noqa: PLR2004
-            assert facts[1][0] == 200.0  # noqa: PLR2004
+            assert len(facts) == 2
+            assert facts[0][0] == 100.0
+            assert facts[1][0] == 200.0

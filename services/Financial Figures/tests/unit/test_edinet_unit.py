@@ -54,7 +54,7 @@ def test_parser_valid_csv():
     facts = EDINETParser.parse_financial_csv(csv_content)
     assert len(facts) >= 1
     assert facts[0]["id"] == "jpcrp_cor:NetSales"
-    assert facts[0]["value"] == 1000000.0  # noqa: PLR2004
+    assert facts[0]["value"] == 1000000.0
 
 
 def test_storage_incremental_methods(tmp_path):
@@ -90,7 +90,7 @@ def test_storage_raw_facts_integrity(tmp_path):
 
     with duckdb.connect(str(db_file)) as con:
         res = con.execute("SELECT amount_value FROM raw_facts WHERE doc_id=?", (doc_id,)).fetchone()
-        assert res[0] == 500.0  # noqa: PLR2004
+        assert res[0] == 500.0
 
 
 @pytest.mark.parametrize("invalid_val", ["", "N/A", "Unknown", "-", "1,234.56"])
@@ -101,7 +101,7 @@ def test_parser_robustness(invalid_val):
     facts = EDINETParser.parse_financial_csv(csv)
     if invalid_val == "1,234.56":
         assert len(facts) == 1
-        assert facts[0]["value"] == 1234.56  # noqa: PLR2004
+        assert facts[0]["value"] == 1234.56
     else:
         assert len(facts) == 0
 
@@ -126,5 +126,5 @@ def test_sync_worker_years_clipping(mocker):
 
     # Check if get_document_list was called for Phase 1 (31 days) + Phase 2 (5 * 365 + 1 days)
     # The count should be around 1857
-    assert mock_client.get_document_list.call_count <= 1870  # noqa: PLR2004
-    assert mock_client.get_document_list.call_count >= 1850  # noqa: PLR2004
+    assert mock_client.get_document_list.call_count <= 1870
+    assert mock_client.get_document_list.call_count >= 1850

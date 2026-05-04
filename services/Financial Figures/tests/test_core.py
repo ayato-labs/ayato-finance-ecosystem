@@ -29,7 +29,7 @@ def test_audit_manager_session_lifecycle(tmp_path):
             (session_id,),
         ).fetchone()
         assert row[0] == "SUCCESS"
-        assert row[1] == 10  # noqa: PLR2004
+        assert row[1] == 10
 
 
 def test_audit_manager_log_mapping(tmp_path):

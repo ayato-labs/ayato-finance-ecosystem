@@ -3,98 +3,33 @@ import warnings
 from typing import ClassVar
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-from loguru import logger
 from markdownify import markdownify as md
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-
 class EdgarParser:
     """
-    SEC 10-K/10-Q ドキュメントから正確に複数のセクションを抽出し、Markdown形式で出力するクラス
+    SEC 10-K/10-Q ドキュメントから網羅的にテキストセクションを抽出するクラス。
+    特定の項目だけでなく、ドキュメント全体の定性情報を保持することを目指す。
     """
 
-    # セクション特定のためのパターン (Markdown化した後のテキストに対して適用)
-    SECTION_RE: ClassVar[dict[str, list[dict]]] = {
-        "10-K": [
-            {
-                "key": "business",
-                "start": re.compile(r"^#*\s*Item\s*1[\s\.]*Business", re.IGNORECASE | re.MULTILINE),
-            },
-            {
-                "key": "risk_factors",
-                "start": re.compile(
-                    r"^#*\s*Item\s*1A[\s\.]*Risk\s*Factors", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "unresolved_staff_comments",
-                "start": re.compile(
-                    r"^#*\s*Item\s*1B[\s\.]*Unresolved", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "mda",
-                "start": re.compile(
-                    r"^#*\s*Item\s*7[\s\.]*Management", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "market_risk",
-                "start": re.compile(
-                    r"^#*\s*Item\s*7A[\s\.]*Quantitative", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "financial_statements",
-                "start": re.compile(
-                    r"^#*\s*Item\s*8[\s\.]*Financial", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "governance",
-                "start": re.compile(
-                    r"^#*\s*Item\s*10[\s\.]*Directors", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "signatures",
-                "start": re.compile(r"^#*\s*Signatures", re.IGNORECASE | re.MULTILINE),
-            },
-        ],
-        "10-Q": [
-            {
-                "key": "mda",
-                "start": re.compile(
-                    r"^#*\s*Item\s*2[\s\.]*Management", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "market_risk",
-                "start": re.compile(
-                    r"^#*\s*Item\s*3[\s\.]*Quantitative", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "legal_proceedings",
-                "start": re.compile(
-                    r"^#*\s*Part\s*II.*Item\s*1[\s\.]*Legal", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-            {
-                "key": "risk_factors",
-                "start": re.compile(
-                    r"^#*\s*Item\s*1A[\s\.]*Risk\s*Factors", re.IGNORECASE | re.MULTILINE
-                ),
-            },
-        ],
-    }
+    # 主要セクションのヒント（これらは優先的に個別のキーとして抽出する）
+    CORE_SECTIONS: ClassVar[list[str]] = [
+        "Business",
+        "Risk Factors",
+        "Unresolved Staff Comments",
+        "Management's Discussion and Analysis",
+        "Quantitative and Qualitative Disclosures About Market Risk",
+        "Financial Statements",
+        "Directors, Executive Officers and Corporate Governance",
+        "Executive Compensation",
+        "Legal Proceedings",
+    ]
 
     @staticmethod
     def clean_text(text: str) -> str:
         if not text:
             return ""
-        # 行ごとにトリミングを行い、過剰な空行を整理
         lines = [line.strip() for line in text.split("\n")]
         cleaned_text = "\n".join(lines)
         cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)
@@ -102,9 +37,8 @@ class EdgarParser:
 
     def _preprocess_html(self, html_content: str) -> BeautifulSoup:
         soup = BeautifulSoup(html_content, "lxml")
-        # 不要なタグのunwrap
         for tag in soup(["span", "font", "div"]):
-            if not tag.attrs:  # スタイル指定がないもののみunwrap
+            if not tag.attrs:
                 tag.unwrap()
         for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
             ix_tag.unwrap()
@@ -121,50 +55,47 @@ class EdgarParser:
 
     def extract_all_sections(self, html_content: str, form_type: str) -> dict[str, str]:
         """
-        ドキュメントから定義された全てのセクションを抽出し、辞書形式で返す
+        ドキュメントから網羅的にセクションを分割して抽出する。
         """
-        if form_type not in self.SECTION_RE:
-            logger.warning(f"Unsupported form type: {form_type}")
-            return {}
-
         soup = self._preprocess_html(html_content)
         full_markdown = self._html_to_markdown(soup)
         lines = full_markdown.split("\n")
 
+        # 1. すべての "Item" ヘッダーを動的に検出する
+        # パターン: "Item 1.", "Item 1A.", "PART I", "Item 7." 等
+        item_pattern = re.compile(r"^#*\s*(?:Item|Part)\s*[0-9A-Z]+[\s\.]", re.IGNORECASE)
+
+        indices = []
+
+        for i, line in enumerate(lines):
+            # 目次のリンクを除外するための簡易チェック
+            is_item = item_pattern.match(line)
+            is_short = len(line) < 200
+            not_link = not re.search(r"\[.*\]\(#.*\)", line)
+            if is_item and is_short and not_link:
+                indices.append((line.strip("# ").strip(), i))
+
+        # 2. 分割実行
         sections_found = {}
-        definitions = self.SECTION_RE[form_type]
+        for i, (label, start_idx) in enumerate(indices):
+            # キーをクリーンに（"Item 1. Business" -> "item_1" または "business"）
+            # ここでは将来的な検索性を考慮し、正規化したラベルをキーにする
+            key = re.sub(r"[^a-z0-9]", "_", label.lower()).strip("_")
 
-        # 各セクションの開始行を特定
-        indices = {}
-        for defn in definitions:
-            key = defn["key"]
-            pattern = defn["start"]
-            for i, line in enumerate(lines):
-                # 目次内のリンクを避ける(リンクがない、かつパターンにマッチ、かつ行が長すぎない)
-                if (
-                    pattern.search(line)
-                    and len(line) < 250
-                    and not re.search(r"\[.*\]\(#.*\)", line)
-                ):
-                    indices[key] = i
-                    break
+            end_idx = indices[i + 1][1] if i + 1 < len(indices) else None
+            content = "\n".join(lines[start_idx:end_idx])
+            sections_found[key] = self.clean_text(content)
 
-        # 特定したインデックスに基づいてテキストを切り出し
-        for i, defn in enumerate(definitions):
-            key = defn["key"]
-            if key not in indices:
-                continue
-
-            start_idx = indices[key]
-            # 次のセクションの開始、またはファイルの最後までを範囲とする
-            end_idx = None
-            for next_defn in definitions[i + 1 :]:
-                next_key = next_defn["key"]
-                if next_key in indices:
-                    end_idx = indices[next_key]
-                    break
-
-            extracted_content = "\n".join(lines[start_idx:end_idx])
-            sections_found[key] = self.clean_text(extracted_content)
+        # 3. もし一つもセクションが見つからなかった場合のフォールバック（ドキュメント全量を保存）
+        if not sections_found:
+            sections_found["full_content"] = self.clean_text(full_markdown)
 
         return sections_found
+
+if __name__ == "__main__":
+    parser = EdgarParser()
+    test_html = (
+        "<html><body><h1>Item 1. Business</h1><p>Our business is great.</p>"
+        "<h1>Item 1A. Risk Factors</h1><p>Many risks.</p></body></html>"
+    )
+    print(parser.extract_all_sections(test_html, "10-K").keys())

@@ -12,7 +12,7 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     コンポーネントごとのロギング構成を初期化する。
     - コンソール: 色付き標準出力
     - ファイル: logs/{unit_name}.log (JSON形式)
-    
+
     Args:
         unit_name: ログファイル名に使用する名前
         run_id: 実行セッションを識別するID。未指定時は新規生成。
@@ -26,7 +26,7 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     # ログ保存先ディレクトリの作成
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # 実行ごとに新しいログファイルを作成し、最新3回分のみ保持する設定
     # {time} を含めることで、起動のたびに新しいファイルが生成される
     log_file_pattern = log_dir / f"{unit_name}_{{time:YYYYMMDD_HHmmss}}.log"
@@ -45,18 +45,34 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     logger.add(sys.stderr, format=console_format, level=log_level, colorize=True, enqueue=True)
 
     # 2. ファイル出力 (JSON / 構造化ログ)
-    # retention=3 により、最新の3ファイルのみを保持する
+    # retention=2 により、最新の2ファイルのみを保持する
     logger.add(
         str(log_file_pattern),
         format="{message}",
         level=log_level,
         rotation="100 MB",
-        retention=3,
+        retention=2,
         serialize=True,
         enqueue=True,
     )
 
-    logger.info(f"Logging initialized | unit={unit_name} | run_id={run_id} | pattern={log_file_pattern}")
+    # 3. エラーログの隔離保存 (ERROR以上のみ)
+    # 障害調査用に、エラーログは通常のログより長期間（10世代）保持する
+    error_log_path = log_dir / "error.log"
+    logger.add(
+        str(error_log_path),
+        format="{message}",
+        level="ERROR",
+        rotation="10 MB",
+        retention=10,
+        serialize=True,
+        enqueue=True,
+    )
+
+    logger.info(
+        f"Logging initialized | unit={unit_name} | run_id={run_id} | "
+        f"pattern={log_file_pattern}"
+    )
     return logger
 
 

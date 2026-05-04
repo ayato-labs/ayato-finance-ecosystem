@@ -1,22 +1,21 @@
-import logging
-
 import duckdb
+from loguru import logger
 
 from src.core.config import settings
 
 
 def migrate_labels():
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("Migration")
-
+    """
+    Standardizes label names in existing database for V1 -> V2 consistency.
+    """
     jp_db = settings.DB_PATH_JP
     if not jp_db.exists():
-        logger.error(f"Database not found: {jp_db}")
+        logger.warning(f"Database not found at {jp_db}. Skipping label migration.")
         return
 
     # Mapping dictionary: V1 (Short) -> V2 (Long/Standard)
     # Based on J-Quants V1 field names and V2 canonical targets
-    MAPPING = {
+    mapping = {
         "Sales": "NetSales",
         "OP": "OperatingProfit",
         "OdP": "OrdinaryProfit",
@@ -40,7 +39,7 @@ def migrate_labels():
         "FEPS2Q": "ForecastEarningsPerShare2Q",
     }
 
-    logger.info(f"Starting migration for {jp_db.name}...")
+    logger.info(f"Starting migration for {jp_db}...")
 
     try:
         conn = duckdb.connect(str(jp_db))
@@ -50,12 +49,11 @@ def migrate_labels():
         logger.info(f"Total records before migration: {count_before:,}")
 
         # 2. Execute Updates
-        updated_total = 0
-        for v1, v2 in MAPPING.items():
+        for v1, v2 in mapping.items():
             conn.execute("UPDATE company_facts SET label = ? WHERE label = ?", (v2, v1))
             logger.info(f"  [UPDATE] {v1:10} -> {v2:25}")
 
-        logger.info(f"Migration completed. Total records updated: {updated_total:,}")
+        logger.info("Migration completed.")
         conn.close()
 
     except Exception as e:

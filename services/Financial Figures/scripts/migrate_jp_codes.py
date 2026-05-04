@@ -96,14 +96,16 @@ def migrate_db(db_path, name):
             # Recreate indexes
             logger.info("Recreating indexes...")
             if name == "JP Market DB":
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_jp_facts_lookup ON company_facts (code, tag, disclosed_date)"
-                )
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_jp_facts_lookup
+                    ON company_facts (code, tag, disclosed_date)
+                """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jp_tickers_symbol ON tickers (code)")
             else:
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup ON company_facts (code, tag, disclosed_date)"
-                )
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_edinet_facts_lookup
+                    ON company_facts (code, tag, disclosed_date)
+                """)
 
         conn.close()
         logger.info(f"Migration successful for {name}.")

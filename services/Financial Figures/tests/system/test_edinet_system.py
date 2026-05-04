@@ -34,7 +34,7 @@ def test_system_edinet_cli(tmp_path):
     cmd = [sys.executable, "main.py", "--edinet-only"]
 
     # Run with timeout to prevent hanging
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=False)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
 
     print(f"STDOUT: {result.stdout}")
     print(f"STDERR: {result.stderr}")

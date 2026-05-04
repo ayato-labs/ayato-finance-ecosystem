@@ -28,16 +28,18 @@ def verify_seamless_query():
 
     unified_results = conn.execute("""
         WITH unified_data AS (
-            SELECT 'J-Quants' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value
+            SELECT 'J-Quants' as source, code,
+                   COALESCE(fiscal_year, year(disclosed_date)) as f_year,
+                   fiscal_period, label, value
             FROM jp.company_facts
             UNION ALL
-            SELECT 'EDINET' as source, code, COALESCE(fiscal_year, year(disclosed_date)) as f_year, fiscal_period, label, value
+            SELECT 'EDINET' as source, code,
+                   COALESCE(fiscal_year, year(disclosed_date)) as f_year,
+                   fiscal_period, label, value
             FROM edinet.company_facts
         )
         SELECT
-            label,
-            f_year as fiscal_year,
-            fiscal_period,
+            label, f_year as fiscal_year, fiscal_period,
             COUNT(CASE WHEN source = 'J-Quants' THEN 1 END) as JQ_Count,
             COUNT(CASE WHEN source = 'EDINET' THEN 1 END) as ED_Count,
             AVG(value) as Avg_Value
@@ -70,9 +72,9 @@ def verify_seamless_query():
     if "NetSales" in jq_labels and "NetSales" in ed_labels:
         print("  SUCCESS: 'NetSales' label is identical in both databases.")
     else:
-        print(
-            f"  MISMATCH: JQ has 'NetSales': {'NetSales' in jq_labels}, EDINET has 'NetSales': {'NetSales' in ed_labels}"
-        )
+        jq_has = "NetSales" in jq_labels
+        ed_has = "NetSales" in ed_labels
+        print(f"  MISMATCH: JQ has 'NetSales': {jq_has}, EDINET has 'NetSales': {ed_has}")
 
     conn.close()
 

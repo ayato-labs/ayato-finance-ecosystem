@@ -95,9 +95,10 @@ def test_integration_error_resilience(test_settings, mocker):
     import duckdb
 
     with duckdb.connect(str(service.us_engine.db_path)) as conn:
-        conn.execute(
-            "INSERT INTO tickers (ticker, cik, name) VALUES ('FAIL', '1', 'F'), ('SUCCESS', '2', 'S')"
-        )
+        conn.execute("""
+            INSERT INTO tickers (ticker, cik, name)
+            VALUES ('FAIL', '1', 'F'), ('SUCCESS', '2', 'S')
+        """)
 
     service.sync_market_full("US", limit=2)
 

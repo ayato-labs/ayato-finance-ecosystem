@@ -1,7 +1,10 @@
-import pytest
 import concurrent.futures
+
+import pytest
+
 from src.storage import FinancialNarrativeStorage
 from src.structurer import FilingStructurer
+
 
 def test_concurrent_db_writes(temp_db_path):
     """
@@ -9,7 +12,7 @@ def test_concurrent_db_writes(temp_db_path):
     DuckDBの接続管理とロックが適切に処理されるかを確認する。
     """
     storage = FinancialNarrativeStorage(temp_db_path)
-    
+
     def write_task(i):
         metadata = {
             "accessionNumber": f"ACC-{i}",
@@ -23,9 +26,10 @@ def test_concurrent_db_writes(temp_db_path):
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(write_task, i) for i in range(50)]
         results = [f.result() for f in futures]
-    
+
     assert all(results)
     assert storage.get_stats()["total_filings"] == 50
+
 
 @pytest.mark.asyncio
 async def test_llm_json_garbage_recovery():
@@ -39,9 +43,10 @@ async def test_llm_json_garbage_recovery():
         "{\"capex\": {\"intent\": \"recovered\"}, \"rd\": null, \"governance\": null}\n"
         "``` hope this helps!"
     )
-    
+
     result = structurer._parse_response(garbage_json)
     assert result["capex"]["intent"] == "recovered"
+
 
 def test_storage_sql_injection_attempt(temp_db_path):
     """SQLインジェクションのような文字列に対する耐性テスト"""
@@ -55,7 +60,7 @@ def test_storage_sql_injection_attempt(temp_db_path):
     }
     # パラメータ化クエリを使用していれば安全
     storage.save_filing(metadata, {"mda": "safe"})
-    
+
     # テーブルが削除されていないことを確認
     assert storage.filing_exists("ACC-MALICIOUS")
     assert storage.get_stats()["total_filings"] > 0

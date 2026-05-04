@@ -4,7 +4,8 @@ from pathlib import Path
 import duckdb
 from loguru import logger
 
-from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT
+from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT, JP_DB_PATH, US_DB_PATH
+from src.db.migrations import MigrationManager
 
 
 class FinancialNarrativeStorage:
@@ -12,10 +13,21 @@ class FinancialNarrativeStorage:
     抽出された定性情報をDuckDBに永続化するクラス
     """
 
-    def __init__(self, db_path: str = DEFAULT_DB_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None, market: str | None = None):
+        if db_path:
+            self.db_path = db_path
+        elif market:
+            if market.lower() == "jp":
+                self.db_path = JP_DB_PATH
+            elif market.lower() == "us":
+                self.db_path = US_DB_PATH
+            else:
+                self.db_path = DEFAULT_DB_PATH
+        else:
+            self.db_path = DEFAULT_DB_PATH
+
         # データベースファイルの親ディレクトリを確実に作成
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self):
@@ -24,31 +36,14 @@ class FinancialNarrativeStorage:
             # RAM使用効率の向上のため制限を設定
             conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
             conn.execute("SET threads=4")
-            
+
             # 並列書き込み時のパフォーマンスと整合性のための設定
-            # DuckDBはデフォルトでWAL形式に近い動作をするが、チェックポイントの頻度を調整
             conn.execute("SET checkpoint_threshold='1GB'")
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS filings (
-                    accession_number VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    cik VARCHAR,
-                    form VARCHAR,
-                    filing_date DATE,
-                    sections JSON,
-                    metadata JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS structured_data (
-                    accession_number VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    structured_facts JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            # マイグレーションマネージャーを使用して初期化
+            manager = MigrationManager(conn)
+            manager.apply_migrations()
+
             logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
 
     def save_filing(self, metadata: dict, sections: dict):
@@ -115,8 +110,6 @@ class FinancialNarrativeStorage:
                 return json.loads(res[0])
             return None
 
-
-
     def filing_exists(self, accession_number: str) -> bool:
         """
         指定された書類が既にDBに存在するか確認する
@@ -144,8 +137,6 @@ class FinancialNarrativeStorage:
             """
             res = conn.execute(query, (ticker.upper(),)).fetchall()
             return res
-
-
 
     def get_stats(self):
         """データベース全体の統計情報を取得"""

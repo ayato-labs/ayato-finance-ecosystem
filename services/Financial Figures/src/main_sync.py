@@ -1,19 +1,14 @@
 import argparse
-import logging
-import sys
 
 from dotenv import load_dotenv
+from loguru import logger
 
 from src.core.audit_manager import audit_manager
+from src.core.logging import setup_logging
 from src.services.market_sync import BatchSyncService
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger("MainSync")
+# Initialize logging
+setup_logging()
 
 
 def main():

@@ -31,7 +31,7 @@ def test_sync_market_us_full(mock_engines):
 
         # Verify US engine called, JP engine NOT called for ingest
         assert mock_us_instance.sync_tickers.called
-        assert mock_us_instance.fetch_company_facts.call_count == 2  # noqa: PLR2004
+        assert mock_us_instance.fetch_company_facts.call_count == 2
         assert not mock_jp_cls.return_value.fetch_and_ingest_statements.called
 
         # Verify session management

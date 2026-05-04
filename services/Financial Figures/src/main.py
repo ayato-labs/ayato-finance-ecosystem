@@ -1,12 +1,13 @@
-import logging
 import sys
-import traceback
+
+from loguru import logger
 
 from src.core.audit_manager import audit_manager
+from src.core.logging import setup_logging
 from src.engines.us_engine import USEngine
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Initialize logging
+setup_logging()
 
 
 def main():
@@ -42,7 +43,7 @@ def main():
             except Exception as e:
                 errors_count += 1
                 msg = f"Error processing {ticker} (US): {e!s}"
-                logger.error(msg, exc_info=True)
+                logger.error(msg)
                 error_summary.append(msg)
 
         # 3. Close Session (Success)
@@ -55,16 +56,15 @@ def main():
         )
         logger.info("US Sync Complete.")
 
-    except Exception:
+    except Exception as e:
         # 3. Close Session (Critical Failure)
-        full_error = traceback.format_exc()
-        logger.critical(f"CRITICAL ERROR: {full_error}")
+        logger.exception(f"CRITICAL ERROR during US Sync: {e}")
         audit_manager.end_session(
             session_id=session_id,
             status="FAILED",
             records=records_processed,
             errors=errors_count + 1,
-            error_log=full_error,
+            error_log=str(e),
         )
         sys.exit(1)
 

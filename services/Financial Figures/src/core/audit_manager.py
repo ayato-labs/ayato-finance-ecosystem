@@ -22,54 +22,16 @@ class AuditManager:
         return self._db_path_override or settings.DB_PATH_TRACEABILITY
 
     def _init_db(self):
-        """Initialize the traceability database in a thread-safe manner."""
+        """Initialize the traceability database using centralized migration manager."""
         if settings.db_read_only:
             logger.debug("Skipping Audit DB initialization in READ_ONLY mode.")
             return
 
         with self._lock:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            with db_manager.connect(self.db_path) as conn:
-                # Table for Sync Sessions (Process Level)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS sync_sessions (
-                        session_id VARCHAR PRIMARY KEY,
-                        market VARCHAR,
-                        status VARCHAR,
-                        started_at TIMESTAMP,
-                        ended_at TIMESTAMP,
-                        records_processed INTEGER,
-                        errors_count INTEGER,
-                        error_log VARCHAR,
-                        git_commit_hash VARCHAR
-                    )
-                """)
+            from src.core.migrations import MigrationManager
 
-                # Table for AI Mapping Audits (Logic Level)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS mapping_audit (
-                        mapping_id VARCHAR PRIMARY KEY,
-                        session_id VARCHAR,
-                        source_tag VARCHAR,
-                        mapped_label VARCHAR,
-                        reasoning VARCHAR,
-                        confidence_score DOUBLE,
-                        mapped_at TIMESTAMP,
-                        llm_model_version VARCHAR
-                    )
-                """)
-
-                # Table for Last Sync States (Delta Level)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS sync_progress (
-                        market VARCHAR,
-                        symbol VARCHAR,
-                        last_synced_at TIMESTAMP,
-                        records_in_last_sync INTEGER,
-                        status VARCHAR,
-                        PRIMARY KEY(market, symbol)
-                    )
-                """)
+            MigrationManager.apply_migrations(self.db_path, "traceability")
 
     def start_session(self, market: str) -> str:
         """Start a new sync session and return the ID."""
@@ -185,10 +147,8 @@ class AuditManager:
         with self._lock:
             with db_manager.connect(self.db_path, read_only=True) as conn:
                 placeholders = ",".join(["?"] * len(source_tags))
-                res = conn.execute(
-                    f"SELECT source_tag FROM mapping_audit WHERE source_tag IN ({placeholders})",
-                    source_tags,
-                ).fetchall()
+                query = f"SELECT source_tag FROM mapping_audit WHERE source_tag IN ({placeholders})"  # noqa: S608
+                res = conn.execute(query, source_tags).fetchall()
                 found = set(r[0] for r in res)
                 return [t for t in source_tags if t not in found]
 

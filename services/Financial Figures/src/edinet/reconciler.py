@@ -49,8 +49,7 @@ class EDINETReconciler:
                     "strategy": "UNIT_SCALED_EDINET",
                     "merged_val": val_jquants,
                     "reasoning": (
-                        f"Detected {ratio:.0f}x scale difference. "
-                        "Using J-Quants scaled value."
+                        f"Detected {ratio:.0f}x scale difference. Using J-Quants scaled value."
                     ),
                 }
 
