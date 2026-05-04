@@ -16,6 +16,9 @@ from src.storage import FinancialNarrativeStorage
 from src.structurer import FilingStructurer
 from src.config import USER_AGENT, SEC_TICKERS
 
+# デフォルト銘柄リスト
+TICKERS = ["AAPL", "NVDA", "7203", "9984"]
+
 
 async def batch_fetch(tickers: list[str] = None, run_structuring: bool = False):
     """
