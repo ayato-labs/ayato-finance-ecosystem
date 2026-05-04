@@ -90,18 +90,21 @@ class StructuringWorkerPool:
                     f"({ticker}, retry: {retry_count})"
                 )
 
-                # 2. Data Lake からテキストを取得
+                # 2. Data Lake からテキストを取得 (FETCHING)
+                await asyncio.to_thread(self.queue.update_job_status, acc_no, "FETCHING", f"{worker_id}|{model_name}")
                 sections = await self._get_sections_from_lake(acc_no, market)
                 if not sections:
                     raise ValueError("No sections found in Data Lake")
 
-                # 3. LLM 推論 (API呼び出し)
+                # 3. LLM 推論 (LLM_WAITING)
+                await asyncio.to_thread(self.queue.update_job_status, acc_no, "LLM_WAITING", f"{worker_id}|{model_name}")
                 facts = await structurer.extract_facts(sections)
 
                 if not facts:
                     raise RuntimeError("LLM returned empty or failed to extract facts")
 
-                # 4. Structured DB への書き込み
+                # 4. Structured DB への書き込み (SAVING)
+                await asyncio.to_thread(self.queue.update_job_status, acc_no, "SAVING", f"{worker_id}|{model_name}")
                 storage = self.storage_jp if market == "jp" else self.storage_us
                 db_lock = db_write_lock_jp if market == "jp" else db_write_lock_us
 

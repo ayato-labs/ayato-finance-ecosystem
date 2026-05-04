@@ -116,14 +116,32 @@ class JobQueue:
             ''', (str(error_message), accession_number))
             conn.commit()
 
+    def update_job_status(self, accession_number: str, status: str, worker_info: str = None):
+        """ジョブのステータスを詳細に更新する (可観測性の向上)"""
+        with sqlite3.connect(str(self.db_path)) as conn:
+            if worker_info:
+                conn.execute('''
+                    UPDATE jobs
+                    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE accession_number = ?
+                ''', (status, f"Worker: {worker_info}", accession_number))
+            else:
+                conn.execute('''
+                    UPDATE jobs
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE accession_number = ?
+                ''', (status, accession_number))
+            conn.commit()
+
     def cleanup_zombie_jobs(self, timeout_minutes: int = 60):
-        """長時間 'PROCESSING' のまま停滞しているジョブを 'PENDING' に戻す (ゾンビジョブ対策)"""
+        """長時間 'PROCESSING' 系のまま停滞しているジョブを 'PENDING' に戻す"""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
+                # 'PROCESSING' で始まる詳細ステータスも含めてリセット
                 cursor = conn.execute('''
                     UPDATE jobs
-                    SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP
-                    WHERE status = 'PROCESSING'
+                    SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'Zombie cleanup'
+                    WHERE status IN ('PROCESSING', 'FETCHING', 'LLM_WAITING', 'SAVING')
                     AND datetime(updated_at, 'localtime') < datetime('now', 'localtime', ?)
                 ''', (f'-{timeout_minutes} minutes',))
                 count = cursor.rowcount

@@ -191,9 +191,10 @@ class EDINETSyncWorker:
             }
 
             # 2. Map facts to columns using standard labels
+            valid_labels = set(settings.JQUANTS_V2_LABELS) if market in ["EDINET", "JP_EDINET"] else set(settings.TARGET_LABELS)
             for f in raw_facts:
                 label = tag_to_label.get(f["id"])
-                if label and label != "Other" and label in settings.TARGET_LABELS:
+                if label and label != "Other" and label in valid_labels:
                     try:
                         wide_record[label] = float(f["value"])
                     except (ValueError, TypeError):
