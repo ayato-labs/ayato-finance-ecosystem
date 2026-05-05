@@ -180,6 +180,9 @@ def main():
         help="Only sync data for tickers that haven't been updated recently (default: True)",
     )
     sync_group.add_argument(
+        "--days", type=int, help="Number of days to sync (for --edinet-only or --sync-market)"
+    )
+    sync_group.add_argument(
         "--edinet-only", action="store_true", help="Sync only EDINET statutory data"
     )
     sync_group.add_argument(
@@ -209,7 +212,10 @@ def main():
         if args.edinet_only:
             logger.info("=== Starting EDINET Statutory Sync (Manual/Only Mode) ===")
             worker = EDINETSyncWorker()
-            worker.run_incremental_sync()
+            if args.days:
+                worker.run_backfill(days=args.days)
+            else:
+                worker.run_incremental_sync()
 
         if args.sync_market:
             perform_market_sync(sync_service, args)

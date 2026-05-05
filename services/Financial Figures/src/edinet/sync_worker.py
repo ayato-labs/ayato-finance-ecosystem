@@ -1,6 +1,5 @@
 import time
 from datetime import date, timedelta
-from pathlib import Path
 from typing import ClassVar
 
 from loguru import logger
@@ -103,7 +102,6 @@ class EDINETSyncWorker:
                 needs_download = doc_id not in raw_ids
 
                 filer = doc.get("filerName", "Unknown")
-                desc = doc.get("docDescription", "No Desc")
 
                 if not needs_download:
                     logger.info(f"[RESUME] Found RAW for {filer} ({doc_id}).")
@@ -181,7 +179,6 @@ class EDINETSyncWorker:
             # 1. Bulk check cache for these tags
             prefixed_tags = [f"{market}:{t}" for t in unique_tags.keys()]
             cached_mappings = self.storage.get_tag_mappings(prefixed_tags)
-            
             # 2. Separate Known vs Unknown
             missing_tags = []
             final_mappings = []
@@ -189,20 +186,22 @@ class EDINETSyncWorker:
                 full_tag = f"{market}:{tag}"
                 if full_tag in cached_mappings:
                     m = cached_mappings[full_tag]
-                    final_mappings.append({
-                        "source_tag": full_tag,
-                        "mapped_label": m["mapped_label"],
-                        "confidence": m["confidence"],
-                        "reasoning": m["reasoning"],
-                        "model": m["model"]
-                    })
+                    final_mappings.append(
+                        {
+                            "source_tag": full_tag,
+                            "mapped_label": m["mapped_label"],
+                            "confidence": m["confidence"],
+                            "reasoning": m["reasoning"],
+                            "model": m["model"],
+                        }
+                    )
                 else:
                     missing_tags.append((tag, desc))
-            
             # 3. Call AI for unknowns and persist results
             if missing_tags:
                 logger.info(
-                    f"[MAP] Cache HIT: {len(final_mappings)}, MISS: {len(missing_tags)} for {ticker}"
+                    f"[MAP] Cache HIT: {len(final_mappings)}, MISS: {len(missing_tags)} "
+                    f"for {ticker}"
                 )
                 new_mappings = self.ai_mapper.map_tags_bulk(market, missing_tags, session_id)
                 if new_mappings:
@@ -327,9 +326,7 @@ class EDINETSyncWorker:
                 )
 
             # PHASE 2: Deep Backfill (Full range, all relevant types)
-            logger.info(
-                f"=== [Phase 2] Historical Backfill: {actual_years} years ==="
-            )
+            logger.info(f"=== [Phase 2] Historical Backfill: {actual_years} years ===")
             delta = end_date - start_date
             for i in range(delta.days + 1):
                 target_date = end_date - timedelta(days=i)
@@ -343,8 +340,8 @@ class EDINETSyncWorker:
     def run_incremental_sync(self, default_days: int = 30):
         """Syncs from the last stored date to today."""
         from src.core.master import master_manager
+
         job_id = master_manager.start_job("EDINET-Incremental-Sync", ["edinet_raw", "edinet_norm"])
-        
         try:
             self.ensure_ticker_master(force_update=True)
             target_codes = set(self.mapper.get_all_target_edinet_codes())
@@ -377,13 +374,12 @@ class EDINETSyncWorker:
     def run_backfill(self, days: int = 7):
         """Backfill data for the last N days sequentially with ticker filtering."""
         from src.core.master import master_manager
+
         job_id = master_manager.start_job("EDINET-Backfill", ["edinet_raw", "edinet_norm"])
-        
         try:
             logger.info(f"Starting backfill for the last {days} days.")
             self.ensure_ticker_master(force_update=False)
             target_codes = set(self.mapper.get_all_target_edinet_codes())
-            
             end_date = date.today()
             total_docs = 0
             for i in range(days):

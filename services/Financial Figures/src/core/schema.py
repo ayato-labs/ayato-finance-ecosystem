@@ -306,7 +306,8 @@ INDEX_SCHEMAS: dict[str, list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_docs_date ON documents(submission_date)",
     ],
     "edinet_norm": [
-        "CREATE INDEX IF NOT EXISTS idx_edinet_norm_lookup ON company_facts (LocalCode, DisclosedDate)",
+        "CREATE INDEX IF NOT EXISTS idx_edinet_norm_lookup "
+        "ON company_facts (LocalCode, DisclosedDate)",
     ],
 }
 

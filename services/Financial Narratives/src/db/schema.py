@@ -34,7 +34,7 @@ TABLES: dict[str, Table] = {
             Column("cik", "VARCHAR", "SEC固有の企業識別番号 (米国株のみ)"),
             Column("form", "VARCHAR", "書類の種類 (10-K, 10-Q, 有価証券報告書など)"),
             Column("filing_date", "DATE", "書類の提出日"),
-            Column("sections", "JSON", "パースされたセクション情報 (JSON形式)"),
+            Column("sections", "BLOB", "パースされたセクション情報 (圧縮済バイナリ)"),
             Column("metadata", "JSON", "補足的なメタデータ (JSON形式)"),
             Column(
                 "updated_at", "TIMESTAMP", "レコードの最終更新日時", default="CURRENT_TIMESTAMP"

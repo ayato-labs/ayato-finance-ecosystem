@@ -179,8 +179,15 @@ class BatchSyncService:
                     cols = conn.execute("PRAGMA table_info('company_facts')").fetchall()
                     # Skip metadata columns
                     skip = {
-                        "DisclosedDate", "DisclosedTime", "LocalCode", "DisclosureNumber",
-                        "Type", "FiscalYear", "FiscalPeriod", "session_id", "ingested_at"
+                        "DisclosedDate",
+                        "DisclosedTime",
+                        "LocalCode",
+                        "DisclosureNumber",
+                        "Type",
+                        "FiscalYear",
+                        "FiscalPeriod",
+                        "session_id",
+                        "ingested_at",
                     }
                     raw_tags = [(c[1], c[1]) for c in cols if c[1] not in skip]
                 if not raw_tags:

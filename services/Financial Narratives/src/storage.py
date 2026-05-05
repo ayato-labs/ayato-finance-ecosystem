@@ -1,10 +1,12 @@
 import json
 import os
 import random
+import re
 import time
 from pathlib import Path
 
 import duckdb
+import zstandard as zstd
 from loguru import logger
 
 from src.config import DEFAULT_DB_PATH, DUCKDB_MEMORY_LIMIT, JP_DB_PATH, US_DB_PATH
@@ -128,7 +130,42 @@ class FinancialNarrativeStorage:
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
-        sections_json = json.dumps(sections)
+
+        # 保存前のテキストクレンジング（定型文の削除）
+        # 金融開示特有の長い免責事項などを正規表現で除去（ストレージ節約）
+        boilerplate_patterns = [
+            r"本資料に含まれる将来の予想に関する記述は.*?(?=。|$)",
+            r"Forward-looking statements involve risks and uncertainties.*?(?=\.|$)",
+            r"実際の業績等は様々な要因により大きく異なる可能性があります.*?(?=。|$)"
+        ]
+
+        cleaned_sections = {}
+        for k, v in sections.items():
+            if isinstance(v, str):
+                text = v
+                for pattern in boilerplate_patterns:
+                    text = re.sub(pattern, "", text, flags=re.DOTALL)
+                cleaned_sections[k] = text
+            else:
+                cleaned_sections[k] = v
+
+        # 金融ドキュメント用ヒント辞書（圧縮率向上のため）
+        financial_dict_raw = (
+            "当連結会計年度 経営成績 財政状態 キャッシュ・フロー 設備投資 研究開発 従業員 ガバナンス "
+            "有価証券報告書 四半期 役員報酬 政策保有株式 投資計画 事業等のリスク 経営方針 "
+            "Item Business Risk Factors Management's Discussion and Analysis Financial Statements "
+            "Executive Compensation Corporate Governance Common Stock Operations Revenue Net Income"
+        )
+        financial_dict = financial_dict_raw.encode("utf-8")
+
+        # テキストデータの高圧縮 (zstd level 9 + 辞書ヒント)
+        sections_json = json.dumps(cleaned_sections).encode("utf-8")
+
+        # 辞書を使用して圧縮
+        zdict = zstd.ZstdCompressionDict(financial_dict)
+        cctx = zstd.ZstdCompressor(level=9, dict_data=zdict)
+        compressed_sections = cctx.compress(sections_json)
+
         metadata_json = json.dumps(metadata)
 
         with self._connect(read_only=False) as conn:
@@ -144,11 +181,11 @@ class FinancialNarrativeStorage:
                     metadata.get("cik"),
                     metadata.get("form"),
                     metadata.get("filingDate"),
-                    sections_json,
+                    compressed_sections,
                     metadata_json,
                 ),
             )
-            logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
+        logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB (Compressed)")
 
     def save_structuring_batch(self, batch_data: list[tuple[str, str, dict]]):
         """AIによって構造化された複数の事実情報を一括保存する"""
@@ -161,14 +198,20 @@ class FinancialNarrativeStorage:
                 (acc_no, ticker.upper(), json.dumps(facts))
                 for acc_no, ticker, facts in batch_data
             ]
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO structured_data (
-                    accession_number, ticker, structured_facts, updated_at
-                ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                records
-            )
+            conn.execute("BEGIN TRANSACTION")
+            try:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO structured_data (
+                        accession_number, ticker, structured_facts, updated_at
+                    ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    records
+                )
+                conn.execute("COMMIT")
+            except Exception as e:
+                conn.execute("ROLLBACK")
+                raise e
             logger.success(f"Bulk saved {len(batch_data)} structured facts to DuckDB")
 
     def get_structuring_by_ticker(self, ticker: str):
@@ -183,7 +226,68 @@ class FinancialNarrativeStorage:
                 return json.loads(res[0])
             return None
 
+    def get_sections(self, acc_no: str) -> dict:
+        """指定された受付番号のセクション情報を取得する（解凍対応）"""
+        with self._connect(read_only=True) as conn:
+            res = conn.execute(
+                "SELECT sections FROM filings WHERE accession_number = ?", (acc_no,)
+            ).fetchone()
+            if not res:
+                return {}
+
+            raw_data = res[0]
+            # DuckDBからBLOBが文字列として返ってくるケースへの対応
+            if isinstance(raw_data, str) and not raw_data.startswith("{"):
+                try:
+                    # 文字列として解釈されたバイナリを元に戻す
+                    raw_data = raw_data.encode("latin-1")
+                except Exception:
+                    pass
+
+            if isinstance(raw_data, (bytes, bytearray)):
+                # 圧縮されている場合は解凍
+                try:
+                    # 同じ辞書を使用して解凍
+                    dict_data_raw = (
+                        "当連結会計年度 経営成績 財政状態 キャッシュ・フロー 設備投資 研究開発 "
+                        "従業員 ガバナンス 有価証券報告書 四半期 役員報酬 政策保有株式 "
+                        "投資計画 事業等のリスク 経営方針 Item Business Risk Factors "
+                        "Management's Discussion and Analysis Financial Statements "
+                        "Executive Compensation Corporate Governance Common Stock "
+                        "Operations Revenue Net Income"
+                    )
+                    dict_data = dict_data_raw.encode("utf-8")
+                    zdict = zstd.ZstdCompressionDict(dict_data)
+                    dctx = zstd.ZstdDecompressor(dict_data=zdict)
+                    decompressed = dctx.decompress(raw_data)
+                    return json.loads(decompressed.decode("utf-8"))
+                except Exception:
+                    # 辞書なしでの解凍を試行（以前のデータ用）
+                    try:
+                        dctx = zstd.ZstdDecompressor()
+                        decompressed = dctx.decompress(raw_data)
+                        return json.loads(decompressed.decode("utf-8"))
+                    except Exception:
+                        try:
+                            return json.loads(raw_data.decode("utf-8"))
+                        except Exception:
+                            return {}
+            elif isinstance(raw_data, str):
+                # プレーンな文字列（JSON）の場合
+                try:
+                    return json.loads(raw_data)
+                except Exception:
+                    return {}
+
+            return {}
+
     def filing_exists(self, accession_number: str) -> bool:
+        with self._connect(read_only=True) as conn:
+            res = conn.execute(
+                "SELECT 1 FROM filings WHERE accession_number = ?",
+                (accession_number,)
+            ).fetchone()
+            return res is not None
         """指定された書類が既にDBに存在するか確認する"""
         with self._connect(read_only=True) as conn:
             res = conn.execute(

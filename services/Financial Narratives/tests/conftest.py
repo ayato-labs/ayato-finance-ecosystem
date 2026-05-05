@@ -1,39 +1,31 @@
-
+import os
 import pytest
-
-
-@pytest.fixture
-def temp_db_path(tmp_path):
-    """テスト用の一時DuckDBパスを生成"""
-    db_file = tmp_path / "test_finance.duckdb"
-    return str(db_file)
-
+import shutil
+from pathlib import Path
 
 @pytest.fixture
-def sample_html():
-    """パーステスト用の最小限のHTMLサンプル"""
-    return """
-    <html>
-        <body>
-            <div id="item1">Item 1. Business</div>
-            <p>This is the business section content.</p>
-            <div id="item1a">Item 1A. Risk Factors</div>
-            <p>This is the risk factors content.</p>
-            <div id="item7">Item 7. Management's Discussion and Analysis</div>
-            <p>This is the MD&A content.</p>
-        </body>
-    </html>
-    """
-
+def test_data_dir():
+    """テスト用の一時ディレクトリ"""
+    path = Path("tests/temp_data")
+    path.mkdir(parents=True, exist_ok=True)
+    yield path
+    # テスト後に削除
+    if path.exists():
+        shutil.rmtree(path)
 
 @pytest.fixture
-def mock_filing_metadata():
-    """テスト用のファイリングメタデータ"""
-    return {
-        "accessionNumber": "0001234567-24-000001",
-        "ticker": "TEST",
-        "cik": "0001234567",
-        "form": "10-K",
-        "filingDate": "2024-04-27",
-        "primaryDocument": "test.htm",
-    }
+def mock_env(test_data_dir):
+    """環境変数をテスト用に上書き"""
+    old_jp = os.getenv("JP_DB_PATH")
+    old_us = os.getenv("US_DB_PATH")
+    old_master = os.getenv("MASTER_DB_PATH")
+    
+    os.environ["JP_DB_PATH"] = str(test_data_dir / "test_jp.duckdb")
+    os.environ["US_DB_PATH"] = str(test_data_dir / "test_us.duckdb")
+    os.environ["MASTER_DB_PATH"] = str(test_data_dir / "test_master.db")
+    
+    yield
+    
+    if old_jp: os.environ["JP_DB_PATH"] = old_jp
+    if old_us: os.environ["US_DB_PATH"] = old_us
+    if old_master: os.environ["MASTER_DB_PATH"] = old_master

@@ -152,9 +152,6 @@ class EdgarFetcher:
         """
         SECのXBRL RSSフィードを使用して、直近の提出書類を効率的に取得する。
         """
-        import datetime
-        from bs4 import BeautifulSoup
-
         recent_filings = []
         # 最新のXBRL提出物が含まれるRSSフィード
         url = "https://www.sec.gov/Archives/edgar/xbrlrss.all.xml"
@@ -167,7 +164,8 @@ class EdgarFetcher:
         response = self._request_with_retry(url)
 
         if not response or response.status_code != 200:
-            logger.error(f"Failed to fetch SEC RSS feed | status={response.status_code if response else 'N/A'}")
+            status = response.status_code if response else 'N/A'
+            logger.error(f"Failed to fetch SEC RSS feed | status={status}")
             return []
 
         try:

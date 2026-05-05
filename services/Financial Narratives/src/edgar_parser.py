@@ -69,17 +69,23 @@ class EdgarParser:
 
         # 1. すべての "Item" ヘッダーを動的に検出する
         # パターン: "Item 1.", "Item 1A.", "PART I", "Item 7." 等
-        item_pattern = re.compile(r"^#*\s*(?:Item|Part)\s*[0-9A-Z]+[\s\.]", re.IGNORECASE)
+        # Markdown変換後の「## Item 1.」や「   Item 1.」に柔軟に対応
+        item_pattern = re.compile(r"^\s*#*\s*(Item|Part)\s*[0-9A-Z]+[\s\.]", re.IGNORECASE)
 
         indices = []
 
         for i, line in enumerate(lines):
-            # 目次のリンクを除外するための簡易チェック
-            is_item = item_pattern.match(line)
-            is_short = len(line) < 200
-            not_link = not re.search(r"\[.*\]\(#.*\)", line)
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+
+            # 目次のリンク ([Item 1.](#link)) を除外しつつ、見出しを検出
+            is_item = item_pattern.match(line_stripped)
+            is_short = len(line_stripped) < 250
+            not_link = "[" not in line_stripped or "](#" not in line_stripped
+            
             if is_item and is_short and not_link:
-                indices.append((line.strip("# ").strip(), i))
+                indices.append((line_stripped.strip("# ").strip(), i))
 
         # 2. 分割実行
         sections_found = {}

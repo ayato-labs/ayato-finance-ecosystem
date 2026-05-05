@@ -88,7 +88,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
     """JP市場の書類を同期する"""
     today = date.today()
 
-    async def process_jp_doc(doc):
+    async def process_doc(doc):
         async with jp_semaphore:
             try:
                 doc_id = doc.get("docID")
@@ -113,7 +113,6 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
                 if zip_bytes:
                     sections = await asyncio.to_thread(parser.parse_zip, zip_bytes)
                     if sections:
-                        # EDINET API v2 uses submitDateTime (e.g. "2024-05-01 10:00")
                         submit_dt = doc.get("submitDateTime")
                         filing_date = submit_dt.split(" ")[0] if submit_dt else None
 
@@ -128,29 +127,39 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
                         async with jp_db_write_lock:
                             await asyncio.to_thread(storage.save_filing, metadata, sections)
 
-                        # 即座にジョブキューに登録 (構造化ワーカーへの通知)
                         await asyncio.to_thread(queue.enqueue_job, doc_id, ticker, "jp")
 
-                    del zip_bytes
                     gc.collect()
             except Exception:
                 logger.exception(f"Error processing JP document | doc_id={doc.get('docID')}")
 
+    logger.info(f"Starting historical synchronization for JP market (range: {days} days)")
     for i in range(days):
         target_date = today - timedelta(days=i)
-        logger.info(f"Syncing JP filings | date={target_date}")
+        if target_date.weekday() >= 5:
+            continue
 
         try:
             docs = await asyncio.to_thread(fetcher.list_documents, target_date)
             if not docs:
                 continue
 
-            relevant_docs = [d for d in docs if d.get("xbrlFlag") == "1"]
-            if relevant_docs:
-                tasks = [process_jp_doc(doc) for doc in relevant_docs]
-                await asyncio.gather(*tasks)
+            target_codes = ["120", "130", "140", "150"]
+            relevant_docs = [d for d in docs if d.get("formCode") in target_codes]
+
+            if not relevant_docs:
+                continue
+
+            logger.info(f"Syncing {target_date} | Found {len(relevant_docs)} target filings")
+            
+            # 並列実行
+            tasks = [process_doc(d) for d in relevant_docs]
+            await asyncio.gather(*tasks)
+            
+            await asyncio.sleep(1.0)
+            
         except Exception:
-            logger.exception(f"Failed to fetch JP document list | date={target_date}")
+            logger.exception(f"Failed to sync JP filings for {target_date}")
 
 
 async def sync_recent_us_filings(fetcher, parser, storage, queue, days=7):

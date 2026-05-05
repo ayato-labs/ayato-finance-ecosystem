@@ -80,17 +80,25 @@ cd "Financial Figures"
 uv pip install -e .
 ```
 
-### Operations
+### Operations (Windows Batch Files)
+
+For ease of use on Windows, the following batch files are provided in the root directory. Choose the one that fits your current task:
+
+| File | Mode | Description |
+| :--- | :--- | :--- |
+| **`run.bat`** | **Main Menu** | **Recommended.** An interactive menu that allows you to select any of the operations below. |
+| **`run_sync.bat`** | **Daily Sync** | Performs an incremental sync for US, JP, and EDINET data. Use this for daily maintenance. |
+| **`run_server.bat`** | **Viewer Mode** | Starts the API server (Port 5006) in **read-only mode**. Safe for parallel use with sync tasks. |
+| **`run_full_backfill.bat`** | **Historical** | Performs a full 5-year historical backfill for EDINET data. **High token consumption.** |
+
+#### Manual Execution (Advanced)
+If you prefer using the CLI directly:
 ```powershell
-# 1. Sync Market Data (Ingestion + AI Mapping)
-# Automatically syncs US & JP markets
-uv run python src/main_sync.py
+# Sync Market Data (Incremental)
+uv run python main.py --sync-market all --incremental
 
-# 2. Run Standardized API Server
-uv run python src/api/server.py
-
-# 3. Data Verification (Sample Analytics)
-uv run python scratch/verify_analysis.py
+# Start API Server
+uv run python main.py --api --port 5006
 ```
 
 ---

@@ -52,12 +52,16 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port for the API server")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for the API server")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload")
+    parser.add_argument("--market", type=str, default=None, help="Target market (jp/us)")
 
     args = parser.parse_args()
 
     try:
         if args.api:
-            logger.info(f"Starting API server | host={args.host} | port={args.port}")
+            logger.info(f"Starting API server | market={args.market} | port={args.port}")
+            # APIサーバー側でも市場を意識できるように環境変数などにセットする
+            if args.market:
+                os.environ["FINANCIAL_NARRATIVE_MARKET"] = args.market
             uvicorn.run("src.api.app:app", host=args.host, port=args.port, reload=args.reload)
             return
 
@@ -72,9 +76,10 @@ def main():
 
         if args.reconcile:
             from src.reconciler import Reconciler
-            logger.info("Starting Reconciler...")
-            reconciler = Reconciler()
-            reconciler.run()
+            market = args.market or "all"
+            logger.info(f"Starting Reconciler for {market}...")
+            reconciler = Reconciler(market=args.market)
+            reconciler.run(market=args.market)
             return
 
         if args.work:

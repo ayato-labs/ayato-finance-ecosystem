@@ -17,11 +17,12 @@ class EDINETStorage:
     def __init__(self, raw_db_path: str | None = None, norm_db_path: str | None = None):
         self.raw_db_path = raw_db_path or str(settings.DB_PATH_EDINET_RAW)
         self.norm_db_path = norm_db_path or str(settings.DB_PATH_EDINET_NORM)
-        
+
         os.makedirs(os.path.dirname(self.raw_db_path), exist_ok=True)
         os.makedirs(os.path.dirname(self.norm_db_path), exist_ok=True)
-        
-        logger.info(f"Initializing EDINETStorage (Raw: {self.raw_db_path}, Norm: {self.norm_db_path})")
+        logger.info(
+            f"Initializing EDINETStorage (Raw: {self.raw_db_path}, Norm: {self.norm_db_path})"
+        )
         try:
             self._init_db()
         except Exception as e:
@@ -70,17 +71,15 @@ class EDINETStorage:
             return set()
         try:
             with db_manager.connect(self.raw_db_path, read_only=True) as con:
-                # Use a temp table or a join if doc_ids is very large, 
+                # Use a temp table or a join if doc_ids is very large,
                 # but for ~200-1000 items, WHERE IN (?) is fine.
                 placeholders = ",".join(["?"] * len(doc_ids))
-                res = con.execute(
-                    f"SELECT doc_id FROM documents WHERE doc_id IN ({placeholders})",
-                    doc_ids
-                ).fetchall()
+                query = f"SELECT doc_id FROM documents WHERE doc_id IN ({placeholders})"  # noqa: S608
+                res = con.execute(query, doc_ids).fetchall()
                 return {r[0] for r in res}
         except Exception as e:
             logger.error(f"Error checking bulk document existence: {e}")
-            return set()
+            raise
 
     def get_last_sync_date(self) -> date | None:
         """Retrieves most recent date from the RAW database."""
@@ -101,10 +100,11 @@ class EDINETStorage:
         try:
             with db_manager.connect(self.norm_db_path, read_only=True) as con:
                 placeholders = ",".join(["?"] * len(doc_ids))
-                res = con.execute(
-                    f"SELECT DISTINCT doc_id FROM company_facts WHERE doc_id IN ({placeholders})",
-                    doc_ids
-                ).fetchall()
+                query = (
+                    "SELECT DISTINCT accession_number FROM company_facts "  # noqa: S608
+                    f"WHERE accession_number IN ({placeholders})"
+                )
+                res = con.execute(query, doc_ids).fetchall()
                 return {r[0] for r in res}
         except Exception as e:
             logger.error(f"Error checking bulk normalized existence: {e}")
@@ -140,16 +140,13 @@ class EDINETStorage:
             with db_manager.connect(self.raw_db_path, read_only=True) as con:
                 res = con.execute(
                     """
-                    SELECT element_id, element_name, amount_value 
-                    FROM raw_facts 
+                    SELECT element_id, element_name, amount_value
+                    FROM raw_facts
                     WHERE doc_id = ?
                     """,
                     [doc_id],
                 ).fetchall()
-                return [
-                    {"id": r[0], "name": r[1], "value": r[2]}
-                    for r in res
-                ]
+                return [{"id": r[0], "name": r[1], "value": r[2]} for r in res]
         except Exception as e:
             logger.error(f"Failed to fetch facts for {doc_id}: {e}")
             return []
@@ -212,18 +209,19 @@ class EDINETStorage:
         try:
             with db_manager.connect(self.norm_db_path, read_only=True) as con:
                 placeholders = ",".join(["?"] * len(source_tags))
-                res = con.execute(
-                    f"SELECT source_tag, mapped_label, confidence, reasoning, model_name "
-                    f"FROM tag_mappings WHERE source_tag IN ({placeholders})",
-                    source_tags
-                ).fetchall()
+                query = (
+                    "SELECT source_tag, mapped_label, confidence, reasoning, model_name "  # noqa: S608
+                    f"FROM tag_mappings WHERE source_tag IN ({placeholders})"
+                )
+                res = con.execute(query, source_tags).fetchall()
                 return {
                     r[0]: {
                         "mapped_label": r[1],
                         "confidence": r[2],
                         "reasoning": r[3],
-                        "model": r[4]
-                    } for r in res
+                        "model": r[4],
+                    }
+                    for r in res
                 }
         except Exception as e:
             logger.error(f"Error fetching cached mappings: {e}")
@@ -242,8 +240,13 @@ class EDINETStorage:
                     ) VALUES (?, ?, ?, ?, ?)
                     """,
                     [
-                        (m["source_tag"], m["mapped_label"], m.get("confidence", 0.0), 
-                         m.get("reasoning", ""), m.get("model", "unknown"))
+                        (
+                            m["source_tag"],
+                            m["mapped_label"],
+                            m.get("confidence", 0.0),
+                            m.get("reasoning", ""),
+                            m.get("model", "unknown"),
+                        )
                         for m in mappings
                     ]
                 )

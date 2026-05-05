@@ -78,8 +78,8 @@ class Reconciler:
             f"Newly Enqueued: {enqueued_count}, Synced Completed: {synced_count}"
         )
 
-    def run(self):
-        """日米両市場の調停を実行する"""
+    def run(self, market: str | None = None):
+        """指定された市場、または全市場の調停を実行する"""
         try:
             # 0. 起動時の強制クリーンアップ (アクティブなジョブをすべて PENDING に戻す)
             self.queue.force_reset_active_jobs()
@@ -88,11 +88,13 @@ class Reconciler:
             self.queue.cleanup_zombie_jobs(timeout_minutes=60)
 
             # 2. 市場ごとの調停
-            self.reconcile_market("jp")
-            self.reconcile_market("us")
+            if not market or market == "jp":
+                self.reconcile_market("jp")
+            if not market or market == "us":
+                self.reconcile_market("us")
 
             stats = self.queue.get_stats()
-            logger.info(f"Current Job Queue Stats: {stats}")
+            logger.info(f"Current Job Queue Stats ({market or 'ALL'}): {stats}")
         except Exception as e:
             logger.exception(f"Critical error during reconciliation: {e}")
 

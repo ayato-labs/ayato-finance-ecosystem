@@ -84,7 +84,7 @@ class AIMapper:
 
     def _get_batch_response_schema(self, valid_labels: list[str]) -> dict[str, Any]:
         # Include "Other" as a valid option in the enum
-        enum_values = valid_labels + ["Other"]
+        enum_values = [*valid_labels, "Other"]
         return {
             "type": "OBJECT",
             "properties": {

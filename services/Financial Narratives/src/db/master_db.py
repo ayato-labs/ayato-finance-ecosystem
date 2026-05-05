@@ -80,25 +80,29 @@ class JobQueue:
             # _execute_with_retry 内でログ出力済み
             return False
 
-    def dequeue_job(self) -> dict[str, Any] | None:
-        """アトミックに未処理のジョブを1つ取得し、ステータスを 'PROCESSING' に変更する。"""
+    def dequeue_job(self, market: str | None = None) -> dict[str, Any] | None:
+        """アトミックに未処理のジョブを取得。market指定がある場合はフィルタリングする。"""
         try:
+            market_filter = "AND market = ?" if market else ""
+            params = [market] if market else []
+            
             for attempt in range(10):
                 try:
                     with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
                         conn.row_factory = sqlite3.Row
-                        cursor = conn.execute('''
+                        cursor = conn.execute(f'''
                             UPDATE jobs
                             SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP
                             WHERE accession_number = (
                                 SELECT accession_number
                                 FROM jobs
-                                WHERE status = 'PENDING' OR (status = 'FAILED' AND retry_count < 3)
+                                WHERE (status = 'PENDING' OR (status = 'FAILED' AND retry_count < 3))
+                                {market_filter}
                                 ORDER BY created_at ASC
                                 LIMIT 1
                             )
                             RETURNING accession_number, ticker, market, retry_count
-                        ''')
+                        ''', params)
                         row = cursor.fetchone()
                         conn.commit()
                         return dict(row) if row else None

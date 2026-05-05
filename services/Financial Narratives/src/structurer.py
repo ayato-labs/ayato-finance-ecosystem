@@ -42,11 +42,13 @@ class FilingStructurer:
     """
 
     SYSTEM_PROMPT_STRUCTURING = """
-    あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、特定の項目について「事実」のみを構造化抽出してください。
+    あなたは高度な金融専門アナリストです。提供された開示資料の断片（Markdown）から、
+    特定の項目について「事実」のみを構造化抽出してください。
 
     【最重要ルール】
     1. 該当する記述がわずか一行でもあれば、必ず漏らさず抽出してください。
-    2. 数値（金額、件数、人数、年数、パーセント等）が含まれる事実は、投資判断に極めて重要であるため、必ず数値を含めて抽出してください。
+    2. 数値（金額、件数、人数、年数、パーセント等）が含まれる事実は、投資判断に極めて重要であるため、
+       必ず数値を含めて抽出してください。
     3. 主観的な解釈や要約は行わず、原文にある客観的な事実（計画、実績、数値、体制）のみを抽出してください。
     4. 該当する記述が全く見当たらない場合のみ null としてください。
 
@@ -79,7 +81,7 @@ class FilingStructurer:
         """
         if not text:
             return {}
-        
+
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -90,7 +92,7 @@ class FilingStructurer:
                     return json.loads(match.group(0))
             except Exception as e:
                 logger.debug(f"Regex JSON extraction failed: {e}")
-            
+
             logger.warning(f"Failed to parse JSON even with JSON mode: {text[:200]}...")
             return {}
 
@@ -98,7 +100,7 @@ class FilingStructurer:
         """テキストを重複ありのチャンクに分割する。長大なMD&A等の処理用"""
         if not text or len(text) <= max_chars:
             return [text] if text else []
-        
+
         chunks = []
         overlap = 2000
         start = 0
@@ -130,7 +132,7 @@ class FilingStructurer:
 
         tag_list_str = "\n".join(tag_names)
         prompt = f"""以下のタグ名リストを分析し、各カテゴリに関連するタグ名を選択してください。
-        
+
         タグ名リスト:
         {tag_list_str}
         """
@@ -164,11 +166,36 @@ class FilingStructurer:
                     config=types.GenerateContentConfig(
                         system_instruction=self.SYSTEM_PROMPT_MAPPING,
                         response_mime_type="application/json",
-                        response_schema=schema
-                    ),
+                        response_schema=schema,
+                        http_options={"timeout": 180000}  # 3分
+                    )
                 )
-                if response.text:
-                    return self._parse_json(response.text)
+                if response and response.text:
+                    mapping = self._parse_json(response.text)
+                    # デバッグログの強化: 何を拾って何を捨てたかを明示
+                    for cat, tags in mapping.items():
+                        if cat != "thinking" and tags:
+                            logger.info(f"  [Mapping] Category '{cat}' mapped to tags: {tags}")
+
+                    # 網羅性のチェック
+                    all_mapped = set()
+                    for tags in mapping.values():
+                        if isinstance(tags, list):
+                            all_mapped.update(tags)
+
+                    critical_keywords = [
+                        "研究開発", "R&D", "設備投資", "Capex", "Capital Expenditures"
+                    ]
+                    missed = [
+                        t for t in tag_names
+                        if any(k in t for k in critical_keywords) and t not in all_mapped
+                    ]
+                    if missed:
+                        logger.warning(
+                            f"  [Mapping] POTENTIAL MISS: Critical keywords found: {missed}"
+                        )
+
+                    return mapping
             except Exception as e:
                 logger.error(f"Tag mapping failed with {model_name}: {e}")
                 continue
@@ -208,13 +235,19 @@ class FilingStructurer:
                 # カテゴリごとにチャンク分割が必要かチェック
                 chunks = self._chunk_text(text)
                 if len(chunks) > 1:
-                    logger.info(f"Category '{cat}' is too large ({len(text)} chars), split into {len(chunks)} chunks")
-                
+                    logger.info(
+                        f"Category '{cat}' is too large ({len(text)} chars), "
+                        f"split into {len(chunks)} chunks"
+                    )
+
                 for i, chunk in enumerate(chunks):
                     suffix = f" (Part {i+1})" if len(chunks) > 1 else ""
                     final_prompt_parts.append(f"## Category: {cat}{suffix}\n{chunk}")
 
-            final_prompt = "以下の情報をカテゴリ別に精査し、漏れなく事実を抽出してください:\n\n" + "\n\n".join(final_prompt_parts)
+            final_prompt = (
+                "以下の情報をカテゴリ別に精査し、漏れなく事実を抽出してください:\n\n"
+                + "\n\n".join(final_prompt_parts)
+            )
 
             # 詳細構造化のスキーマ
             fact_item_schema = {
@@ -231,7 +264,7 @@ class FilingStructurer:
                 },
                 "required": ["facts", "raw_evidence"]
             }
-            
+
             schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -263,10 +296,11 @@ class FilingStructurer:
                         config=types.GenerateContentConfig(
                             system_instruction=self.SYSTEM_PROMPT_STRUCTURING,
                             response_mime_type="application/json",
-                            response_schema=schema
-                        ),
+                            response_schema=schema,
+                            http_options={"timeout": 180000}
+                        )
                     )
-                    if response.text:
+                    if response and response.text:
                         return self._parse_json(response.text)
                 except Exception as e:
                     logger.error(f"Structuring failed with {model_name}: {e}")

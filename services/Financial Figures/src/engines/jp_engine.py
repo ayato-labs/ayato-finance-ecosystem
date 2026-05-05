@@ -250,9 +250,9 @@ class JPEngine:
                 df[code_col]
                 .astype(str)
                 .apply(
-                    lambda c: c[:4]
-                    if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0")
-                    else c
+                    lambda c: (
+                        c[:4] if len(c) == self.JP_TICKER_LEN_WITH_ZERO and c.endswith("0") else c
+                    )
                 )
             )
 
