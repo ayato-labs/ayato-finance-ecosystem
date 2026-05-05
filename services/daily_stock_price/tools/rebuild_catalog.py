@@ -24,7 +24,12 @@ def rebuild():
             table = pq.read_table(str(file_path), columns=["Ticker"])
             tickers = table["Ticker"].unique().to_pylist()
             return tickers, str(file_path).replace("\\", "/"), data_type
-        except Exception:
+        except Exception as e:
+            # We don't use loguru here to keep tool dependencies minimal, 
+            # but we should at least print if something goes wrong.
+            # Only print if it's not a common 'column not found' error.
+            if "Ticker" not in str(e):
+                print(f"  [ERROR] Failed to process {file_path.name}: {e}")
             return None
 
     def index_files(pattern: str, data_type: str):

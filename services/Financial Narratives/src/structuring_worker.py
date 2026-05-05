@@ -60,9 +60,11 @@ class StructuringWorkerPool:
                         return {}
                 except Exception as e:
                     err_str = str(e).lower()
-                    if "already open" in err_str or "file handle conflict" in err_str or "io error" in err_str:
+                    if any(kw in err_str for kw in ["already open", "file handle conflict", "io error"]):
                         wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.2)
-                        logger.warning(f"DB locked, retrying fetch in {wait_time:.2f}s ({attempt+1}/10)...")
+                        logger.warning(
+                            f"DB locked, retrying fetch in {wait_time:.2f}s ({attempt+1}/10)..."
+                        )
                         time.sleep(wait_time)
                         continue
                     raise e
@@ -90,17 +92,23 @@ class StructuringWorkerPool:
                 market = job["market"]
                 retry_count = job["retry_count"]
 
-                logger.info(f"[Worker-{worker_id}] Processing {acc_no} ({ticker}, retry: {retry_count})")
+                logger.info(
+                    f"[Worker-{worker_id}] Processing {acc_no} ({ticker}, retry: {retry_count})"
+                )
 
                 # 2. Data Lake からテキストを取得 (FETCHING)
                 try:
-                    await asyncio.to_thread(self.queue.update_job_status, acc_no, "FETCHING", f"{worker_id}|{model_name}")
+                    await asyncio.to_thread(
+                        self.queue.update_job_status, acc_no, "FETCHING", f"{worker_id}|{model_name}"
+                    )
                     sections = await self._get_sections_from_lake(acc_no, market)
                     if not sections:
                         raise ValueError("No sections found in Data Lake")
                     
                     section_count = len(sections)
-                    logger.info(f"[Worker-{worker_id}] Document Loaded: {section_count} sections for {acc_no}")
+                    logger.info(
+                        f"[Worker-{worker_id}] Document Loaded: {section_count} sections for {acc_no}"
+                    )
                 except Exception as e:
                     logger.exception(f"[Worker-{worker_id}] FETCH_FAILED for {acc_no}: {e}")
                     await asyncio.to_thread(self.queue.fail_job, acc_no, f"FETCH_ERR: {str(e)}")
@@ -108,7 +116,12 @@ class StructuringWorkerPool:
 
                 # 3. LLM 推論 (LLM_WAITING)
                 try:
-                    await asyncio.to_thread(self.queue.update_job_status, acc_no, "LLM_WAITING", f"{worker_id}|{model_name}")
+                    await asyncio.to_thread(
+                        self.queue.update_job_status,
+                        acc_no,
+                        "LLM_WAITING",
+                        f"{worker_id}|{model_name}"
+                    )
                     logger.info(f"[Worker-{worker_id}] Requesting LLM extraction for {acc_no}...")
                     facts = await structurer.extract_facts(sections)
 
@@ -117,8 +130,17 @@ class StructuringWorkerPool:
                         await asyncio.to_thread(self.queue.fail_job, acc_no, "LLM_EMPTY_RESPONSE")
                         continue
                     
-                    fact_count = len(facts) if isinstance(facts, list) else (len(facts.get("facts", [])) if isinstance(facts, dict) else "N/A")
-                    logger.success(f"[Worker-{worker_id}] LLM Extraction Succeeded: {fact_count} items for {acc_no}")
+                    if isinstance(facts, list):
+                        fact_count = len(facts)
+                    elif isinstance(facts, dict):
+                        fact_count = len(facts.get("facts", []))
+                    else:
+                        fact_count = "N/A"
+
+                    logger.success(
+                        f"[Worker-{worker_id}] LLM Extraction Succeeded: "
+                        f"{fact_count} items for {acc_no}"
+                    )
                 except Exception as e:
                     logger.error(f"[Worker-{worker_id}] LLM_FAILED for {acc_no}: {e}")
                     await asyncio.to_thread(self.queue.fail_job, acc_no, f"LLM_ERR: {str(e)}")

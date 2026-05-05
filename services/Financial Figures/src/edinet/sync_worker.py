@@ -79,18 +79,21 @@ class EDINETSyncWorker:
             all_doc_ids = [d.get("docID") for d in results if d.get("docID")]
             raw_ids = self.storage.get_existing_doc_ids(all_doc_ids)
             norm_ids = self.storage.get_existing_norm_ids(all_doc_ids)
-            
+
             processed_count = 0
             for doc in results:
                 doc_id = doc.get("docID")
-                # (Filters omitted for brevity in thought, but must be kept)
+                # (Filters)
                 type_code = doc.get("docTypeCode")
                 edinet_code = doc.get("edinetCode")
 
                 # 1. Filters
-                if type_code not in self.RELEVANT_DOC_TYPES: continue
-                if allowed_types and type_code not in allowed_types: continue
-                if target_edinet_codes and edinet_code not in target_edinet_codes: continue
+                if type_code not in self.RELEVANT_DOC_TYPES:
+                    continue
+                if allowed_types and type_code not in allowed_types:
+                    continue
+                if target_edinet_codes and edinet_code not in target_edinet_codes:
+                    continue
 
                 # 2. Complete Skip (Already in Silver/Norm)
                 if doc_id in norm_ids:
@@ -98,12 +101,12 @@ class EDINETSyncWorker:
 
                 # 3. Partial Skip (Already in Raw, but needs Mapping)
                 needs_download = doc_id not in raw_ids
-                
+
                 filer = doc.get("filerName", "Unknown")
                 desc = doc.get("docDescription", "No Desc")
-                
+
                 if not needs_download:
-                    logger.info(f"[RESUME] Found RAW for {filer} ({doc_id}). Resuming mapping to Silver.")
+                    logger.info(f"[RESUME] Found RAW for {filer} ({doc_id}).")
                 else:
                     logger.info(f"[SYNC] Processing New: {filer} ({doc_id})")
 
@@ -117,10 +120,11 @@ class EDINETSyncWorker:
                             csv_files = self.client.extract_csv_from_zip(zip_content)
                             for _filename, content in csv_files:
                                 facts = self.parser.parse_financial_csv(content)
-                                if facts: self.storage.save_facts(doc_id, facts)
+                                if facts:
+                                    self.storage.save_facts(doc_id, facts)
                         else:
                             continue
-                    
+
                     # 4. Map to Silver (Always try if we reached here)
                     self._map_and_save_facts(doc)
                     processed_count += 1
@@ -197,16 +201,23 @@ class EDINETSyncWorker:
             
             # 3. Call AI for unknowns and persist results
             if missing_tags:
-                logger.info(f"[MAP] Cache HIT: {len(final_mappings)}, MISS: {len(missing_tags)} for {ticker}")
+                logger.info(
+                    f"[MAP] Cache HIT: {len(final_mappings)}, MISS: {len(missing_tags)} for {ticker}"
+                )
                 new_mappings = self.ai_mapper.map_tags_bulk(market, missing_tags, session_id)
                 if new_mappings:
                     self.storage.save_tag_mappings(new_mappings)
                     final_mappings.extend(new_mappings)
             else:
-                logger.info(f"[MAP] Complete cache HIT for {ticker} ({len(final_mappings)} tags). Skipping AI.")
+                logger.info(
+                    f"[MAP] Complete cache HIT for {ticker} ({len(final_mappings)} tags). "
+                    "Skipping AI."
+                )
 
             fiscal_year, fiscal_period = self._extract_fiscal_info(doc)
-            tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in final_mappings}
+            tag_to_label = {
+                m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in final_mappings
+            }
 
             # 1. Pivot the raw facts into a single wide-format record for SILVER
             wide_record = {
@@ -230,7 +241,7 @@ class EDINETSyncWorker:
 
             if len(wide_record) > 6:
                 self.storage.save_normalized_facts([wide_record])
-                logger.info(f"[MAP] Successfully saved Silver record for {ticker} to edinet_normalized.")
+                logger.info(f"[MAP] Successfully saved Silver record for {ticker}.")
             else:
                 logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
         except Exception as e:
@@ -336,6 +347,7 @@ class EDINETSyncWorker:
         
         try:
             self.ensure_ticker_master(force_update=True)
+            target_codes = set(self.mapper.get_all_target_edinet_codes())
 
             last_date = self.storage.get_last_sync_date()
             if not last_date:
@@ -354,7 +366,7 @@ class EDINETSyncWorker:
                 )
                 count = self.sync_date(target_date, target_edinet_codes=target_codes)
                 total_docs += count
-            
+
             master_manager.end_job(job_id, status="COMPLETED", records_processed=total_docs)
         except Exception as e:
             logger.error(f"Incremental sync failed: {e}")

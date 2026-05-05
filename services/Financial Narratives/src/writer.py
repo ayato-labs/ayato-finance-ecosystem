@@ -16,12 +16,17 @@ def run_writer():
 
     logger.info("Starting Single Writer (DuckDB Serializer) process...")
 
+    last_heartbeat = 0
     while True:
         try:
             # 1. PARSED ステータスのジョブを一括取得 (最大20件)
             parsed_jobs = queue.get_parsed_jobs(limit=20)
 
             if not parsed_jobs:
+                current_time = time.time()
+                if current_time - last_heartbeat > 30:
+                    logger.info("Writer is active: Waiting for parsed jobs from LLM workers...")
+                    last_heartbeat = current_time
                 time.sleep(5)
                 continue
 

@@ -88,8 +88,8 @@ class FilingStructurer:
                 match = re.search(r"\{.*\}", text, re.DOTALL)
                 if match:
                     return json.loads(match.group(0))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Regex JSON extraction failed: {e}")
             
             logger.warning(f"Failed to parse JSON even with JSON mode: {text[:200]}...")
             return {}
@@ -147,7 +147,10 @@ class FilingStructurer:
                 "compensation": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "cross_shareholding": {"type": "ARRAY", "items": {"type": "STRING"}}
             },
-            "required": ["thinking", "capex", "rd", "governance", "employees", "compensation", "cross_shareholding"]
+            "required": [
+                "thinking", "capex", "rd", "governance", "employees",
+                "compensation", "cross_shareholding"
+            ]
         }
 
         models_to_try = [self.model_name] if self.model_name else self.models
@@ -217,8 +220,14 @@ class FilingStructurer:
             fact_item_schema = {
                 "type": "OBJECT",
                 "properties": {
-                    "facts": {"type": "STRING", "description": "抽出された事実内容。該当なしは空文字"},
-                    "raw_evidence": {"type": "STRING", "description": "根拠となった原文の引用。該当なしは空文字"}
+                    "facts": {
+                        "type": "STRING",
+                        "description": "抽出された事実内容。該当なしは空文字"
+                    },
+                    "raw_evidence": {
+                        "type": "STRING",
+                        "description": "根拠となった原文の引用。該当なしは空文字"
+                    }
                 },
                 "required": ["facts", "raw_evidence"]
             }
@@ -226,7 +235,10 @@ class FilingStructurer:
             schema = {
                 "type": "OBJECT",
                 "properties": {
-                    "thinking": {"type": "STRING", "description": "情報の欠落がないかの注意深い推論過程"},
+                    "thinking": {
+                        "type": "STRING",
+                        "description": "情報の欠落がないかの注意深い推論過程"
+                    },
                     "capex": fact_item_schema,
                     "rd": fact_item_schema,
                     "governance": fact_item_schema,
@@ -234,7 +246,10 @@ class FilingStructurer:
                     "compensation": fact_item_schema,
                     "cross_shareholding": fact_item_schema
                 },
-                "required": ["thinking", "capex", "rd", "governance", "employees", "compensation", "cross_shareholding"]
+                "required": [
+                    "thinking", "capex", "rd", "governance", "employees",
+                    "compensation", "cross_shareholding"
+                ]
             }
 
             models_to_try = [self.model_name] if self.model_name else self.models

@@ -23,8 +23,8 @@ def setup_logging(unit_name: str, run_id: str | None = None):
         try:
             sys.stdout.reconfigure(encoding='utf-8')
             sys.stderr.reconfigure(encoding='utf-8')
-        except (AttributeError, io.UnsupportedOperation):
-            pass
+        except (AttributeError, io.UnsupportedOperation) as e:
+            logger.debug(f"Encoding reconfiguration skipped: {e}")
 
     # 既存のハンドラをクリア
     logger.remove()
@@ -67,8 +67,9 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     )
 
     # 3. エラーログの隔離保存 (重大な問題のみ)
-    # 複数のコンポーネントで発生したエラーを一箇所で監視できるようにする
-    error_log_path = log_dir / "error.log"
+    # Windowsのマルチプロセス環境でのPermissionErrorを防ぐため、
+    # エラーログもユニットごとに分離して記録する。
+    error_log_path = log_dir / f"error_{unit_name}.log"
     logger.add(
         str(error_log_path),
         level="ERROR",

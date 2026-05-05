@@ -1,7 +1,9 @@
+import datetime
 import random
 import time
 
 import requests
+from bs4 import BeautifulSoup
 from loguru import logger
 
 
@@ -49,9 +51,14 @@ class EdgarFetcher:
                     time.sleep(wait_time)
                     continue
 
-                # その他のエラー (404, 403等) はリトライせず終了
+                if response.status_code == 403:
+                    # 403 はインデックスが未生成の場合などに発生するため、警告に留める
+                    logger.warning(f"SEC API Forbidden (403) | url={url} - Likely not available yet.")
+                    return response
+
+                # その他のエラーはリトライせず終了
                 logger.error(f"SEC API Error | status={response.status_code} | url={url}")
-                return None
+                return response
 
             except requests.RequestException:
                 wait_time = (2**attempt) + random.uniform(0, 1)
@@ -143,66 +150,79 @@ class EdgarFetcher:
 
     def get_recent_filings_from_index(self, days: int = 2) -> list[dict]:
         """
-        SECのデイリーインデックス(XBRL)を使用して、直近の提出書類を効率的に取得する。
-        全ティッカーをスキャンする代わりに、このインデックスを使用することでリクエスト数を劇的に削減できる。
+        SECのXBRL RSSフィードを使用して、直近の提出書類を効率的に取得する。
         """
         import datetime
         from bs4 import BeautifulSoup
-        
+
         recent_filings = []
-        today = datetime.date.today()
-        
-        # 10桁のCIKからティッカーを引くための逆引きマップを準備
+        # 最新のXBRL提出物が含まれるRSSフィード
+        url = "https://www.sec.gov/Archives/edgar/xbrlrss.all.xml"
+
         if not self.ticker_to_cik_map:
             self._refresh_ticker_map()
         cik_to_ticker = {v: k for k, v in self.ticker_to_cik_map.items()}
-        
-        # 逆順（新しい順）にチェック
-        for i in range(days):
-            target_date = today - datetime.timedelta(days=i)
-            # 例: https://www.sec.gov/Archives/edgar/daily-index/xbrl/xbrlrss.20240501.xml
-            date_str = target_date.strftime("%Y%m%d")
-            url = f"https://www.sec.gov/Archives/edgar/daily-index/xbrl/xbrlrss.{date_str}.xml"
-            
-            logger.info(f"Checking SEC daily index | date={date_str} | url={url}")
-            response = self._request_with_retry(url)
-            
-            if not response or response.status_code != 200:
-                continue
-                
-            try:
-                soup = BeautifulSoup(response.content, "xml")
-                items = soup.find_all("item")
-                
-                for item in items:
-                    xbrl_filing = item.find("edgar:xbrlFiling")
-                    if not xbrl_filing:
+
+        logger.info(f"Fetching SEC XBRL RSS feed | url={url}")
+        response = self._request_with_retry(url)
+
+        if not response or response.status_code != 200:
+            logger.error(f"Failed to fetch SEC RSS feed | status={response.status_code if response else 'N/A'}")
+            return []
+
+        try:
+            soup = BeautifulSoup(response.content, "xml")
+            items = soup.find_all("item")
+
+            threshold_date = datetime.date.today() - datetime.timedelta(days=days)
+
+            for item in items:
+                # 公開日を確認 (RSSのpubDate)
+                pub_date_str = item.find("pubDate").text
+                # 例: Wed, 01 May 2024 10:00:00 EDT
+                # 簡易的な日付比較のため、日付部分のみ抽出
+                try:
+                    # pubDateのパース (email.utils.parsedate_to_datetime 等が理想だが、ここでは簡易化)
+                    # 形式: "Tue, 30 Apr 2024 16:30:11 EDT"
+                    parts = pub_date_str.split(" ")
+                    day = int(parts[1])
+                    month_str = parts[2]
+                    year = int(parts[3])
+                    month = datetime.datetime.strptime(month_str, "%b").month
+                    pub_date = datetime.date(year, month, day)
+
+                    if pub_date < threshold_date:
                         continue
-                        
-                    form = xbrl_filing.find("edgar:formType").text
-                    cik = xbrl_filing.find("edgar:cikNumber").text.zfill(10)
-                    acc_no = xbrl_filing.find("edgar:accessionNumber").text
-                    
-                    actual_ticker = cik_to_ticker.get(cik, f"CIK{cik}")
-                        
-                    recent_filings.append({
-                        "accessionNumber": acc_no,
-                        "ticker": actual_ticker,
-                        "cik": cik,
-                        "form": form,
-                        "filingDate": target_date.isoformat(),
-                        "primaryDocument": item.find("link").text.split("/")[-1]
-                    })
-            except Exception:
-                logger.exception(f"Error parsing SEC daily index for {date_str}")
-                
-        logger.info(f"Discovery completed | found {len(recent_filings)} potential filings in index")
+                except Exception:
+                    # パース失敗時は念のため含める
+                    pub_date = datetime.date.today()
+
+                xbrl_filing = item.find("edgar:xbrlFiling")
+                if not xbrl_filing:
+                    continue
+
+                form = xbrl_filing.find("edgar:formType").text
+                cik = xbrl_filing.find("edgar:cikNumber").text.zfill(10)
+                acc_no = xbrl_filing.find("edgar:accessionNumber").text
+
+                actual_ticker = cik_to_ticker.get(cik, f"CIK{cik}")
+
+                recent_filings.append({
+                    "accessionNumber": acc_no,
+                    "ticker": actual_ticker,
+                    "cik": cik,
+                    "form": form,
+                    "filingDate": pub_date.isoformat(),
+                    "primaryDocument": item.find("link").text.split("/")[-1]
+                })
+        except Exception:
+            logger.exception("Error parsing SEC XBRL RSS feed")
+
+        logger.info(f"Discovery completed | found {len(recent_filings)} filings in RSS feed")
         return recent_filings
 
 
 if __name__ == "__main__":
-    # テスト実行
-    # NOTE: 実際のメールアドレスを入力することを推奨します
     fetcher = EdgarFetcher(user_agent="SampleAgent sample@example.com")
 
     ticker = "AAPL"
@@ -210,5 +230,5 @@ if __name__ == "__main__":
     if subs:
         filings = fetcher.filter_relevant_filings(subs)
         logger.success(f"Found {len(filings)} relevant filings for {ticker}")
-        for f in filings[:3]:  # 最新3件を表示
+        for f in filings[:3]:
             logger.info(f"{f['filingDate']} - {f['form']}: {f['accessionNumber']}")

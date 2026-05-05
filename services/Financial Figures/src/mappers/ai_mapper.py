@@ -135,7 +135,10 @@ class AIMapper:
         """
 
         # Determine valid labels for this market for schema enforcement
-        valid_labels = settings.JQUANTS_V2_LABELS if market in ["EDINET", "JP_EDINET"] else settings.TARGET_LABELS
+        if market in ["EDINET", "JP_EDINET"]:
+            valid_labels = settings.JQUANTS_V2_LABELS
+        else:
+            valid_labels = settings.TARGET_LABELS
 
         try:
             config = types.GenerateContentConfig(
@@ -207,7 +210,8 @@ class AIMapper:
         except Exception as e:
             # Detect 500 or 429 and specifically flag as retryable
             error_str = str(e).upper()
-            is_retryable = any(term in error_str for term in ["500", "504", "INTERNAL", "DEADLINE", "429", "RATE", "TIMEOUT"])
+            retry_terms = ["500", "504", "INTERNAL", "DEADLINE", "429", "RATE", "TIMEOUT"]
+            is_retryable = any(term in error_str for term in retry_terms)
 
             if is_retryable:
                 logger.warning(f"Transient AI API failure ({model_name}): {e}")
@@ -248,7 +252,10 @@ class AIMapper:
             [tags_with_desc[i : i + batch_size] for i in range(0, len(tags_with_desc), batch_size)]
         )
 
-        logger.info(f"Starting resilient mapping of {len(tags_with_desc)} tags with {max_parallelism} parallel slots...")
+        logger.info(
+            f"Starting resilient mapping of {len(tags_with_desc)} tags "
+            f"with {max_parallelism} parallel slots..."
+        )
 
         while work_queue:
             # Pop up to max_parallelism batches

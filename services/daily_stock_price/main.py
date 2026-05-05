@@ -33,7 +33,8 @@ def check_api_health(port: int) -> str:
             return "blocked"
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return "free"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"API health check failed (assuming blocked): {e}")
         return "blocked"
     return "free"
 

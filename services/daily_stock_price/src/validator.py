@@ -57,7 +57,8 @@ class DataValidator:
         if not invalid_rows.empty:
             tickers = invalid_rows["Ticker"].unique()
             logger.error(
-                f"Logic violation detected in {len(invalid_rows)} rows for tickers: {tickers.tolist()}"
+                f"Logic violation detected in {len(invalid_rows)} rows "
+                f"for tickers: {tickers.tolist()}"
             )
             # 詳細ログ (最初の3行)
             logger.debug(f"Invalid sample rows:\n{invalid_rows.head(3)}")
