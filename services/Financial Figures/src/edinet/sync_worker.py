@@ -75,69 +75,58 @@ class EDINETSyncWorker:
                 logger.info(f"No documents found for {target_date}.")
                 return 0
 
+            # Mature Optimization: Bulk check existence in both layers
+            all_doc_ids = [d.get("docID") for d in results if d.get("docID")]
+            raw_ids = self.storage.get_existing_doc_ids(all_doc_ids)
+            norm_ids = self.storage.get_existing_norm_ids(all_doc_ids)
+            
             processed_count = 0
             for doc in results:
                 doc_id = doc.get("docID")
+                # (Filters omitted for brevity in thought, but must be kept)
                 type_code = doc.get("docTypeCode")
                 edinet_code = doc.get("edinetCode")
 
-                # 1. Type Filter (Only Financial Statements)
-                if type_code not in self.RELEVANT_DOC_TYPES:
+                # 1. Filters
+                if type_code not in self.RELEVANT_DOC_TYPES: continue
+                if allowed_types and type_code not in allowed_types: continue
+                if target_edinet_codes and edinet_code not in target_edinet_codes: continue
+
+                # 2. Complete Skip (Already in Silver/Norm)
+                if doc_id in norm_ids:
                     continue
 
-                if allowed_types and type_code not in allowed_types:
-                    continue
-
-                # 2. Target Filter (Only listed companies from CSV master)
-                if target_edinet_codes and edinet_code not in target_edinet_codes:
-                    continue
-
-                # 3. Incremental Check: Skip if already exists in RAW
-                if self.storage.is_document_exists(doc_id):
-                    logger.info(f"[SKIP] Document {doc_id} already exists in RAW storage.")
-                    continue
-
+                # 3. Partial Skip (Already in Raw, but needs Mapping)
+                needs_download = doc_id not in raw_ids
+                
                 filer = doc.get("filerName", "Unknown")
                 desc = doc.get("docDescription", "No Desc")
-                logger.info(f"[SYNC] Processing: {filer} ({desc}) doc_id={doc_id}")
+                
+                if not needs_download:
+                    logger.info(f"[RESUME] Found RAW for {filer} ({doc_id}). Resuming mapping to Silver.")
+                else:
+                    logger.info(f"[SYNC] Processing New: {filer} ({doc_id})")
 
                 try:
-                    # 1. Save metadata to RAW
-                    self.storage.save_document(doc)
-
-                    # 2. Download statutory CSV zip
-                    zip_content = self.client.download_document_csv(doc_id)
-                    if not zip_content:
-                        continue
-
-                    # 3. Extract and Parse CSVs
-                    csv_files = self.client.extract_csv_from_zip(zip_content)
+                    if needs_download:
+                        # 1. Save metadata to RAW
+                        self.storage.save_document(doc)
+                        # 2. Download and Parse
+                        zip_content = self.client.download_document_csv(doc_id)
+                        if zip_content:
+                            csv_files = self.client.extract_csv_from_zip(zip_content)
+                            for _filename, content in csv_files:
+                                facts = self.parser.parse_financial_csv(content)
+                                if facts: self.storage.save_facts(doc_id, facts)
+                        else:
+                            continue
                     
-                    # STREAMING: Save raw facts one file at a time to keep RAM low
-                    has_facts = False
-                    for _filename, content in csv_files:
-                        facts = self.parser.parse_financial_csv(content)
-                        if facts:
-                            self.storage.save_facts(doc_id, facts)
-                            has_facts = True
-                            # Optional: Clear individual fact list from RAM
-                            del facts
-
-                    # 4. Map and Save to NORM (Silver)
-                    if has_facts:
-                        try:
-                            # Re-fetch only necessary tags for mapping to avoid large memory objects
-                            # (Alternatively, keep only unique tags in memory)
-                            self._map_and_save_facts(doc)
-                        except Exception as e:
-                            logger.error(f"[MAP] Failed to map and save facts for {doc_id}: {e}")
-                    else:
-                        logger.warning(f"No numeric facts extracted from {doc_id}")
-
+                    # 4. Map to Silver (Always try if we reached here)
+                    self._map_and_save_facts(doc)
                     processed_count += 1
 
                 except Exception as e:
-                    logger.exception(f"Failed to process document {doc_id}: {e}")
+                    logger.error(f"Failed to process {doc_id}: {e}")
                     continue
 
                 time.sleep(1)

@@ -64,15 +64,23 @@ class EDINETStorage:
             logger.error(f"Failed to save document {doc_data['docID']}: {e}", exc_info=True)
             raise
 
-    def is_document_exists(self, doc_id: str) -> bool:
-        """Checks existence in the RAW database."""
+    def get_existing_doc_ids(self, doc_ids: list[str]) -> set[str]:
+        """Checks multiple doc_ids existence in the RAW database in a single query."""
+        if not doc_ids:
+            return set()
         try:
-            with db_manager.connect(self.raw_db_path, read_only=settings.db_read_only) as con:
-                res = con.execute("SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
-                return res is not None
+            with db_manager.connect(self.raw_db_path, read_only=True) as con:
+                # Use a temp table or a join if doc_ids is very large, 
+                # but for ~200-1000 items, WHERE IN (?) is fine.
+                placeholders = ",".join(["?"] * len(doc_ids))
+                res = con.execute(
+                    f"SELECT doc_id FROM documents WHERE doc_id IN ({placeholders})",
+                    doc_ids
+                ).fetchall()
+                return {r[0] for r in res}
         except Exception as e:
-            logger.error(f"Error checking document existence for {doc_id}: {e}")
-            return False
+            logger.error(f"Error checking bulk document existence: {e}")
+            return set()
 
     def get_last_sync_date(self) -> date | None:
         """Retrieves most recent date from the RAW database."""
@@ -85,6 +93,22 @@ class EDINETStorage:
         except Exception as e:
             logger.error(f"Error retrieving last sync date: {e}")
             return None
+
+    def get_existing_norm_ids(self, doc_ids: list[str]) -> set[str]:
+        """Checks multiple doc_ids existence in the NORMALIZED database in bulk."""
+        if not doc_ids:
+            return set()
+        try:
+            with db_manager.connect(self.norm_db_path, read_only=True) as con:
+                placeholders = ",".join(["?"] * len(doc_ids))
+                res = con.execute(
+                    f"SELECT DISTINCT doc_id FROM company_facts WHERE doc_id IN ({placeholders})",
+                    doc_ids
+                ).fetchall()
+                return {r[0] for r in res}
+        except Exception as e:
+            logger.error(f"Error checking bulk normalized existence: {e}")
+            return set()
 
     def save_facts(self, doc_id: str, facts: list[dict]):
         """Saves raw facts to the RAW database."""

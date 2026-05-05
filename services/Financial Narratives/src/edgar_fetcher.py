@@ -141,6 +141,64 @@ class EdgarFetcher:
             logger.exception("Error filtering relevant filings")
             return []
 
+    def get_recent_filings_from_index(self, days: int = 2) -> list[dict]:
+        """
+        SECのデイリーインデックス(XBRL)を使用して、直近の提出書類を効率的に取得する。
+        全ティッカーをスキャンする代わりに、このインデックスを使用することでリクエスト数を劇的に削減できる。
+        """
+        import datetime
+        from bs4 import BeautifulSoup
+        
+        recent_filings = []
+        today = datetime.date.today()
+        
+        # 10桁のCIKからティッカーを引くための逆引きマップを準備
+        if not self.ticker_to_cik_map:
+            self._refresh_ticker_map()
+        cik_to_ticker = {v: k for k, v in self.ticker_to_cik_map.items()}
+        
+        # 逆順（新しい順）にチェック
+        for i in range(days):
+            target_date = today - datetime.timedelta(days=i)
+            # 例: https://www.sec.gov/Archives/edgar/daily-index/xbrl/xbrlrss.20240501.xml
+            date_str = target_date.strftime("%Y%m%d")
+            url = f"https://www.sec.gov/Archives/edgar/daily-index/xbrl/xbrlrss.{date_str}.xml"
+            
+            logger.info(f"Checking SEC daily index | date={date_str} | url={url}")
+            response = self._request_with_retry(url)
+            
+            if not response or response.status_code != 200:
+                continue
+                
+            try:
+                soup = BeautifulSoup(response.content, "xml")
+                items = soup.find_all("item")
+                
+                for item in items:
+                    xbrl_filing = item.find("edgar:xbrlFiling")
+                    if not xbrl_filing:
+                        continue
+                        
+                    form = xbrl_filing.find("edgar:formType").text
+                    cik = xbrl_filing.find("edgar:cikNumber").text.zfill(10)
+                    acc_no = xbrl_filing.find("edgar:accessionNumber").text
+                    
+                    actual_ticker = cik_to_ticker.get(cik, f"CIK{cik}")
+                        
+                    recent_filings.append({
+                        "accessionNumber": acc_no,
+                        "ticker": actual_ticker,
+                        "cik": cik,
+                        "form": form,
+                        "filingDate": target_date.isoformat(),
+                        "primaryDocument": item.find("link").text.split("/")[-1]
+                    })
+            except Exception:
+                logger.exception(f"Error parsing SEC daily index for {date_str}")
+                
+        logger.info(f"Discovery completed | found {len(recent_filings)} potential filings in index")
+        return recent_filings
+
 
 if __name__ == "__main__":
     # テスト実行

@@ -207,7 +207,7 @@ class AIMapper:
         except Exception as e:
             # Detect 500 or 429 and specifically flag as retryable
             error_str = str(e).upper()
-            is_retryable = any(term in error_str for term in ["500", "504", "INTERNAL", "DEADLINE", "429", "RATE"])
+            is_retryable = any(term in error_str for term in ["500", "504", "INTERNAL", "DEADLINE", "429", "RATE", "TIMEOUT"])
 
             if is_retryable:
                 logger.warning(f"Transient AI API failure ({model_name}): {e}")

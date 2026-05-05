@@ -61,7 +61,7 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
                         await process_jp_ticker(ticker, edinet_fetcher, edinet_parser, storage_jp)
                     else:
                         await process_us_ticker(
-                            ticker, edgar_fetcher, edgar_parser, storage_us, days=3650
+                            ticker, edgar_fetcher, edgar_parser, storage_us, queue, days=3650
                         )
                     gc.collect()
                 except Exception:
@@ -71,8 +71,8 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
             logger.info(f"Starting automated parallel sync | lookback_days={days}")
 
             tasks = [
-                sync_recent_jp_filings(edinet_fetcher, edinet_parser, storage_jp, days=days),
-                sync_recent_us_filings(edgar_fetcher, edgar_parser, storage_us, days=days)
+                sync_recent_jp_filings(edinet_fetcher, edinet_parser, storage_jp, queue, days=days),
+                sync_recent_us_filings(edgar_fetcher, edgar_parser, storage_us, queue, days=days)
             ]
 
             try:
@@ -84,7 +84,7 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
         logger.exception("Critical error in batch_fetch orchestration")
 
 
-async def sync_recent_jp_filings(fetcher, parser, storage, days=7):
+async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
     today = date.today()
 
     async def process_jp_doc(doc):
@@ -152,23 +152,69 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7):
             logger.exception(f"Failed to fetch JP document list | date={target_date}")
 
 
-async def sync_recent_us_filings(fetcher, parser, storage, days=7):
+async def sync_recent_us_filings(fetcher, parser, storage, queue, days=7):
+    """
+    SEC Daily Index (RSS) を利用して、直近 X 日間に提出された書類を高速に同期する。
+    10,000銘柄を一つずつチェックする旧来の方式より数千倍高速。
+    """
     try:
-        all_tickers = fetcher.get_all_tickers()
-        logger.info(f"Scanning US tickers | count={len(all_tickers)} | days={days}")
+        logger.info(f"Scanning US daily indices for the last {days} days...")
+        recent_filings = await asyncio.to_thread(fetcher.get_recent_filings_from_index, days=days)
+        
+        if not recent_filings:
+            logger.info("No new US filings found in index.")
+            return
 
-        for ticker in all_tickers:
+        # 興味のある書類タイプ (10-K, 10-Q) のみ、または定性情報が含まれるものに限定してもよい
+        # ここでは Ingestion の原則「すべて拾う」に基づき全件チェックする
+        for filing in recent_filings:
             try:
-                await process_us_ticker(ticker, fetcher, parser, storage, days=days)
-                await asyncio.sleep(0.11)
+                acc_no = filing["accessionNumber"]
+                if storage.filing_exists(acc_no):
+                    continue
+
+                # 詳細情報の取得と保存
+                await download_and_save_us_filing(filing, fetcher, parser, storage, queue)
+                await asyncio.sleep(0.1) # SEC Rate Limit 配慮
             except Exception:
-                logger.exception(f"Unexpected error in US ticker loop | ticker={ticker}")
+                logger.exception(f"Error processing US filing from index | acc_no={filing.get('accessionNumber')}")
 
     except Exception:
-        logger.exception("Critical failure during US ticker list retrieval")
+        logger.exception("Critical failure during index-based US synchronization")
 
 
-async def process_us_ticker(ticker, fetcher, parser, storage, days=7):
+async def download_and_save_us_filing(filing, fetcher, parser, storage, queue):
+    """個別書類のダウンロード、パース、保存、およびジョブ登録を行う"""
+    ticker = filing["ticker"]
+    acc_no = filing["accessionNumber"]
+    cik = filing["cik"]
+    acc_no_clean = acc_no.replace("-", "")
+    doc_name = filing["primaryDocument"]
+    
+    # URLの組み立て
+    url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc_no_clean}/{doc_name}"
+    
+    logger.info(f"Downloading US filing | ticker={ticker} | acc_no={acc_no}")
+    resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+    
+    if resp.status_code != 200:
+        logger.warning(f"Failed to download filing | status={resp.status_code} | url={url}")
+        return
+
+    sections = await asyncio.to_thread(parser.extract_all_sections, resp.text, filing["form"])
+    if sections:
+        filing_metadata = filing.copy()
+        async with us_db_write_lock:
+            await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
+        
+        # 即座にジョブキューに登録
+        await asyncio.to_thread(queue.enqueue_job, acc_no, ticker, "us")
+    
+    del resp
+    gc.collect()
+
+
+async def process_us_ticker(ticker, fetcher, parser, storage, queue, days=7):
     try:
         subs = await asyncio.to_thread(fetcher.get_latest_submissions, ticker)
         if not subs:
@@ -186,42 +232,12 @@ async def process_us_ticker(ticker, fetcher, parser, storage, days=7):
                 acc_no = filing["accessionNumber"]
                 if storage.filing_exists(acc_no):
                     continue
-
-                cik = fetcher.get_cik(ticker).lstrip("0")
-                acc_no_clean = acc_no.replace("-", "")
-                doc_name = filing["primaryDocument"]
-                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
-
-                logger.info(f"Downloading US filing | ticker={ticker} | acc_no={acc_no}")
-                resp = await asyncio.to_thread(
-                    requests.get, url, headers=fetcher.headers, timeout=30
-                )
+                
+                filing["cik"] = fetcher.get_cik(ticker).lstrip("0")
+                await download_and_save_us_filing(filing, fetcher, parser, storage, queue)
                 await asyncio.sleep(0.1)
-
-                if resp.status_code != 200:
-                    continue
-
-                sections = await asyncio.to_thread(
-                    parser.extract_all_sections, resp.text, filing["form"]
-                )
-                if sections:
-                    filing_metadata = filing.copy()
-                    filing_metadata["ticker"] = ticker
-                    filing_metadata["cik"] = cik
-
-                    async with us_db_write_lock:
-                        await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
-                    
-                    # 即座にジョブキューに登録 (構造化ワーカーへの通知)
-                    await asyncio.to_thread(queue.enqueue_job, acc_no, ticker, "us")
-
-                del resp
-                gc.collect()
             except Exception:
-                logger.exception(
-                    f"Error processing US filing | ticker={ticker} | "
-                    f"acc_no={filing.get('accessionNumber')}"
-                )
+                logger.exception(f"Error processing US ticker filing | ticker={ticker} | acc_no={filing.get('accessionNumber')}")
 
     except Exception:
         logger.exception(f"Failed to process US ticker | ticker={ticker}")
