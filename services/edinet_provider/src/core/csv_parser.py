@@ -1,44 +1,59 @@
 import io
+import time
 import zipfile
-import pandas as pd
+
 import chardet
+import pandas as pd
 from loguru import logger
 
 
-def get_csv_from_edinet(doc_id, api_key):
+def get_csv_from_edinet(doc_id, api_key, max_retries=5):
     import requests
 
     url = f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
     params = {"type": 5, "Subscription-Key": api_key}
 
-    logger.debug(f"Downloading CSV for doc_id: {doc_id}...")
-    try:
-        response = requests.get(url, params=params, timeout=30)
+    for attempt in range(max_retries):
+        try:
+            logger.debug(f"Downloading CSV for {doc_id} (Attempt {attempt+1}/{max_retries})...")
+            response = requests.get(url, params=params, timeout=30)
 
-        # Check if API returned successful status AND no error message in JSON body
-        if response.status_code == 200:
-            content = response.content
-            # Some APIs return 200 even for errors with JSON payload
-            if b"message" in content or b"statusCode" in content:
-                logger.warning(f"API returned logical error in body for {doc_id}: {response.text}")
+            if response.status_code == 200:
+                content = response.content
+                if b"message" in content or b"statusCode" in content:
+                    # Check for 429 inside 200-OK body (some APIs do this)
+                    if b"429" in content or b"Rate limit" in content:
+                        raise requests.exceptions.HTTPError("429 Rate Limit Exceeded (in body)")
+                    logger.warning(f"API returned logical error in body for {doc_id}: {response.text}")
+                    return None
+                return content
+
+            if response.status_code == 429:
+                # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                wait_time = 2**attempt
+                logger.warning(f"⚠️ 429 Rate Limit for {doc_id}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+
+            logger.warning(
+                f"API request failed for {doc_id} with status {response.status_code}: {response.text}"
+            )
+            return None
+
+        except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as e:
+            if attempt == max_retries - 1:
+                logger.error(f"❌ Max retries reached for {doc_id}: {e}")
                 return None
+            wait_time = 2**attempt
+            logger.debug(f"Transient error for {doc_id}: {e}. Retrying in {wait_time}s...")
+            time.sleep(wait_time)
 
-            logger.debug(f"Successfully downloaded CSV content for {doc_id} ({len(content)} bytes)")
-            return content
-
-        logger.warning(
-            f"API request failed for {doc_id} with status {response.status_code}: {response.text}"
-        )
-        return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error while fetching CSV for {doc_id}: {e}", exc_info=True)
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error fetching CSV for {doc_id}: {e}", exc_info=True)
-        return None
+    return None
 
 
 def parse_edinet_csv(content):
+    if not content:
+        return {}
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             csv_files = [f for f in z.namelist() if f.endswith(".csv")]
@@ -53,10 +68,8 @@ def parse_edinet_csv(content):
                     with z.open(csv_file) as f:
                         raw_data = f.read()
                         if not raw_data:
-                            logger.debug(f"Skipping empty CSV file: {csv_file}")
                             continue
 
-                        # Use chardet for robust encoding detection
                         detection = chardet.detect(raw_data[:10000])
                         encoding = detection.get("encoding")
                         confidence = detection.get("confidence", 0)
@@ -78,25 +91,9 @@ def parse_edinet_csv(content):
                             engine="python",
                         )
                         results[csv_file] = df
-                        logger.debug(f"Successfully parsed {csv_file} ({len(df)} rows)")
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to parse {csv_file} with detected encoding {encoding}: {e}"
-                    )
-                    # Last resort fallback
-                    try:
-                        text = raw_data.decode("shift-jis", errors="ignore")
-                        df = pd.read_csv(io.StringIO(text), skiprows=1, sep=",", engine="python")
-                        results[csv_file] = df
-                        logger.debug(f"Fallback parse successful for {csv_file}")
-                    except Exception as e2:
-                        logger.error(
-                            f"Last resort fallback failed for {csv_file}: {e2}", exc_info=True
-                        )
+                    logger.warning(f"Failed to parse {csv_file}: {e}")
             return results
-    except zipfile.BadZipFile as e:
-        logger.error(f"Invalid ZIP file provided to parser: {e}", exc_info=True)
-        return {}
     except Exception as e:
-        logger.error(f"Unexpected error in parse_edinet_csv: {e}", exc_info=True)
+        logger.error(f"ZIP parse error: {e}", exc_info=True)
         return {}

@@ -2,38 +2,44 @@ import sys
 from pathlib import Path
 from loguru import logger
 
-# ログディレクトリの設定
+# Project root logs directory
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
-# 既存のハンドラを削除
+# Remove default handler
 logger.remove()
 
-# 標準出力用の設定
-log_format = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-    "<level>{message}</level>"
+# 1. Console Handler (Standard Output) - For developers to see real-time status
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO",
+    backtrace=True,
+    diagnose=True,
 )
-logger.add(sys.stdout, format=log_format)
 
-# 通常のログファイルの設定（直近2回分）
+# 2. Sequential Log Files - Retain exactly last 2 runs using rotation and retention
+# Loguru's rotation="2" means it rotates after the log file has been created twice? 
+# Actually, rotation="00:00" or size based is common. 
+# To retain exactly 2 runs, we can use a simpler approach or rotation with retention.
 logger.add(
     LOG_DIR / "app.log",
-    rotation="2",
+    rotation="10 MB", # Rotate when size reaches 10MB
+    retention=2,      # Keep only last 2 files
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    serialize=True,
+    serialize=True,   # Structured JSON logging
+    level="DEBUG",
 )
 
-# エラーログの隔離保存の設定
+# 3. Isolated Error Logs - "Isolation Storage" for errors
 logger.add(
     LOG_DIR / "error.log",
     level="ERROR",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    serialize=True,
+    serialize=True,   # Structured JSON logging
+    backtrace=True,
+    diagnose=True,
 )
-
 
 def get_logger():
     return logger

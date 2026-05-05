@@ -4,10 +4,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 import duckdb
-from src.core.logging_config import get_logger
-
-logger = get_logger()
-
+from src.core.logging_config import logger
+from src.core.config import settings
 
 class DuckDBManager:
     _local_lock = threading.Lock()
@@ -15,16 +13,20 @@ class DuckDBManager:
 
     @staticmethod
     @contextmanager
-    def connect(db_path: str | Path, read_only: bool = False, timeout_seconds: int = 60):
+    def connect_master(read_only: bool = False, timeout_seconds: int = 60):
         """
-        Thread-safe context manager for DuckDB connections with retry logic for file locks.
+        Connects to MASTER DB and ATTACHes all other databases.
+        This is the SSoT (Single Source of Truth) entry point.
         """
-        db_path_str = str(db_path)
+        master_path = str(settings.MASTER_DB_PATH)
+        reg_path = str(settings.REGISTRY_DB_PATH)
+        facts_path = str(settings.FACTS_DB_PATH)
+        narr_path = str(settings.NARRATIVE_DB_PATH)
 
-        if db_path_str == ":memory:":
+        if master_path == ":memory:":
             with DuckDBManager._local_lock:
                 if DuckDBManager._memory_conn is None:
-                    logger.debug("Initializing in-memory DuckDB connection.")
+                    logger.debug("Initializing in-memory database connection.")
                     DuckDBManager._memory_conn = duckdb.connect(":memory:")
             yield DuckDBManager._memory_conn
             return
@@ -32,46 +34,37 @@ class DuckDBManager:
         start_time = time.time()
         conn = None
 
-        logger.debug(f"Attempting to connect to database: {db_path_str} (PID: {os.getpid()})")
-
+        logger.debug(f"Attempting to connect to master DB: {master_path}")
         while time.time() - start_time < timeout_seconds:
             try:
-                # Local thread lock to prevent concurrent connect attempts in same process
                 with DuckDBManager._local_lock:
-                    conn = duckdb.connect(db_path_str, read_only=read_only)
+                    conn = duckdb.connect(master_path, read_only=read_only)
+                    
+                    settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
+                    
+                    # ATTACH the tiered architecture
+                    logger.debug("Attaching sub-databases: registry, facts, narratives")
+                    conn.execute(f"ATTACH IF NOT EXISTS '{reg_path}' AS registry_db")
+                    conn.execute(f"ATTACH IF NOT EXISTS '{facts_path}' AS facts_db")
+                    conn.execute(f"ATTACH IF NOT EXISTS '{narr_path}' AS narr_db")
                 break
             except (duckdb.IOException, duckdb.ConnectionException, OSError) as e:
-                # Log as warning and retry if lock is held by another process
-                elapsed = int(time.time() - start_time)
-                logger.warning(
-                    f"DB Lock Contention (PID {os.getpid()}): {e}. "
-                    f"Retrying... ({elapsed}/{timeout_seconds}s)"
-                )
-                time.sleep(2.0)
+                logger.warning(f"Database contention at {master_path}: {e}. Retrying...")
+                time.sleep(1.0)
             except Exception as e:
-                # Unexpected errors should be logged with full trace
-                logger.error(f"Unexpected error while connecting to DuckDB: {e}", exc_info=True)
+                logger.error(f"Unexpected database error: {e}", exc_info=True)
                 raise
 
         if conn is None:
-            logger.error(
-                f"❌ Database connection TIMEOUT after {timeout_seconds}s (PID {os.getpid()})",
-                db_path=db_path_str,
-            )
-            raise duckdb.IOException(
-                f"Failed to acquire lock for {db_path} within {timeout_seconds}s"
-            )
+            err_msg = f"Failed to acquire DB locks for {master_path} within {timeout_seconds}s"
+            logger.error(f"❌ {err_msg}")
+            raise duckdb.IOException(err_msg)
 
         try:
-            logger.debug(f"Connected to {db_path_str}")
             yield conn
         finally:
             if conn:
-                try:
-                    conn.close()
-                    logger.debug(f"Database connection closed for {db_path_str}")
-                except Exception as e:
-                    logger.error(f"Error while closing DuckDB connection: {e}", exc_info=True)
-
+                logger.debug("Closing database connection.")
+                conn.close()
 
 db_manager = DuckDBManager()

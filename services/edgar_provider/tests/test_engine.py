@@ -1,16 +1,18 @@
-import pytest
 from src.core.config import settings
 from src.engine import USEngine
+
 
 def test_settings_load():
     assert "FinancialAppAdmin" in settings.SEC_IDENTITY
     assert str(settings.DB_PATH).endswith("edgar.duckdb")
+
 
 def test_engine_init():
     # This might fail in CI if no network, but let's test the class creation
     engine = USEngine()
     assert engine.db_path == settings.DB_PATH
     assert engine.compressor is not None
+
 
 def test_extract_section_logic():
     engine = USEngine()

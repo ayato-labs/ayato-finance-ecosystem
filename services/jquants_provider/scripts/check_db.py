@@ -2,12 +2,13 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 
+
 def check_db_stats():
     master_path = Path("data/master.duckdb")
     jquants_path = Path("data/jquants.duckdb")
-    
+
     print("=== Database Status Report ===")
-    
+
     if master_path.exists():
         conn = duckdb.connect(str(master_path))
         print("\n[Catalog Table (master.duckdb)]")
@@ -27,7 +28,8 @@ def check_db_stats():
             tables = conn.execute("SHOW TABLES").fetchall()
             for t in tables:
                 t_name = t[0]
-                if t_name.startswith("__"): continue
+                if t_name.startswith("__"):
+                    continue
                 count = conn.execute(f"SELECT count(*) FROM {t_name}").fetchone()[0]
                 print(f"- {t_name}: {count} records")
         except Exception as e:
@@ -35,6 +37,7 @@ def check_db_stats():
         conn.close()
     else:
         print("\njquants.duckdb does not exist.")
+
 
 if __name__ == "__main__":
     check_db_stats()

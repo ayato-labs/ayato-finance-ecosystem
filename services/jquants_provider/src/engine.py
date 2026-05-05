@@ -43,8 +43,9 @@ class JPEngine:
     def _get_shard_path(self, table_name: str) -> Path:
         """Get the physical database path for a given table name."""
         from src.core.schema import TABLE_SCHEMAS
+
         shard_name = TABLE_SCHEMAS.get(table_name, {}).get("shard", "master")
-        
+
         if shard_name == "prices":
             return settings.JP_PRICES_DB_PATH
         if shard_name == "financials":
@@ -53,6 +54,7 @@ class JPEngine:
 
     def _init_db(self):
         from src.core.migrations import MigrationManager
+
         MigrationManager.apply_migrations()
 
     def get_latest_price_date(self) -> str | None:
@@ -72,8 +74,8 @@ class JPEngine:
                 res = conn.execute("SELECT MIN(Date) FROM daily_prices").fetchone()
                 if res and res[0]:
                     return res[0].strftime("%Y%m%d")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not fetch earliest price date: {e}")
         return None
 
     def get_latest_fact_date(self) -> str | None:
@@ -93,8 +95,8 @@ class JPEngine:
                 res = conn.execute("SELECT MIN(DisclosedDate) FROM company_facts").fetchone()
                 if res and res[0]:
                     return res[0].strftime("%Y%m%d")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not fetch earliest fact date: {e}")
         return None
 
     @track_performance("sync_tickers_jp")
@@ -103,8 +105,8 @@ class JPEngine:
         wait=wait_exponential(multiplier=5, min=30, max=600),
         stop=stop_after_attempt(5),
         retry=retry_if_exception_type(Exception),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying Ticker sync ({retry_state.attempt_number}/5) after {retry_state.outcome.exception()}"
+        before_sleep=lambda rs: logger.warning(
+            f"Retrying Ticker sync ({rs.attempt_number}/5) after {rs.outcome.exception()}"
         ),
         reraise=True,
     )
@@ -115,7 +117,7 @@ class JPEngine:
         """Get or create a lookup ID for a normalized name with caching."""
         if not name:
             return 0
-        
+
         cache_key = (table_name, name)
         if cache_key in self._lookup_cache:
             return self._lookup_cache[cache_key]
@@ -126,7 +128,7 @@ class JPEngine:
             if res:
                 self._lookup_cache[cache_key] = res[0]
                 return res[0]
-            
+
             # Create new ID
             max_id = conn.execute(f"SELECT MAX(id) FROM {table_name}").fetchone()[0] or 0
             new_id = max_id + 1
@@ -155,13 +157,13 @@ class JPEngine:
                 # Normalize metadata
                 m_id = self._get_lookup_id("market_sections", row.get("market_section"))
                 s_id = self._get_lookup_id("sectors", row.get("sector"))
-                
+
                 contract = JPTickerContract(
                     code=row["code"],
                     name=row["name"],
                     market_section_id=m_id,
                     sector_id=s_id,
-                    last_session_id=session_id
+                    last_session_id=session_id,
                 )
                 valid_records.append(contract.model_dump())
             except Exception as e:
@@ -177,7 +179,11 @@ class JPEngine:
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.register("source_df", valid_df)
             conn.execute(
-                "INSERT OR REPLACE INTO tickers (code, name, market_section_id, sector_id, last_session_id) SELECT * FROM source_df"
+                """
+                INSERT OR REPLACE INTO tickers
+                (code, name, market_section_id, sector_id, last_session_id)
+                SELECT * FROM source_df
+                """
             )
 
         catalog_manager.update_shard_status(
@@ -231,7 +237,7 @@ class JPEngine:
                 try:
                     detail = e.response.json()
                     error_msg = f"{e} - API Detail: {detail}"
-                except:
+                except Exception:
                     error_msg = f"{e} - Body: {e.response.text}"
             logger.error(f"J-Quants API Error (Bars): {error_msg}")
             raise e
@@ -255,20 +261,22 @@ class JPEngine:
                 try:
                     detail = e.response.json()
                     error_msg = f"{e} - API Detail: {detail}"
-                except:
+                except Exception:
                     error_msg = f"{e} - Body: {e.response.text}"
             logger.error(f"J-Quants API Error (Financials): {error_msg}")
             raise e
 
-    def fetch_prices_range(self, start_date: str, end_date: str, session_id: str | None = None) -> pd.DataFrame:
+    def fetch_prices_range(
+        self, start_date: str, end_date: str, session_id: str | None = None
+    ) -> pd.DataFrame:
         """Fetch historical daily bars for a date range sequentially to respect rate limits."""
         all_dfs = []
         current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
         end = datetime.datetime.strptime(end_date, "%Y%m%d").date()
-        
+
         total_days = (end - current).days + 1
         logger.info(f"Sequential range fetch: {start_date} to {end_date} ({total_days} days)")
-        
+
         while current <= end:
             date_str = current.strftime("%Y%m%d")
             # fetch_daily_bars is already decorated with @rate_limit and @retry
@@ -278,18 +286,20 @@ class JPEngine:
                 self.ingest_prices(df, session_id)
                 all_dfs.append(df)
             current += datetime.timedelta(days=1)
-            
+
         return pd.concat(all_dfs) if all_dfs else pd.DataFrame()
 
-    def fetch_fin_range(self, start_date: str, end_date: str, session_id: str | None = None) -> pd.DataFrame:
+    def fetch_fin_range(
+        self, start_date: str, end_date: str, session_id: str | None = None
+    ) -> pd.DataFrame:
         """Fetch financial summaries for a date range sequentially to respect rate limits."""
         all_dfs = []
         current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
         end = datetime.datetime.strptime(end_date, "%Y%m%d").date()
-        
+
         total_days = (end - current).days + 1
         logger.info(f"Sequential financial fetch: {start_date} to {end_date} ({total_days} days)")
-        
+
         while current <= end:
             date_str = current.strftime("%Y%m%d")
             # fetch_fin_summary is already decorated with @rate_limit and @retry
@@ -299,7 +309,7 @@ class JPEngine:
                 self.ingest_facts(df, session_id)
                 all_dfs.append(df)
             current += datetime.timedelta(days=1)
-            
+
         return pd.concat(all_dfs) if all_dfs else pd.DataFrame()
 
     @track_performance("ingest_facts_jp")
@@ -332,7 +342,7 @@ class JPEngine:
             "CFF": "CashFlowsFromFinancingActivities",
             "CashEq": "CashAndCashEquivalents",
         }
-        
+
         try:
             df = df.rename(columns={k: v for k, v in v2_mapping.items() if k in df.columns})
 
@@ -365,7 +375,9 @@ class JPEngine:
             except Exception as e:
                 error_count += 1
                 if error_count < 10:  # Avoid log flooding
-                    logger.debug(f"Fact validation skipped for {row.get('LocalCode', 'unknown')}: {e}")
+                    logger.debug(
+                        f"Fact validation skipped for {row.get('LocalCode', 'unknown')}: {e}"
+                    )
 
         if error_count > 0:
             logger.warning(f"Skipped {error_count} invalid financial records during validation.")
@@ -388,8 +400,10 @@ class JPEngine:
                 conn.execute(
                     f"INSERT OR IGNORE INTO company_facts ({col_list}) SELECT {val_list} FROM source_df AS source"
                 )
-                logger.info(f"Successfully ingested {len(valid_df)} financial records into company_facts.")
-                
+                logger.info(
+                    f"Successfully ingested {len(valid_df)} financial records into company_facts."
+                )
+
                 catalog_manager.update_shard_status(
                     self.shard_name, self.db_path, 2, records_count=len(valid_df)
                 )
@@ -409,9 +423,17 @@ class JPEngine:
 
         try:
             v2_price_mapping = {
-                "O": "Open", "H": "High", "L": "Low", "C": "Close", "Vo": "Volume",
-                "AdjO": "AdjustmentOpen", "AdjH": "AdjustmentHigh", "AdjL": "AdjustmentLow",
-                "AdjC": "AdjustmentClose", "AdjVo": "AdjustmentVolume", "Va": "TurnoverValue",
+                "O": "Open",
+                "H": "High",
+                "L": "Low",
+                "C": "Close",
+                "Vo": "Volume",
+                "AdjO": "AdjustmentOpen",
+                "AdjH": "AdjustmentHigh",
+                "AdjL": "AdjustmentLow",
+                "AdjC": "AdjustmentClose",
+                "AdjVo": "AdjustmentVolume",
+                "Va": "TurnoverValue",
             }
             logger.debug(f"Raw API columns: {df.columns.tolist()}")
             if not df.empty:
@@ -437,7 +459,10 @@ class JPEngine:
             except Exception as e:
                 error_count += 1
                 if error_count < 5:
-                    logger.debug(f"Price validation failed for {row.get('Code', 'unknown')} on {row.get('Date')}: {e}")
+                    logger.debug(
+                        f"Price validation failed for {row.get('Code', 'unknown')} "
+                        f"on {row.get('Date')}: {e}"
+                    )
 
         if error_count > 0:
             logger.warning(f"Skipped {error_count} invalid price records.")
@@ -459,7 +484,9 @@ class JPEngine:
                 conn.execute(
                     f"INSERT OR IGNORE INTO daily_prices ({col_list}) SELECT {val_list} FROM source_df AS source"
                 )
-                logger.info(f"Successfully ingested {len(valid_df)} price records into daily_prices.")
+                logger.info(
+                    f"Successfully ingested {len(valid_df)} price records into daily_prices."
+                )
                 catalog_manager.update_shard_status(
                     "prices", db_path, 3, records_count=len(valid_df)
                 )
@@ -498,9 +525,7 @@ class JPEngine:
                 f"INSERT OR IGNORE INTO daily_indices ({col_list}) SELECT {val_list} FROM source_df AS source"
             )
             logger.info(f"Successfully ingested {len(valid_df)} index records.")
-            catalog_manager.update_shard_status(
-                "master", db_path, 1, records_count=len(valid_df)
-            )
+            catalog_manager.update_shard_status("master", db_path, 1, records_count=len(valid_df))
 
     @track_performance("ingest_dividends_jp")
     def ingest_dividends(self, df: pd.DataFrame, session_id: str):

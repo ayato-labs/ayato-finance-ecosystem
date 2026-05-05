@@ -2,9 +2,12 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
 import duckdb
 from loguru import logger
+
 from src.core.config import settings
+
 
 class DuckDBManager:
     _local_lock = threading.Lock()
@@ -21,9 +24,11 @@ class DuckDBManager:
                     try:
                         conn = duckdb.connect(db_path_str, read_only=read_only)
                     except duckdb.ConnectionException as ce:
-                        logger.debug(f"Read-only connection failed, attempting read-write for {db_path_str}: {ce}")
+                        logger.debug(
+                            f"Read-only connection failed, attempting read-write for {db_path_str}: {ce}"
+                        )
                         conn = duckdb.connect(db_path_str, read_only=False)
-                        
+
                     # Apply basic PRAGMAs for performance bounds
                     conn.execute(f"PRAGMA memory_limit='{settings.DUCKDB_MEMORY_LIMIT}'")
                     conn.execute(f"PRAGMA threads={settings.DUCKDB_THREADS}")
@@ -31,9 +36,11 @@ class DuckDBManager:
             except (duckdb.IOException, OSError) as e:
                 logger.warning(f"Database {db_path_str} is locked, retrying in 1s... (Error: {e})")
                 time.sleep(1.0)
-        
+
         if conn is None:
-            logger.error(f"Failed to acquire database lock for {db_path_str} after {timeout_seconds}s")
+            logger.error(
+                f"Failed to acquire database lock for {db_path_str} after {timeout_seconds}s"
+            )
             raise duckdb.IOException(f"Failed to acquire lock for {db_path}")
 
         try:
@@ -41,5 +48,6 @@ class DuckDBManager:
         finally:
             if conn:
                 conn.close()
+
 
 db_manager = DuckDBManager()

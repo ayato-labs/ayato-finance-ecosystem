@@ -6,7 +6,7 @@ Generated from src/core/contracts.py
 TABLE_SCHEMAS = {
     "metrics": {
         "v1": """
-CREATE TABLE metrics (
+CREATE TABLE IF NOT EXISTS metrics (
     run_id VARCHAR,
     step_name VARCHAR,
     ticker VARCHAR,
@@ -21,7 +21,7 @@ CREATE TABLE metrics (
     },
     "processed_companies": {
         "v1": """
-CREATE TABLE processed_companies (
+CREATE TABLE IF NOT EXISTS processed_companies (
     ticker VARCHAR,
     cik VARCHAR,
     status VARCHAR,
@@ -33,7 +33,7 @@ CREATE TABLE processed_companies (
     },
     "tickers": {
         "v1": """
-CREATE TABLE tickers (
+CREATE TABLE IF NOT EXISTS tickers (
     ticker VARCHAR,
     cik VARCHAR,
     name VARCHAR,
@@ -46,7 +46,7 @@ CREATE TABLE tickers (
     },
     "company_facts": {
         "v1": """
-CREATE TABLE company_facts (
+CREATE TABLE IF NOT EXISTS company_facts (
     ticker VARCHAR,
     cik VARCHAR,
     accession_number VARCHAR,
@@ -67,7 +67,7 @@ CREATE TABLE company_facts (
     },
     "narratives": {
         "v1": """
-CREATE TABLE narratives (
+CREATE TABLE IF NOT EXISTS narratives (
     ticker VARCHAR,
     cik VARCHAR,
     accession_number VARCHAR,
@@ -83,7 +83,7 @@ CREATE TABLE narratives (
     },
     "databases": {
         "v1": """
-CREATE TABLE databases (
+CREATE TABLE IF NOT EXISTS databases (
     db_id VARCHAR,
     file_path VARCHAR,
     role VARCHAR,
@@ -95,7 +95,7 @@ CREATE TABLE databases (
     },
     "data_catalog": {
         "v1": """
-CREATE TABLE data_catalog (
+CREATE TABLE IF NOT EXISTS data_catalog (
     partition_key VARCHAR,
     db_id VARCHAR,
     description VARCHAR,

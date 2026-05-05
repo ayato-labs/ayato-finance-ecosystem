@@ -9,6 +9,10 @@ TABLE_SCHEMAS = {
         "description": "Normalized market section names (Prime, Standard, etc.)",
         "version": 2,
         "shard": "master",
+        "columns": {
+            "id": "Internal ID for market section",
+            "name": "Full name of the market section (e.g., Prime, Standard)",
+        },
         "sql": """
             CREATE TABLE IF NOT EXISTS market_sections (
                 id UTINYINT PRIMARY KEY,
@@ -20,6 +24,10 @@ TABLE_SCHEMAS = {
         "description": "Normalized sector names (Electronics, Banking, etc.)",
         "version": 2,
         "shard": "master",
+        "columns": {
+            "id": "Internal ID for sector",
+            "name": "Full name of the sector classification",
+        },
         "sql": """
             CREATE TABLE IF NOT EXISTS sectors (
                 id UTINYINT PRIMARY KEY,
@@ -77,6 +85,14 @@ TABLE_SCHEMAS = {
         "description": "Daily OHLCV data with high-precision storage.",
         "version": 3,
         "shard": "prices",
+        "columns": {
+            "Date": "Trading date",
+            "Code": "Ticker symbol",
+            "Open/High/Low/Close": "Stock prices (Adjusted/Unadjusted)",
+            "Volume": "Trading volume (shares)",
+            "TurnoverValue": "Total turnover in JPY",
+            "AdjustmentFactor": "Cumulative adjustment factor",
+        },
         "sql": """
             CREATE TABLE IF NOT EXISTS daily_prices (
                 Date DATE,

@@ -66,7 +66,9 @@ def main():
             if not db_latest:
                 # Case 1: Empty Database
                 start_date = target_start
-                logger.info(f"No existing data. Starting from scratch ({sync_range} days back: {start_date}).")
+                logger.info(
+                    f"No existing data. Starting from scratch ({sync_range} days back: {start_date})."
+                )
             else:
                 # Case 2: Fill Future
                 latest_dt = datetime.datetime.strptime(db_latest, "%Y%m%d").date()
@@ -79,10 +81,14 @@ def main():
                     if target_start < earliest_dt:
                         start_date = target_start
                         end_date = earliest_dt - datetime.timedelta(days=1)
-                        logger.info(f"Backfilling history: {start_date} to {end_date} (Requested limit: {sync_range} days).")
+                        logger.info(
+                            f"Backfilling history: {start_date} to {end_date} (Requested limit: {sync_range} days)."
+                        )
                     else:
-                        logger.info(f"Database range ({db_earliest} to {db_latest}) already covers requested limit ({sync_range} days).")
-                        start_date = end_date + datetime.timedelta(days=1) # Trigger "up to date"
+                        logger.info(
+                            f"Database range ({db_earliest} to {db_latest}) already covers requested limit ({sync_range} days)."
+                        )
+                        start_date = end_date + datetime.timedelta(days=1)  # Trigger "up to date"
                 else:
                     start_date = end_date + datetime.timedelta(days=1)
 
@@ -92,9 +98,9 @@ def main():
                 logger.info(f"Initiating price sync: {start_date} -> {end_date}")
                 try:
                     df = engine.fetch_prices_range(
-                        start_date.strftime("%Y%m%d"), 
+                        start_date.strftime("%Y%m%d"),
                         end_date.strftime("%Y%m%d"),
-                        session_id=session_id
+                        session_id=session_id,
                     )
                     if df is not None and not df.empty:
                         engine.ingest_prices(df, session_id)
@@ -122,22 +128,30 @@ def main():
             if not db_latest:
                 # Case 1: Empty Database
                 start_date = target_start
-                logger.info(f"No existing financials. Starting from scratch ({sync_range} days back: {start_date}).")
+                logger.info(
+                    f"No existing financials. Starting from scratch ({sync_range} days back: {start_date})."
+                )
             else:
                 # Case 2: Fill Future
                 latest_dt = datetime.datetime.strptime(db_latest, "%Y%m%d").date()
                 if latest_dt < end_date:
                     start_date = latest_dt + datetime.timedelta(days=1)
-                    logger.info(f"Existing financials found up to {db_latest}. Syncing up to {end_date}.")
+                    logger.info(
+                        f"Existing financials found up to {db_latest}. Syncing up to {end_date}."
+                    )
                 # Case 3: Fill Past
                 elif db_earliest:
                     earliest_dt = datetime.datetime.strptime(db_earliest, "%Y%m%d").date()
                     if target_start < earliest_dt:
                         start_date = target_start
                         end_date = earliest_dt - datetime.timedelta(days=1)
-                        logger.info(f"Backfilling financial history: {start_date} to {end_date} (Requested limit: {sync_range} days).")
+                        logger.info(
+                            f"Backfilling financial history: {start_date} to {end_date} (Requested limit: {sync_range} days)."
+                        )
                     else:
-                        logger.info(f"Database range ({db_earliest} to {db_latest}) already covers requested financials limit ({sync_range} days).")
+                        logger.info(
+                            f"Database range ({db_earliest} to {db_latest}) already covers requested financials limit ({sync_range} days)."
+                        )
                         start_date = end_date + datetime.timedelta(days=1)
                 else:
                     start_date = end_date + datetime.timedelta(days=1)
@@ -148,9 +162,9 @@ def main():
                 logger.info(f"Initiating financial sync: {start_date} -> {end_date}")
                 try:
                     df = engine.fetch_fin_range(
-                        start_date.strftime("%Y%m%d"), 
+                        start_date.strftime("%Y%m%d"),
                         end_date.strftime("%Y%m%d"),
-                        session_id=session_id
+                        session_id=session_id,
                     )
                     if df is not None and not df.empty:
                         engine.ingest_facts(df, session_id)

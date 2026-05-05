@@ -1,37 +1,62 @@
 from pathlib import Path
 from loguru import logger
 from src.core.db import db_manager
+from src.core.schema import TABLE_DEFINITIONS
+from src.core.config import settings
 
 
 class MigrationManager:
     @staticmethod
-    def apply_migrations(db_path: str | Path) -> None:
-        logger.info(f"Checking migrations for {db_path}")
-        migrations_dir = Path("migrations")
-        if not migrations_dir.exists():
-            logger.error(f"Migration directory {migrations_dir} not found")
-            return
-
-        with db_manager.connect(db_path) as conn:
-            # Create schema_version table if it doesn't exist
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS schema_version (
-                    version INTEGER PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+    def apply_migrations() -> None:
+        """Apply migrations using the Quad-Split + Master architecture."""
+        logger.info("Applying Master-led Triple-Split Architecture migrations (v6)...")
+        
+        with db_manager.connect_master() as conn:
+            # 1. Initialize Master Schema
+            for t_name, config in TABLE_DEFINITIONS["master"]["tables"].items():
+                try:
+                    conn.execute(config["ddl"])
+                except Exception as e:
+                    logger.error(f"Failed to execute Master DDL for {t_name}: {e}")
+                    raise
 
             res = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
             current_version = res[0] or 0
 
-            # Apply missing migrations
-            for migration_file in sorted(migrations_dir.glob("*.sql")):
-                version = int(migration_file.name.split("_")[0])
-                if version > current_version:
-                    logger.info(f"Applying migration: {migration_file.name}")
-                    with open(migration_file, "r", encoding="utf-8") as f:
-                        sql = f.read()
-                        conn.execute(sql)
-                    logger.info(f"Migration {migration_file.name} applied")
+            # Version 6: Full Governance Implementation
+            if current_version < 6:
+                logger.info("Executing Migration v6: Schema-as-Code & Multi-DB Governance...")
+                
+                # Check if we are in memory (TESTING) or file-based
+                is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
+                
+                # Setup sub-databases using the definitions in schema.py
+                for db_alias in ["registry_db", "facts_db", "narr_db"]:
+                    for t_name, config in TABLE_DEFINITIONS[db_alias]["tables"].items():
+                        ddl = config["ddl"]
+                        
+                        if is_memory:
+                            # In memory, all tables go to 'main' without prefixes
+                            target = f"CREATE TABLE IF NOT EXISTS {t_name}"
+                            if f"CREATE TABLE IF NOT EXISTS {t_name}" in ddl:
+                                ddl = ddl.replace(f"CREATE TABLE IF NOT EXISTS {t_name}", target)
+                            else:
+                                ddl = ddl.replace(f"CREATE TABLE {t_name}", target)
+                        else:
+                            # File-based, use alias prefixes
+                            target = f"CREATE TABLE IF NOT EXISTS {db_alias}.{t_name}"
+                            if f"CREATE TABLE IF NOT EXISTS {t_name}" in ddl:
+                                ddl = ddl.replace(f"CREATE TABLE IF NOT EXISTS {t_name}", target)
+                            else:
+                                ddl = ddl.replace(f"CREATE TABLE {t_name}", target)
+                            
+                        try:
+                            conn.execute(ddl)
+                        except Exception as e:
+                            logger.error(f"Failed to execute DDL for {db_alias}.{t_name}: {e}")
+                            raise
+                
+                conn.execute("INSERT INTO schema_version (version) VALUES (6)")
+                logger.info("Migration v6 successful.")
 
-        logger.info("Migrations completed.")
+        logger.info("Governance and Schema synchronization completed.")
