@@ -205,7 +205,7 @@ class JPEngine:
     @track_performance("fetch_daily_bars_api")
     @rate_limit
     @retry(
-        wait=wait_exponential(multiplier=2, min=5, max=60),
+        wait=wait_exponential(multiplier=5, min=65, max=300),  # Wait at least 65s for 429 to clear
         stop=stop_after_attempt(5),
         retry=retry_if_exception_type(Exception),
         reraise=True,
@@ -224,7 +224,7 @@ class JPEngine:
 
     @rate_limit
     @retry(
-        wait=wait_exponential(multiplier=2, min=5, max=60),
+        wait=wait_exponential(multiplier=5, min=65, max=300),
         stop=stop_after_attempt(5),
         retry=retry_if_exception_type(Exception),
         reraise=True,

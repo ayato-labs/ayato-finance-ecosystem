@@ -10,9 +10,8 @@ class RateLimiter:
     Ensures that J-Quants API calls stay within the requested rate limit.
     """
     def __init__(self, requests_per_minute: int = 5):
-        self.interval = 60.0 / requests_per_minute
-        # Add a small buffer to be safe
-        self.interval += 0.5
+        # Even more conservative: 15s between requests (4 req/min)
+        self.interval = 15.0
         
         self.lock_file = settings.DATA_DIR / ".api_rate_limit"
         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
