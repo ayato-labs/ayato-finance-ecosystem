@@ -30,5 +30,7 @@ line-length = 100
 
 [dependency-groups]
 dev = [
+    "pytest>=9.0.3",
+    "pytest-mock>=3.15.1",
     "ruff>=0.15.12",
 ]

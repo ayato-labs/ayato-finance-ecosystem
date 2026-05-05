@@ -9,8 +9,17 @@ def get_csv_from_edinet(doc_id, api_key):
     url = f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
     params = {"type": 5, "Subscription-Key": api_key}
     response = requests.get(url, params=params)
+    
+    # Check if API returned successful status AND no error message in JSON body
     if response.status_code == 200:
-        return response.content
+        # Some APIs return 200 even for errors
+        content = response.content
+        if b'message' in content or b'statusCode' in content:
+            logger.warning(f"API returned error in body: {response.text}")
+            return None
+        return content
+    
+    logger.warning(f"API request failed with status {response.status_code}: {response.text}")
     return None
 
 def parse_edinet_csv(content):
