@@ -92,7 +92,9 @@ def main():
                 logger.info(f"Initiating price sync: {start_date} -> {end_date}")
                 try:
                     df = engine.fetch_prices_range(
-                        start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
+                        start_date.strftime("%Y%m%d"), 
+                        end_date.strftime("%Y%m%d"),
+                        session_id=session_id
                     )
                     if df is not None and not df.empty:
                         engine.ingest_prices(df, session_id)
@@ -146,7 +148,9 @@ def main():
                 logger.info(f"Initiating financial sync: {start_date} -> {end_date}")
                 try:
                     df = engine.fetch_fin_range(
-                        start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
+                        start_date.strftime("%Y%m%d"), 
+                        end_date.strftime("%Y%m%d"),
+                        session_id=session_id
                     )
                     if df is not None and not df.empty:
                         engine.ingest_facts(df, session_id)

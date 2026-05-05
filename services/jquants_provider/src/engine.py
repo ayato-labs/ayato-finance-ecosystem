@@ -240,8 +240,8 @@ class JPEngine:
                 return pd.DataFrame()
             raise e
 
-    def fetch_prices_range(self, start_date: str, end_date: str) -> pd.DataFrame:
-        """Fetch historical prices for a date range sequentially to respect rate limits."""
+    def fetch_prices_range(self, start_date: str, end_date: str, session_id: str | None = None) -> pd.DataFrame:
+        """Fetch historical daily bars for a date range sequentially to respect rate limits."""
         all_dfs = []
         current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
         end = datetime.datetime.strptime(end_date, "%Y%m%d").date()
@@ -261,7 +261,7 @@ class JPEngine:
             
         return pd.concat(all_dfs) if all_dfs else pd.DataFrame()
 
-    def fetch_fin_range(self, start_date: str, end_date: str) -> pd.DataFrame:
+    def fetch_fin_range(self, start_date: str, end_date: str, session_id: str | None = None) -> pd.DataFrame:
         """Fetch financial summaries for a date range sequentially to respect rate limits."""
         all_dfs = []
         current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
