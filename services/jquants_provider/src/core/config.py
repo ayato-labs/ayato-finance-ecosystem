@@ -30,8 +30,12 @@ class Settings(BaseSettings):
     # Paths
     PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
     DATA_DIR: Path = PROJECT_ROOT / "data"
-    DB_PATH: Path = DATA_DIR / "jquants.duckdb"
-    MASTER_DB_PATH: Path = DATA_DIR / "master.duckdb"
+    
+    # Domain Shards
+    MASTER_DB_PATH: Path = DATA_DIR / "master.duckdb"  # Central catalog
+    JP_MASTER_DB_PATH: Path = DATA_DIR / "jquants_master.duckdb" # Tickers/Sectors
+    JP_PRICES_DB_PATH: Path = DATA_DIR / "jquants_prices.duckdb" # Stock Prices
+    JP_FACTS_DB_PATH: Path = DATA_DIR / "jquants_financials.duckdb" # Financials
 
     # Server configuration
     API_PORT: int = 5007

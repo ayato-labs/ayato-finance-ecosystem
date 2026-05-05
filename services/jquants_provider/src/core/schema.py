@@ -8,6 +8,7 @@ TABLE_SCHEMAS = {
     "market_sections": {
         "description": "Normalized market section names (Prime, Standard, etc.)",
         "version": 2,
+        "shard": "master",
         "sql": """
             CREATE TABLE IF NOT EXISTS market_sections (
                 id UTINYINT PRIMARY KEY,
@@ -18,6 +19,7 @@ TABLE_SCHEMAS = {
     "sectors": {
         "description": "Normalized sector names (Electronics, Banking, etc.)",
         "version": 2,
+        "shard": "master",
         "sql": """
             CREATE TABLE IF NOT EXISTS sectors (
                 id UTINYINT PRIMARY KEY,
@@ -28,6 +30,7 @@ TABLE_SCHEMAS = {
     "tickers": {
         "description": "Master list of stock tickers with normalized metadata.",
         "version": 2,
+        "shard": "master",
         "sql": """
             CREATE TABLE IF NOT EXISTS tickers (
                 code VARCHAR PRIMARY KEY,
@@ -41,6 +44,7 @@ TABLE_SCHEMAS = {
     "company_facts": {
         "description": "Financial statements with optimized storage types.",
         "version": 2,
+        "shard": "financials",
         "sql": """
             CREATE TABLE IF NOT EXISTS company_facts (
                 DisclosedDate DATE,
@@ -72,6 +76,7 @@ TABLE_SCHEMAS = {
     "daily_prices": {
         "description": "Daily OHLCV data with high-precision storage.",
         "version": 3,
+        "shard": "prices",
         "sql": """
             CREATE TABLE IF NOT EXISTS daily_prices (
                 Date DATE,
@@ -90,6 +95,40 @@ TABLE_SCHEMAS = {
                 session_id VARCHAR,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (Code, Date)
+            )
+        """,
+    },
+    "daily_indices": {
+        "description": "Daily market index quotes.",
+        "version": 1,
+        "shard": "master",
+        "sql": """
+            CREATE TABLE IF NOT EXISTS daily_indices (
+                Date DATE,
+                Code VARCHAR,
+                Open DECIMAL(12, 1),
+                High DECIMAL(12, 1),
+                Low DECIMAL(12, 1),
+                Close DECIMAL(12, 1),
+                session_id VARCHAR,
+                ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (Code, Date)
+            )
+        """,
+    },
+    "dividends": {
+        "description": "Dividend payment records.",
+        "version": 1,
+        "shard": "financials",
+        "sql": """
+            CREATE TABLE IF NOT EXISTS dividends (
+                AnnouncementDate DATE,
+                Code VARCHAR,
+                RecordDate DATE,
+                DividendValue DECIMAL(12, 1),
+                session_id VARCHAR,
+                ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (Code, RecordDate, AnnouncementDate)
             )
         """,
     },

@@ -19,9 +19,6 @@ class JPEngine:
     JP_TICKER_LEN_WITH_ZERO = 5
 
     def __init__(self, api_key: str | None = None, refresh_token: str | None = None):
-        self.db_path = settings.DB_PATH
-        # shard_name could be configurable for real sharding, here we use 'main'
-        self.shard_name = "main"
         self.api_key = api_key if api_key is not None else settings.JQUANTS_API_KEY
         self.refresh_token = (
             refresh_token if refresh_token is not None else settings.JQUANTS_REFRESH_TOKEN
@@ -42,20 +39,25 @@ class JPEngine:
 
         self._init_db()
 
-    def _init_db(self):
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        from src.core.migrations import MigrationManager
+    def _get_shard_path(self, table_name: str) -> Path:
+        """Get the physical database path for a given table name."""
         from src.core.schema import TABLE_SCHEMAS
+        shard_name = TABLE_SCHEMAS.get(table_name, {}).get("shard", "master")
+        
+        if shard_name == "prices":
+            return settings.JP_PRICES_DB_PATH
+        if shard_name == "financials":
+            return settings.JP_FACTS_DB_PATH
+        return settings.JP_MASTER_DB_PATH
 
-        MigrationManager.apply_migrations(self.db_path, self.shard_name)
-
-        # Register shard in catalog
-        max_ver = max(t["version"] for t in TABLE_SCHEMAS.values())
-        catalog_manager.update_shard_status(self.shard_name, self.db_path, max_ver, status="active")
+    def _init_db(self):
+        from src.core.migrations import MigrationManager
+        MigrationManager.apply_migrations()
 
     def get_latest_price_date(self) -> str | None:
         """Get the latest price date in YYYYMMDD format."""
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("daily_prices")
+        with db_manager.connect(db_path) as conn:
             res = conn.execute("SELECT MAX(Date) FROM daily_prices").fetchone()
             if res and res[0]:
                 return res[0].strftime("%Y%m%d")
@@ -63,7 +65,8 @@ class JPEngine:
 
     def get_earliest_price_date(self) -> str | None:
         """Get the earliest price date in YYYYMMDD format."""
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("daily_prices")
+        with db_manager.connect(db_path) as conn:
             try:
                 res = conn.execute("SELECT MIN(Date) FROM daily_prices").fetchone()
                 if res and res[0]:
@@ -74,7 +77,8 @@ class JPEngine:
 
     def get_latest_fact_date(self) -> str | None:
         """Get the latest fact date in YYYYMMDD format."""
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("company_facts")
+        with db_manager.connect(db_path) as conn:
             res = conn.execute("SELECT MAX(DisclosedDate) FROM company_facts").fetchone()
             if res and res[0]:
                 return res[0].strftime("%Y%m%d")
@@ -82,7 +86,8 @@ class JPEngine:
 
     def get_earliest_fact_date(self) -> str | None:
         """Get the earliest fact date in YYYYMMDD format."""
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("company_facts")
+        with db_manager.connect(db_path) as conn:
             try:
                 res = conn.execute("SELECT MIN(DisclosedDate) FROM company_facts").fetchone()
                 if res and res[0]:
@@ -114,7 +119,8 @@ class JPEngine:
         if cache_key in self._lookup_cache:
             return self._lookup_cache[cache_key]
 
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path(table_name)
+        with db_manager.connect(db_path) as conn:
             res = conn.execute(f"SELECT id FROM {table_name} WHERE name = ?", (name,)).fetchone()
             if res:
                 self._lookup_cache[cache_key] = res[0]
@@ -164,7 +170,8 @@ class JPEngine:
             return 0
 
         valid_df = pd.DataFrame(valid_records)
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("tickers")
+        with db_manager.connect(db_path) as conn:
             conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
             conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
             conn.register("source_df", valid_df)
@@ -211,15 +218,21 @@ class JPEngine:
         reraise=True,
     )
     def fetch_daily_bars(self, date_str: str) -> pd.DataFrame:
-        """Fetch daily bars for all tickers for a specific date."""
+        """Fetch daily bars for a specific date."""
         try:
-            return self.cli.get_eq_bars_daily(date_yyyymmdd=date_str)
+            if hasattr(self.cli, "get_eq_bars_daily"):
+                return self.cli.get_eq_bars_daily(date=date_str)
+            return self.cli.get_prices_daily(date=date_str)
         except Exception as e:
-            if "429" in str(e):
-                raise e
-            if "403" in str(e):
-                logger.warning(f"Access denied for daily bars on {date_str} (Plan restriction?)")
-                return pd.DataFrame()
+            # Try to extract detailed message from J-Quants response if available
+            error_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    detail = e.response.json()
+                    error_msg = f"{e} - API Detail: {detail}"
+                except:
+                    error_msg = f"{e} - Body: {e.response.text}"
+            logger.error(f"J-Quants API Error (Bars): {error_msg}")
             raise e
 
     @rate_limit
@@ -230,14 +243,20 @@ class JPEngine:
         reraise=True,
     )
     def fetch_fin_summary(self, date_str: str) -> pd.DataFrame:
-        """Fetch financial summaries for all tickers for a specific date."""
+        """Fetch financial summaries for a specific date."""
         try:
-            return self.cli.get_fin_summary(date_yyyymmdd=date_str)
+            if hasattr(self.cli, "get_fin_summary"):
+                return self.cli.get_fin_summary(date=date_str)
+            return pd.DataFrame()
         except Exception as e:
-            if "429" in str(e):
-                raise e
-            if "403" in str(e):
-                return pd.DataFrame()
+            error_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    detail = e.response.json()
+                    error_msg = f"{e} - API Detail: {detail}"
+                except:
+                    error_msg = f"{e} - Body: {e.response.text}"
+            logger.error(f"J-Quants API Error (Financials): {error_msg}")
             raise e
 
     def fetch_prices_range(self, start_date: str, end_date: str, session_id: str | None = None) -> pd.DataFrame:
@@ -356,8 +375,9 @@ class JPEngine:
 
         valid_df = pd.DataFrame(valid_records)
 
+        db_path = self._get_shard_path("company_facts")
         try:
-            with db_manager.connect(self.db_path) as conn:
+            with db_manager.connect(db_path) as conn:
                 conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
                 conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
                 columns = [c for c in valid_df.columns if c != "ingested_at"]
@@ -392,6 +412,9 @@ class JPEngine:
                 "AdjO": "AdjustmentOpen", "AdjH": "AdjustmentHigh", "AdjL": "AdjustmentLow",
                 "AdjC": "AdjustmentClose", "AdjVo": "AdjustmentVolume", "Va": "TurnoverValue",
             }
+            logger.debug(f"Raw API columns: {df.columns.tolist()}")
+            if not df.empty:
+                logger.debug(f"Sample row: {df.iloc[0].to_dict()}")
             df = df.rename(columns={k: v for k, v in v2_price_mapping.items() if k in df.columns})
             df["session_id"] = session_id
             if "Code" in df.columns:
@@ -423,8 +446,9 @@ class JPEngine:
 
         valid_df = pd.DataFrame(valid_records)
 
+        db_path = self._get_shard_path("daily_prices")
         try:
-            with db_manager.connect(self.db_path) as conn:
+            with db_manager.connect(db_path) as conn:
                 conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
                 conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
                 columns = [c for c in valid_df.columns if c != "ingested_at"]
@@ -436,7 +460,7 @@ class JPEngine:
                 )
                 logger.info(f"Successfully ingested {len(valid_df)} price records into daily_prices.")
                 catalog_manager.update_shard_status(
-                    self.shard_name, self.db_path, 2, records_count=len(valid_df)
+                    "prices", db_path, 3, records_count=len(valid_df)
                 )
         except Exception as e:
             logger.error(f"Database ingestion failed for prices: {e}")
@@ -463,7 +487,8 @@ class JPEngine:
             return
 
         valid_df = pd.DataFrame(valid_records)
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("indices")
+        with db_manager.connect(db_path) as conn:
             columns = [c for c in valid_df.columns if c != "ingested_at"]
             col_list = ", ".join(columns)
             val_list = ", ".join([f"source.{c}" for c in columns])
@@ -473,7 +498,7 @@ class JPEngine:
             )
             logger.info(f"Successfully ingested {len(valid_df)} index records.")
             catalog_manager.update_shard_status(
-                self.shard_name, self.db_path, 1, records_count=len(valid_df)
+                "master", db_path, 1, records_count=len(valid_df)
             )
 
     @track_performance("ingest_dividends_jp")
@@ -504,7 +529,8 @@ class JPEngine:
             return
 
         valid_df = pd.DataFrame(valid_records)
-        with db_manager.connect(self.db_path) as conn:
+        db_path = self._get_shard_path("dividends")
+        with db_manager.connect(db_path) as conn:
             columns = [c for c in valid_df.columns if c != "ingested_at"]
             col_list = ", ".join(columns)
             val_list = ", ".join([f"source.{c}" for c in columns])
@@ -514,5 +540,5 @@ class JPEngine:
             )
             logger.info(f"Successfully ingested {len(valid_df)} dividend records.")
             catalog_manager.update_shard_status(
-                self.shard_name, self.db_path, 1, records_count=len(valid_df)
+                "financials", db_path, 1, records_count=len(valid_df)
             )

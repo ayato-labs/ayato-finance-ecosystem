@@ -9,19 +9,32 @@ class MigrationManager:
     """
 
     @staticmethod
-    def apply_migrations(db_path, shard_name: str = "default"):
+    def apply_migrations():
         """
-        Applies pending migrations to a specific DuckDB file.
-        Uses a history table to ensure idempotency and track versions.
+        Applies pending migrations to all designated shard files.
         """
-        logger.info(f"Checking migrations for shard [{shard_name}] at {db_path}...")
+        from src.core.config import settings
+        
+        shard_map = {
+            "master": settings.JP_MASTER_DB_PATH,
+            "prices": settings.JP_PRICES_DB_PATH,
+            "financials": settings.JP_FACTS_DB_PATH
+        }
 
-        with db_manager.connect(db_path) as conn:
-            # 1. Ensure history table exists
-            conn.execute(MIGRATION_HISTORY_SCHEMA)
+        for shard_name, db_path in shard_map.items():
+            logger.info(f"Checking migrations for shard [{shard_name}] at {db_path}...")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
 
-            for table_name, schema_info in TABLE_SCHEMAS.items():
-                target_version = schema_info["version"]
+            with db_manager.connect(db_path) as conn:
+                # 1. Ensure history table exists
+                conn.execute(MIGRATION_HISTORY_SCHEMA)
+
+                for table_name, schema_info in TABLE_SCHEMAS.items():
+                    # Only apply if the table belongs to this shard
+                    if schema_info.get("shard") != shard_name:
+                        continue
+                        
+                    target_version = schema_info["version"]
 
                 # 2. Get current version from history
                 res = conn.execute(
@@ -49,8 +62,17 @@ class MigrationManager:
                 else:
                     logger.debug(f"Table {table_name} is up to date (v{current_version})")
 
-            # 4. Apply indices (idempotent)
-            for index_sql in INDEX_SCHEMAS:
-                conn.execute(index_sql)
+                # 4. Apply indices (idempotent)
+                # Note: For multi-shard, we need to be careful with indices.
+                # Here we only apply indices relevant to tables in this shard.
+                for index_sql in INDEX_SCHEMAS:
+                    # Simple heuristic: if table name is in index SQL, apply it
+                    for table_in_shard in [t for t, s in TABLE_SCHEMAS.items() if s.get("shard") == shard_name]:
+                        if table_in_shard in index_sql:
+                            try:
+                                conn.execute(index_sql)
+                            except Exception:
+                                pass
+                            break
 
-        logger.info(f"Migrations for [{shard_name}] completed successfully.")
+            logger.info(f"Migrations for [{shard_name}] completed successfully.")
