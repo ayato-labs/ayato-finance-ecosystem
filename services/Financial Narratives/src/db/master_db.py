@@ -43,6 +43,9 @@ class JobQueue:
             try:
                 with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
                     conn.row_factory = sqlite3.Row
+                    # 高速化・並列耐性向上のための設定
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA synchronous=NORMAL")
                     cursor = conn.execute(query, params)
                     if commit:
                         conn.commit()

@@ -133,19 +133,26 @@ class FinancialNarrativeStorage:
             )
             logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
 
-    def save_structuring(self, accession_number: str, ticker: str, structured_facts: dict):
-        """AIによって構造化された事実情報を保存する"""
-        facts_json = json.dumps(structured_facts)
+    def save_structuring_batch(self, batch_data: list[tuple[str, str, dict]]):
+        """AIによって構造化された複数の事実情報を一括保存する"""
+        if not batch_data:
+            return
+            
         with self._connect(read_only=False) as conn:
-            conn.execute(
+            # executemany を使って一括挿入
+            records = [
+                (acc_no, ticker.upper(), json.dumps(facts))
+                for acc_no, ticker, facts in batch_data
+            ]
+            conn.executemany(
                 """
                 INSERT OR REPLACE INTO structured_data (
                     accession_number, ticker, structured_facts, updated_at
                 ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-                (accession_number, ticker.upper(), facts_json),
+                """,
+                records
             )
-            logger.success(f"Saved structured facts for {ticker} ({accession_number})")
+            logger.success(f"Bulk saved {len(batch_data)} structured facts to DuckDB")
 
     def get_structuring_by_ticker(self, ticker: str):
         """特定銘柄の構造化事実を取得"""

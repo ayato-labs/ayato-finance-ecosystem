@@ -15,16 +15,19 @@ def run_writer():
     
     while True:
         try:
-            # 1. PARSED ステータスのジョブを取得
-            parsed_jobs = queue.get_parsed_jobs(limit=10)
+            # 1. PARSED ステータスのジョブを一括取得 (最大20件)
+            parsed_jobs = queue.get_parsed_jobs(limit=20)
             
             if not parsed_jobs:
-                # 定期的に生存確認ログ
-                # logger.debug("Waiting for parsed jobs...")
                 time.sleep(5)
                 continue
             
             logger.info(f"Retrieved {len(parsed_jobs)} parsed jobs to serialize.")
+            
+            # 2. 市場ごとにデータを分類
+            batch_jp = []
+            batch_us = []
+            job_acc_nos = []
             
             for job in parsed_jobs:
                 acc_no = job["accession_number"]
@@ -33,25 +36,36 @@ def run_writer():
                 result_json = job["result_json"]
                 
                 try:
-                    # 2. DuckDB への書き込みフェーズ (SAVING)
-                    queue.update_job_status(acc_no, "SAVING", "writer")
-                    
                     if not result_json:
-                        raise ValueError(f"Empty result_json for {acc_no}")
-                        
+                        logger.warning(f"Empty result_json for {acc_no}, skipping.")
+                        continue
+                    
                     facts = json.loads(result_json)
-                    storage = storage_jp if market == "jp" else storage_us
+                    if market == "jp":
+                        batch_jp.append((acc_no, ticker, facts))
+                    else:
+                        batch_us.append((acc_no, ticker, facts))
                     
-                    # 3. DuckDB に書き込み (直列なので競合しない)
-                    storage.save_structuring(acc_no, ticker, facts)
+                    job_acc_nos.append(acc_no)
                     
-                    # 4. 完了マーク
-                    queue.complete_job(acc_no)
-                    logger.success(f"[Writer] Successfully serialized {acc_no} ({ticker}) to {market.upper()} DuckDB")
-                    
+                    # ステータスを一旦 SAVING に変更 (一括で行うと効率的)
+                    queue.update_job_status(acc_no, "SAVING", "writer")
                 except Exception as e:
-                    logger.exception(f"[Writer] Failed to serialize job {acc_no}: {e}")
-                    queue.fail_job(acc_no, f"SERIALIZE_ERR: {str(e)}")
+                    logger.error(f"Error preparing batch for {acc_no}: {e}")
+                    queue.fail_job(acc_no, f"PREPARE_ERR: {str(e)}")
+
+            # 3. DuckDB に一括書き込み
+            if batch_jp:
+                storage_jp.save_structuring_batch(batch_jp)
+            if batch_us:
+                storage_us.save_structuring_batch(batch_us)
+            
+            # 4. 全ジョブを完了マーク
+            for acc_no in job_acc_nos:
+                queue.complete_job(acc_no)
+            
+            if job_acc_nos:
+                logger.success(f"[Writer] Successfully bulk serialized {len(job_acc_nos)} jobs.")
                     
         except Exception as e:
             logger.exception(f"[Writer] Critical error in writer loop: {e}")
