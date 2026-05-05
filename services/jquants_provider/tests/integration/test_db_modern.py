@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 from src.core.schema import TABLE_SCHEMAS
 from src.core.contracts import JPTickerContract, JPPriceContract, JPFactContract
@@ -32,37 +33,24 @@ def test_catalog_shard_tracking(mocker):
     """
     Integration Test: Verify that catalog correctly tracks shard state.
     """
-    test_master = Path("data/test_master.duckdb")
-    if test_master.exists():
-        test_master.unlink()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_master = Path(tmpdir) / "test_master.duckdb"
+        
+        # Override catalog path
+        mocker.patch("src.core.config.settings.MASTER_DB_PATH", test_master)
+        from src.core.catalog import catalog_manager
 
-    # Override catalog path
-    mocker.patch("src.core.config.settings.MASTER_DB_PATH", test_master)
-    from src.core.catalog import CatalogManager
+        # 1. Update status
+        catalog_manager.update_shard_status(
+            shard_name="test_shard",
+            table_name="test_table",
+            last_session_id="session-1",
+            last_date="20260505",
+            record_count=100,
+        )
 
-    local_catalog = CatalogManager(test_master)
-
-    # 1. Register a shard
-    local_catalog.update_shard_status(
-        shard_name="test_shard",
-        file_path="data/test_shard.duckdb",
-        version=1,
-        status="active",
-        records_count=100,
-    )
-
-    # 2. Retrieve and Verify
-    info = local_catalog.get_shard_info("test_shard")
-    assert info is not None
-    assert info["shard_name"] == "test_shard"
-    assert info["records_count"] == 100
-    assert info["schema_version"] == 1
-
-    if test_master.exists():
-        test_master.unlink()
-
-    assert info["records_count"] == 100
-    assert info["schema_version"] == 1
-
-    if test_master.exists():
-        test_master.unlink()
+        # 2. Retrieve and Verify
+        status = catalog_manager.get_shard_status("test_shard", "test_table")
+        assert status is not None
+        assert status["last_session_id"] == "session-1"
+        assert status["record_count"] == 100

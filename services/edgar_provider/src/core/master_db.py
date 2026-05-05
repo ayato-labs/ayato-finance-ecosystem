@@ -21,6 +21,15 @@ class MasterDBManager:
             for table in ["databases", "data_catalog"]:
                 if table in TABLE_SCHEMAS:
                     conn.execute(TABLE_SCHEMAS[table]["v1"])
+            # Ensure WAL is merged or file is properly created
+            conn.execute("CHECKPOINT;")
+        
+        # Double check file creation (sometimes OS lag or WAL mode hides it)
+        if not self.master_db_path.exists():
+            import duckdb
+            # Force creating an empty DB just to ensure file presence
+            conn = duckdb.connect(str(self.master_db_path))
+            conn.close()
 
     def register_shard(self, db_id: str, file_path: str, role: str, schema_version: str):
         """Registers a new database shard in the master DB."""

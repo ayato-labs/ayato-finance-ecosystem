@@ -24,8 +24,10 @@ def test_chaos_db_locking():
             errors.append(e)
 
     threads = [threading.Thread(target=heavy_writer) for _ in range(5)]
-    for t in threads: threads.start()
-    for t in threads: t.join()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
     
     # We expect our DuckDBManager to handle retries and succeed
     assert len(errors) == 0, f"Encountered {len(errors)} locking errors: {errors}"

@@ -8,8 +8,8 @@ def test_parse_edinet_csv_valid():
     Unit Test: Verify CSV parsing logic with a synthetic ZIP containing Shift-JIS encoded CSV.
     No mocking of external APIs here (pure logic).
     """
-    # 1. Create a dummy CSV in Shift-JIS
-    csv_content = "item_id,item_name,v1,v2,v3,v4,v5,unit,value\n1,Sales,x,x,x,x,x,JPY,1000\n2,Profit,x,x,x,x,x,JPY,200"
+    # 1. Create a dummy CSV in Shift-JIS (2 header lines as per real EDINET CSV)
+    csv_content = "Header1\nitem_id,item_name,v1,v2,v3,v4,v5,unit,value\n1,Sales,x,x,x,x,x,JPY,1000\n2,Profit,x,x,x,x,x,JPY,200"
     encoded_csv = csv_content.encode("shift-jis")
     
     # 2. Create a dummy ZIP in memory

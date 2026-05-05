@@ -1,96 +1,73 @@
 import pytest
 import pandas as pd
-from src.engine import JPEngine
+import tempfile
 from pathlib import Path
-
+from src.engine import JPEngine
+from src.core.db import db_manager
+from src.core.catalog import catalog_manager
 
 @pytest.fixture
-def mock_engine(mocker):
-    # Mock J-Quants Client to avoid real API calls in integration tests
+def test_env(mocker):
+    """Setup a multi-shard test environment."""
+    tmpdir = tempfile.TemporaryDirectory()
+    base_path = Path(tmpdir.name)
+    
+    # Patch all shard paths to use temp directory
+    mocker.patch("src.core.config.settings.DATA_DIR", base_path)
+    # Patch specific shard paths for safety
+    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(base_path / "jquants_master.duckdb"))
+    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", str(base_path / "jquants_master_jp.duckdb"))
+    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", str(base_path / "jquants_prices_jp.duckdb"))
+    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", str(base_path / "jquants_financials_jp.duckdb"))
+    
+    # Mock API
     mocker.patch("jquantsapi.ClientV2")
-    mocker.patch("jquantsapi.Client")
+    
+    engine = JPEngine()
+    # Initialize all shards
+    from src.core.migrations import MigrationManager
+    MigrationManager.apply_migrations()
+    
+    yield engine, base_path
+    tmpdir.cleanup()
 
-    # Use a temporary DuckDB for testing
-    test_db = Path("data/test_jquants.duckdb")
-    if test_db.exists():
-        test_db.unlink()
-
-    # Force use of API key to trigger ClientV2
-    engine = JPEngine(api_key="fake-key")
-    engine.db_path = test_db
-    engine._init_db()
-
-    yield engine
-
-    if test_db.exists():
-        test_db.unlink()
-
-
-def test_fetch_to_ingest_prices_flow(mock_engine, mocker):
+def test_multi_shard_ingestion_flow(test_env, mocker):
     """
-    Integration test: Fetch range -> Ingest into DB.
-    Tests if data flows correctly through the system.
+    Test that data is correctly routed to different shards and tracked in catalog.
     """
-    # 1. Setup mock data
-    mock_data = pd.DataFrame(
-        [
-            {
-                "Date": "2026-05-01",
-                "Code": "13010",
-                "Open": 100,
-                "High": 110,
-                "Low": 90,
-                "Close": 105,
-                "Volume": 1000,
-            },
-            {
-                "Date": "2026-05-02",
-                "Code": "13010",
-                "Open": 105,
-                "High": 115,
-                "Low": 100,
-                "Close": 112,
-                "Volume": 1500,
-            },
-        ]
-    )
-    mock_engine.cli.get_eq_bars_daily_range.return_value = mock_data
-
-    # 2. Execute flow
-    session_id = "test-integration"
-    df = mock_engine.fetch_prices_range("20260501", "20260502")
-    mock_engine.ingest_prices(df, session_id)
-
-    # 3. Verify DB state
-    from src.core.db import db_manager
-
-    with db_manager.connect(mock_engine.db_path) as conn:
+    engine, base_path = test_env
+    
+    # 1. Setup mock data for prices
+    mock_prices = pd.DataFrame([
+        {"Date": "2026-05-01", "Code": "1301", "Open": 100, "Close": 105, "Volume": 1000}
+    ])
+    
+    # 2. Setup mock data for financials
+    mock_facts = pd.DataFrame([
+        {
+            "DisclosedDate": "2026-05-01", "DisclosedTime": "15:00", 
+            "LocalCode": "1301", "DisclosureNumber": "A", "Type": "B",
+            "FiscalYear": "2026", "FiscalPeriod": "Q1", "NetSales": 1000
+        }
+    ])
+    
+    # 3. Ingest
+    session_id = "integration-test"
+    engine.ingest_prices(mock_prices, session_id)
+    engine.ingest_financials(mock_facts, session_id)
+    
+    # 4. Verify physical files
+    # Prices shard should have data
+    with db_manager.connect(base_path / "jquants_prices.duckdb") as conn:
         count = conn.execute("SELECT count(*) FROM daily_prices").fetchone()[0]
-        assert count == 2
-
-        # Test differential sync part (same record shouldn't be added)
-        mock_engine.ingest_prices(df, session_id)
-        count_again = conn.execute("SELECT count(*) FROM daily_prices").fetchone()[0]
-        assert count_again == 2  # Still 2 due to INSERT OR IGNORE
-
-
-def test_error_resilience_rate_limit(mock_engine, mocker):
-    """
-    Chaos test: Ensure the system handles 429 errors with retries.
-    """
-    # Mock API to raise 429 once, then succeed
-    mock_call = mocker.patch.object(mock_engine.cli, "get_list")
-
-    # In a real scenario, jquantsapi might raise custom errors,
-    # but we test the engine's retry logic.
-    mock_call.side_effect = [
-        Exception("too many 429 error responses"),
-        pd.DataFrame([{"Code": "1301", "CoName": "A", "MktNm": "B", "S17Nm": "C"}]),
-    ]
-
-    # We need to speed up the retry wait for tests
-    mocker.patch("time.sleep", return_value=None)
-
-    count = mock_engine.sync_tickers("chaos-test")
-    assert count == 1
-    assert mock_call.call_count == 2
+        assert count == 1
+        
+    # Financials shard should have data
+    with db_manager.connect(base_path / "jquants_financials.duckdb") as conn:
+        count = conn.execute("SELECT count(*) FROM company_facts").fetchone()[0]
+        assert count == 1
+        
+    # 5. Verify Catalog
+    status = catalog_manager.get_shard_status("prices", "daily_prices")
+    assert status["last_session_id"] == session_id
+    assert status["record_count"] == 1

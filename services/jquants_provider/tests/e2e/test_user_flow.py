@@ -1,49 +1,44 @@
 import pytest
+import tempfile
 from pathlib import Path
+from main import main
+import sys
 
-
-def test_full_sync_user_flow(mocker):
+def test_full_sync_cli_flow(mocker):
     """
-    E2E Test: Runs the main CLI with mocked API calls to simulate a full user sync flow.
+    E2E Test: Simulate running 'main.py --sync-tickers' and verify it completes.
     """
-    mocker.patch("jquantsapi.ClientV2")
-
-    test_db = Path("data/e2e_jquants.duckdb")
-    if test_db.exists():
-        test_db.unlink()
-
-    # Mock settings to use test DB
-    mocker.patch("src.core.config.settings.DB_PATH", test_db)
-
-    # Mock engine behavior
-    mocker.patch("src.engine.JPEngine.sync_tickers", return_value=1)
-
-    from main import main
-    import sys
-
-    # Simulate: python main.py --sync-tickers
+    tmpdir = tempfile.TemporaryDirectory()
+    base_path = Path(tmpdir.name)
+    
+    # Mock settings
+    mocker.patch("src.core.config.settings.DATA_DIR", base_path)
+    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(base_path / "master.duckdb"))
+    
+    # Mock engine to avoid real heavy sync
+    mocker.patch("src.engine.JPEngine.sync_tickers", return_value=10)
+    
+    # Simulate CLI args
     sys.argv = ["main.py", "--sync-tickers"]
-    main()
+    
+    # Execute main
+    try:
+        main()
+    except SystemExit as e:
+        assert e.code == 0
+        
+    # Verify master shard exists (created by MigrationManager during JPEngine init in main)
+    assert (base_path / "master.duckdb").exists()
+    tmpdir.cleanup()
 
-    # Verify (though engine logic is mocked, this ensures main() runs without crashing)
-    assert test_db.exists()
-
-    if test_db.exists():
-        test_db.unlink()
-
-
-def test_hard_api_failure_handling(mocker):
+def test_cli_failure_exit_code(mocker):
     """
-    Comprehensive Test: Ensure the system doesn't crash on total API blackout.
+    E2E Test: Verify that a fatal error in engine results in exit code 1.
     """
-    mocker.patch("jquantsapi.ClientV2", side_effect=Exception("API Down"))
-
-    from main import main
-    import sys
-
+    mocker.patch("src.engine.JPEngine.sync_tickers", side_effect=Exception("Critical Failure"))
+    
     sys.argv = ["main.py", "--sync-tickers"]
-
-    # We expect SystemExit(1) now that we have a global try-except in main()
+    
     with pytest.raises(SystemExit) as excinfo:
         main()
     assert excinfo.value.code == 1
