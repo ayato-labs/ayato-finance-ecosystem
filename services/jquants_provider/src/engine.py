@@ -1,4 +1,5 @@
 import pandas as pd
+import datetime
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -25,6 +26,7 @@ class JPEngine:
         self.refresh_token = (
             refresh_token if refresh_token is not None else settings.JQUANTS_REFRESH_TOKEN
         )
+        self._lookup_cache = {}  # Cache for market/sector IDs
 
         if not jquantsapi:
             raise ImportError("jquants-api-client is not installed.")
@@ -104,18 +106,25 @@ class JPEngine:
         return self._sync_tickers_logic(session_id)
 
     def _get_lookup_id(self, table_name: str, name: str) -> int:
-        """Get or create a lookup ID for a normalized name."""
+        """Get or create a lookup ID for a normalized name with caching."""
         if not name:
             return 0
+        
+        cache_key = (table_name, name)
+        if cache_key in self._lookup_cache:
+            return self._lookup_cache[cache_key]
+
         with db_manager.connect(self.db_path) as conn:
             res = conn.execute(f"SELECT id FROM {table_name} WHERE name = ?", (name,)).fetchone()
             if res:
+                self._lookup_cache[cache_key] = res[0]
                 return res[0]
             
             # Create new ID
             max_id = conn.execute(f"SELECT MAX(id) FROM {table_name}").fetchone()[0] or 0
             new_id = max_id + 1
             conn.execute(f"INSERT INTO {table_name} (id, name) VALUES (?, ?)", (new_id, name))
+            self._lookup_cache[cache_key] = new_id
             return new_id
 
     def _sync_tickers_logic(self, session_id: str | None = None) -> int:
