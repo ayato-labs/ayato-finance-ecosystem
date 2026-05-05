@@ -1,63 +1,57 @@
 import sys
 from pathlib import Path
 
-# Add project root to sys.path to import src
+# Add src to path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.core.schema import TABLE_SCHEMAS, CATALOG_SCHEMA
 
-
 def generate_markdown():
-    """Generates a Markdown document summarizing the database schema."""
-    lines = [
-        "# J-Quants Provider Database Schema Definition",
-        "",
-        "> [!IMPORTANT]",
-        "> This document is automatically generated from `src/core/schema.py`. Do not edit manually.",
-        "",
-        "## Overview",
-        "This project uses DuckDB for historical data storage. Sharding is supported, and all shards are tracked via a central master catalog.",
-        "",
-        "## Table Definitions",
-        "",
-    ]
+    output = []
+    output.append("# Database Schema Documentation")
+    output.append("\n*This document is automatically generated from the Schema-as-Code definition in `src/core/schema.py`.*")
+    
+    output.append("\n## Table of Contents")
+    for table_name in TABLE_SCHEMAS.keys():
+        output.append(f"- [{table_name}](#{table_name.replace('_', '-')})")
+    
+    output.append("\n---")
+    
+    for table_name, schema in TABLE_SCHEMAS.items():
+        output.append(f"\n## {table_name}")
+        output.append(f"\n**Description:** {schema.get('description', 'N/A')}")
+        output.append(f"\n**Shard:** `{schema.get('shard', 'master')}`")
+        output.append(f"\n**Version:** {schema.get('version', 1)}")
+        
+        if "columns" in schema:
+            output.append("\n### Columns")
+            output.append("| Column | Description |")
+            output.append("| --- | --- |")
+            for col, desc in schema["columns"].items():
+                output.append(f"| {col} | {desc} |")
+        
+        output.append("\n### SQL Definition")
+        output.append("```sql")
+        output.append(schema["sql"].strip())
+        output.append("```")
+        output.append("\n---")
 
-    # Combined all schemas for documentation
-    all_schemas = {**TABLE_SCHEMAS, **CATALOG_SCHEMA}
+    # Catalog
+    output.append("\n## Catalog Manager (master.duckdb)")
+    for table_name, schema in CATALOG_SCHEMA.items():
+        output.append(f"\n### {table_name}")
+        output.append(f"\n{schema.get('description', 'N/A')}")
+        output.append("\n```sql")
+        output.append(schema["sql"].strip())
+        output.append("```")
 
-    for table_name, info in all_schemas.items():
-        lines.append(f"### `{table_name}`")
-        lines.append(f"- **Version**: {info['version']}")
-        lines.append(f"- **Description**: {info['description']}")
-        lines.append("")
-        lines.append("#### SQL Schema")
-        lines.append("```sql")
-        # Strip leading whitespace from each line for cleaner SQL blocks
-        sql_clean = "\n".join([line.strip() for line in info["sql"].strip().split("\n")])
-        lines.append(sql_clean)
-        lines.append("```")
-        lines.append("")
-
-    lines.append("## Indices")
-    lines.append("The following indices are applied to optimize query performance:")
-    lines.append("```sql")
-    from src.core.schema import INDEX_SCHEMAS
-
-    for idx in INDEX_SCHEMAS:
-        lines.append(idx)
-    lines.append("```")
-
-    return "\n".join(lines)
-
+    docs_dir = Path(__file__).parent.parent / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    
+    with open(docs_dir / "DATABASE_SCHEMA.md", "w", encoding="utf-8") as f:
+        f.write("\n".join(output))
+    
+    print(f"Documentation generated at {docs_dir / 'DATABASE_SCHEMA.md'}")
 
 if __name__ == "__main__":
-    docs_dir = Path("docs")
-    docs_dir.mkdir(exist_ok=True)
-
-    md_content = generate_markdown()
-
-    output_path = docs_dir / "DATABASE.md"
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
-
-    print(f"✅ Documentation successfully generated at: {output_path}")
+    generate_markdown()

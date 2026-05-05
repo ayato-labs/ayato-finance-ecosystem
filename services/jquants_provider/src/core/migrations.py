@@ -76,3 +76,10 @@ class MigrationManager:
                             break
 
             logger.info(f"Migrations for [{shard_name}] completed successfully.")
+
+        # 5. Automatically update documentation
+        try:
+            from scripts.generate_db_docs import generate_markdown
+            generate_markdown()
+        except Exception as e:
+            logger.warning(f"Failed to auto-generate documentation: {e}")
