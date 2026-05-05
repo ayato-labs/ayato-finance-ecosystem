@@ -33,10 +33,13 @@ class MigrationManager:
                 if current_version < target_version:
                     logger.info(f"Upgrading {table_name}: v{current_version} -> v{target_version}")
 
-                    # For v1, we just run the create script
-                    # For future versions, we would implement incremental alter scripts
-                    if current_version == 0:
+                    # Execute the creation/upgrade SQL
+                    # Note: If table exists, CREATE TABLE IF NOT EXISTS will do nothing.
+                    # For breaking changes, manual DROP or ALTER is required.
+                    try:
                         conn.execute(schema_info["sql"])
+                    except Exception as e:
+                        logger.warning(f"Could not automatically apply schema for {table_name}: {e}")
 
                     # 3. Update history
                     conn.execute(
