@@ -8,12 +8,12 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from src.config import USER_AGENT
+from src.db.master_db import JobQueue
 from src.edgar_fetcher import EdgarFetcher
 from src.edgar_parser import EdgarParser
 from src.edinet_fetcher import EdinetFetcher
 from src.edinet_parser import EdinetParser
 from src.storage import FinancialNarrativeStorage
-from src.db.master_db import JobQueue
 
 # .envファイルをロード
 load_dotenv()
@@ -85,6 +85,7 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
 
 
 async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
+    """JP市場の書類を同期する"""
     today = date.today()
 
     async def process_jp_doc(doc):
@@ -126,7 +127,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
                         }
                         async with jp_db_write_lock:
                             await asyncio.to_thread(storage.save_filing, metadata, sections)
-                        
+
                         # 即座にジョブキューに登録 (構造化ワーカーへの通知)
                         await asyncio.to_thread(queue.enqueue_job, doc_id, ticker, "jp")
 
@@ -153,20 +154,15 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
 
 
 async def sync_recent_us_filings(fetcher, parser, storage, queue, days=7):
-    """
-    SEC Daily Index (RSS) を利用して、直近 X 日間に提出された書類を高速に同期する。
-    10,000銘柄を一つずつチェックする旧来の方式より数千倍高速。
-    """
+    """SEC Daily Index (RSS) を利用して、US市場の書類を高速に同期する。"""
     try:
         logger.info(f"Scanning US daily indices for the last {days} days...")
         recent_filings = await asyncio.to_thread(fetcher.get_recent_filings_from_index, days=days)
-        
+
         if not recent_filings:
             logger.info("No new US filings found in index.")
             return
 
-        # 興味のある書類タイプ (10-K, 10-Q) のみ、または定性情報が含まれるものに限定してもよい
-        # ここでは Ingestion の原則「すべて拾う」に基づき全件チェックする
         for filing in recent_filings:
             try:
                 acc_no = filing["accessionNumber"]
@@ -175,9 +171,11 @@ async def sync_recent_us_filings(fetcher, parser, storage, queue, days=7):
 
                 # 詳細情報の取得と保存
                 await download_and_save_us_filing(filing, fetcher, parser, storage, queue)
-                await asyncio.sleep(0.1) # SEC Rate Limit 配慮
+                await asyncio.sleep(0.1)  # SEC Rate Limit 配慮
             except Exception:
-                logger.exception(f"Error processing US filing from index | acc_no={filing.get('accessionNumber')}")
+                logger.exception(
+                    f"Error processing US filing from index | acc_no={filing.get('accessionNumber')}"
+                )
 
     except Exception:
         logger.exception("Critical failure during index-based US synchronization")
@@ -190,13 +188,13 @@ async def download_and_save_us_filing(filing, fetcher, parser, storage, queue):
     cik = filing["cik"]
     acc_no_clean = acc_no.replace("-", "")
     doc_name = filing["primaryDocument"]
-    
+
     # URLの組み立て
     url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc_no_clean}/{doc_name}"
-    
+
     logger.info(f"Downloading US filing | ticker={ticker} | acc_no={acc_no}")
     resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
-    
+
     if resp.status_code != 200:
         logger.warning(f"Failed to download filing | status={resp.status_code} | url={url}")
         return
@@ -206,15 +204,16 @@ async def download_and_save_us_filing(filing, fetcher, parser, storage, queue):
         filing_metadata = filing.copy()
         async with us_db_write_lock:
             await asyncio.to_thread(storage.save_filing, filing_metadata, sections)
-        
+
         # 即座にジョブキューに登録
         await asyncio.to_thread(queue.enqueue_job, acc_no, ticker, "us")
-    
+
     del resp
     gc.collect()
 
 
 async def process_us_ticker(ticker, fetcher, parser, storage, queue, days=7):
+    """特定US銘柄の処理"""
     try:
         subs = await asyncio.to_thread(fetcher.get_latest_submissions, ticker)
         if not subs:
@@ -232,18 +231,22 @@ async def process_us_ticker(ticker, fetcher, parser, storage, queue, days=7):
                 acc_no = filing["accessionNumber"]
                 if storage.filing_exists(acc_no):
                     continue
-                
+
                 filing["cik"] = fetcher.get_cik(ticker).lstrip("0")
                 await download_and_save_us_filing(filing, fetcher, parser, storage, queue)
                 await asyncio.sleep(0.1)
             except Exception:
-                logger.exception(f"Error processing US ticker filing | ticker={ticker} | acc_no={filing.get('accessionNumber')}")
+                logger.exception(
+                    f"Error processing US ticker filing | "
+                    f"ticker={ticker} | acc_no={filing.get('accessionNumber')}"
+                )
 
     except Exception:
         logger.exception(f"Failed to process US ticker | ticker={ticker}")
 
 
 async def process_jp_ticker(ticker, fetcher, parser, storage):
+    """特定JP銘柄の処理"""
     try:
         edinet_code = fetcher.get_edinet_code(ticker)
         if not edinet_code:
@@ -296,10 +299,10 @@ if __name__ == "__main__":
 
     setup_logging("batch")
 
-    parser = argparse.ArgumentParser(description="Financial Narratives Data Lake Ingestion")
-    parser.add_argument("--days", type=int, default=7, help="Number of days to look back")
-    parser.add_argument("--tickers", nargs="+", help="Specific tickers to fetch")
+    arg_parser = argparse.ArgumentParser(description="Financial Narratives Data Lake Ingestion")
+    arg_parser.add_argument("--days", type=int, default=7, help="Number of days to look back")
+    arg_parser.add_argument("--tickers", nargs="+", help="Specific tickers to fetch")
 
-    args = parser.parse_args()
+    args = arg_parser.parse_args()
 
     asyncio.run(batch_fetch(tickers=args.tickers, days=args.days))

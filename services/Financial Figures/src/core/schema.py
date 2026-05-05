@@ -274,6 +274,18 @@ TABLE_SCHEMAS: dict[str, dict[str, dict[str, str]]] = {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """
+        },
+        "tag_mappings": {
+            "v1": """
+                CREATE TABLE tag_mappings (
+                    source_tag VARCHAR PRIMARY KEY,
+                    mapped_label VARCHAR,
+                    confidence DOUBLE,
+                    model_name VARCHAR,
+                    reasoning VARCHAR,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """
         }
     },
 }

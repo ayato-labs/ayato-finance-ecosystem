@@ -204,3 +204,48 @@ class EDINETStorage:
         except Exception as e:
             logger.error(f"Failed to save reconciliation audit log: {e}", exc_info=True)
             raise
+
+    def get_tag_mappings(self, source_tags: list[str]) -> dict[str, dict]:
+        """Retrieves cached AI mappings from the NORM database."""
+        if not source_tags:
+            return {}
+        try:
+            with db_manager.connect(self.norm_db_path, read_only=True) as con:
+                placeholders = ",".join(["?"] * len(source_tags))
+                res = con.execute(
+                    f"SELECT source_tag, mapped_label, confidence, reasoning, model_name "
+                    f"FROM tag_mappings WHERE source_tag IN ({placeholders})",
+                    source_tags
+                ).fetchall()
+                return {
+                    r[0]: {
+                        "mapped_label": r[1],
+                        "confidence": r[2],
+                        "reasoning": r[3],
+                        "model": r[4]
+                    } for r in res
+                }
+        except Exception as e:
+            logger.error(f"Error fetching cached mappings: {e}")
+            return {}
+
+    def save_tag_mappings(self, mappings: list[dict]):
+        """Persists new AI mappings to the NORM database cache."""
+        if not mappings:
+            return
+        try:
+            with db_manager.connect(self.norm_db_path, read_only=settings.db_read_only) as con:
+                con.executemany(
+                    """
+                    INSERT OR REPLACE INTO tag_mappings (
+                        source_tag, mapped_label, confidence, reasoning, model_name
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (m["source_tag"], m["mapped_label"], m.get("confidence", 0.0), 
+                         m.get("reasoning", ""), m.get("model", "unknown"))
+                        for m in mappings
+                    ]
+                )
+        except Exception as e:
+            logger.error(f"Failed to cache tag mappings: {e}")

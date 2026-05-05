@@ -1,4 +1,6 @@
+import random
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +39,6 @@ class JobQueue:
 
     def _execute_with_retry(self, query: str, params: tuple = (), commit: bool = True):
         """SQLiteのロック競合時に自動リトライするヘルパー"""
-        import time
-        import random
         for attempt in range(10):
             try:
                 with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
@@ -55,17 +55,15 @@ class JobQueue:
                     wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.2)
                     time.sleep(wait_time)
                     continue
-                logger.exception(f"SQL OperationalError: {e} | Query: {query}")
+                logger.error(f"SQL OperationalError: {e} | Query: {query}")
                 raise e
             except Exception as e:
-                logger.exception(f"SQL Error: {e} | Query: {query}")
+                logger.error(f"SQL Error: {e} | Query: {query}")
                 raise e
         raise RuntimeError(f"Database locked for too long: {query}")
 
     def enqueue_job(self, accession_number: str, ticker: str, market: str) -> bool:
-        """
-        未処理のジョブをキューに登録する。
-        """
+        """未処理のジョブをキューに登録する。"""
         try:
             query = '''
                 INSERT INTO jobs (accession_number, ticker, market, status)
@@ -83,13 +81,8 @@ class JobQueue:
             return False
 
     def dequeue_job(self) -> dict[str, Any] | None:
-        """
-        アトミックに未処理のジョブを1つ取得し、ステータスを 'PROCESSING' に変更する。
-        """
+        """アトミックに未処理のジョブを1つ取得し、ステータスを 'PROCESSING' に変更する。"""
         try:
-            # RETURNING を使うため _execute_with_retry をラップせずに書く
-            import time
-            import random
             for attempt in range(10):
                 try:
                     with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
@@ -185,12 +178,12 @@ class JobQueue:
         try:
             query = '''
                 UPDATE jobs
-                SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'System restart reset'
+                SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'Restart reset'
                 WHERE status IN ('PROCESSING', 'FETCHING', 'LLM_WAITING', 'SAVING')
             '''
             cursor = self._execute_with_retry(query)
             if cursor.rowcount > 0:
-                logger.info(f"Forcefully reset {cursor.rowcount} active/waiting jobs to PENDING for system restart.")
+                logger.info(f"Forcefully reset {cursor.rowcount} active jobs to PENDING.")
         except Exception:
             logger.exception("Failed to force reset active jobs")
 
@@ -212,7 +205,9 @@ class JobQueue:
     def get_stats(self) -> dict[str, int]:
         """キューの状態を取得する"""
         try:
-            cursor = self._execute_with_retry('SELECT status, COUNT(*) FROM jobs GROUP BY status', commit=False)
+            cursor = self._execute_with_retry(
+                'SELECT status, COUNT(*) FROM jobs GROUP BY status', commit=False
+            )
             rows = cursor.fetchall()
             stats = {row[0]: row[1] for row in rows}
             for state in ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'PARSED']:

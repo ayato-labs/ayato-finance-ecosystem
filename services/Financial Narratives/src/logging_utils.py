@@ -37,13 +37,12 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     log_dir.mkdir(exist_ok=True)
 
     # 実行ごとに新しいログファイルを作成し、最新3回分のみ保持する設定
-    # {time} を含めることで、起動のたびに新しいファイルが生成される
     log_file_pattern = log_dir / f"{unit_name}_{{time:YYYYMMDD_HHmmss}}.log"
 
     # 全ログに run_id を付与する設定
     logger.configure(extra={"run_id": run_id, "unit": unit_name})
 
-    # 1. コンソール出力 (人間用)
+    # 1. コンソール出力 (開発者用: 視認性重視)
     console_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
         "<level>{level: <8}</level> | "
@@ -53,37 +52,36 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     )
     logger.add(sys.stderr, format=console_format, level=log_level, colorize=True, enqueue=True)
 
-    # 2. ファイル出力 (JSON / 構造化ログ)
-    # retention=2 により、最新の2ファイルのみを保持する
+    # 2. ファイル出力 (運用・分析用: 完全構造化JSON)
+    # rotation="00:00" または 起動時ローテーション を模倣するため、常に新規ファイルを作成し、
+    # retention=2 によって直近2回分のみを保持する。
     logger.add(
         str(log_file_pattern),
-        format="{message}",
         level=log_level,
-        rotation="100 MB",
-        retention=2,
-        serialize=True,
-        enqueue=True,
+        serialize=True,     # JSON形式で出力
+        enqueue=True,       # マルチプロセス安全
+        rotation="1 day",   # またはファイルサイズ
+        retention=2,        # 直近2世代のみ保持
+        backtrace=True,
+        diagnose=True,
     )
 
-    # 3. エラーログの隔離保存 (ERROR以上のみ)
-    # 障害調査用に、エラーログは全コンポーネント共通の error.log に集約しつつ、
-    # 直近の大きなエラーを逃さないようにする
+    # 3. エラーログの隔離保存 (重大な問題のみ)
+    # 複数のコンポーネントで発生したエラーを一箇所で監視できるようにする
     error_log_path = log_dir / "error.log"
     logger.add(
         str(error_log_path),
-        format="{message}",
         level="ERROR",
-        rotation="50 MB",
-        retention=10,  # エラーログは多めに保持
         serialize=True,
         enqueue=True,
+        rotation="10 MB",
+        retention=5,
         backtrace=True,
         diagnose=True,
     )
 
     logger.info(
-        f"Logging initialized | unit={unit_name} | run_id={run_id} | "
-        f"pattern={log_file_pattern} | error_log={error_log_path}"
+        f"Structured logging initialized | unit={unit_name} | run_id={run_id}"
     )
     return logger
 

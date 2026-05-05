@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -15,6 +16,7 @@ class CrossProcessLock:
     Windows環境等でDuckDBのマルチプロセス競合（already open）を防ぐための
     シンプルなファイルベースのロック機構。
     """
+
     def __init__(self, db_path: str, timeout: int = 60):
         self.lock_path = f"{db_path}.lock"
         self.timeout = timeout
@@ -35,9 +37,13 @@ class CrossProcessLock:
                         if time.time() - mtime > 300:
                             try:
                                 os.remove(self.lock_path)
+                                logger.warning(f"Removed stale lock file: {self.lock_path}")
                                 continue
-                            except: pass
-                    raise TimeoutError(f"Could not acquire lock on {self.lock_path} after {self.timeout}s")
+                            except Exception as e:
+                                logger.warning(f"Failed to remove stale lock file: {e}")
+                    raise TimeoutError(
+                        f"Could not acquire lock on {self.lock_path} after {self.timeout}s"
+                    )
                 time.sleep(0.5)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -46,8 +52,8 @@ class CrossProcessLock:
                 os.close(self.fd)
                 if os.path.exists(self.lock_path):
                     os.remove(self.lock_path)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Error during lock release: {e}")
 
 
 class FinancialNarrativeStorage:
@@ -59,9 +65,10 @@ class FinancialNarrativeStorage:
         if db_path:
             self.db_path = db_path
         elif market:
-            if market.lower() == "jp":
+            market_l = market.lower()
+            if market_l == "jp":
                 self.db_path = JP_DB_PATH
-            elif market.lower() == "us":
+            elif market_l == "us":
                 self.db_path = US_DB_PATH
             else:
                 self.db_path = DEFAULT_DB_PATH
@@ -74,21 +81,29 @@ class FinancialNarrativeStorage:
 
     def _connect(self, read_only: bool = False):
         """Windows環境でのファイルロック競合を回避しながらDuckDBに接続する"""
-        import random
         for attempt in range(15):  # 並列度が高いので試行回数を多めに設定
             try:
                 return duckdb.connect(self.db_path, read_only=read_only)
             except Exception as e:
                 err_str = str(e).lower()
                 # Windows特有のロックエラーやIOエラーを捕捉
-                if any(msg in err_str for msg in ["cannot open file", "already open", "lock", "io error", "process cannot access"]):
-                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.5)
+                lock_msgs = [
+                    "cannot open file", "already open", "lock",
+                    "io error", "process cannot access"
+                ]
+                if any(msg in err_str for msg in lock_msgs):
+                    wait_time = (2**attempt) * 0.1 + random.uniform(0, 0.5)
                     if attempt > 3:
-                        logger.warning(f"DB {self.db_path} locked (read_only={read_only}), retrying in {wait_time:.2f}s... ({attempt+1}/15)")
+                        logger.warning(
+                            f"DB {self.db_path} locked (read_only={read_only}), "
+                            f"retrying in {wait_time:.2f}s... ({attempt+1}/15)"
+                        )
                     time.sleep(wait_time)
                     continue
                 raise e
-        raise RuntimeError(f"Failed to connect to DuckDB after maximum retries: {self.db_path}")
+        raise RuntimeError(
+            f"Failed to connect to DuckDB after maximum retries: {self.db_path}"
+        )
 
     def _init_db(self):
         """テーブルの初期化とリソース制限の設定"""
@@ -100,7 +115,9 @@ class FinancialNarrativeStorage:
 
             manager = MigrationManager(conn)
             manager.apply_migrations()
-            logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
+            logger.info(
+                f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit"
+            )
 
     def save_filing(self, metadata: dict, sections: dict):
         """メタデータとセクション情報をDuckDBにUPSERTする"""
@@ -137,7 +154,7 @@ class FinancialNarrativeStorage:
         """AIによって構造化された複数の事実情報を一括保存する"""
         if not batch_data:
             return
-            
+
         with self._connect(read_only=False) as conn:
             # executemany を使って一括挿入
             records = [

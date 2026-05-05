@@ -173,12 +173,40 @@ class EDINETSyncWorker:
                 if tag not in unique_tags:
                     unique_tags[tag] = f["name"]
 
-            tags_to_map = [(tag, desc) for tag, desc in unique_tags.items()]
-            logger.info(f"[MAP] Mapping {len(tags_to_map)} unique tags for {ticker}...")
+            market = "EDINET"
+            # 1. Bulk check cache for these tags
+            prefixed_tags = [f"{market}:{t}" for t in unique_tags.keys()]
+            cached_mappings = self.storage.get_tag_mappings(prefixed_tags)
+            
+            # 2. Separate Known vs Unknown
+            missing_tags = []
+            final_mappings = []
+            for tag, desc in unique_tags.items():
+                full_tag = f"{market}:{tag}"
+                if full_tag in cached_mappings:
+                    m = cached_mappings[full_tag]
+                    final_mappings.append({
+                        "source_tag": full_tag,
+                        "mapped_label": m["mapped_label"],
+                        "confidence": m["confidence"],
+                        "reasoning": m["reasoning"],
+                        "model": m["model"]
+                    })
+                else:
+                    missing_tags.append((tag, desc))
+            
+            # 3. Call AI for unknowns and persist results
+            if missing_tags:
+                logger.info(f"[MAP] Cache HIT: {len(final_mappings)}, MISS: {len(missing_tags)} for {ticker}")
+                new_mappings = self.ai_mapper.map_tags_bulk(market, missing_tags, session_id)
+                if new_mappings:
+                    self.storage.save_tag_mappings(new_mappings)
+                    final_mappings.extend(new_mappings)
+            else:
+                logger.info(f"[MAP] Complete cache HIT for {ticker} ({len(final_mappings)} tags). Skipping AI.")
 
             fiscal_year, fiscal_period = self._extract_fiscal_info(doc)
-            mappings = self.ai_mapper.map_tags_bulk("EDINET", tags_to_map, session_id)
-            tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in mappings}
+            tag_to_label = {m["source_tag"].split(":", 1)[1]: m["mapped_label"] for m in final_mappings}
 
             # 1. Pivot the raw facts into a single wide-format record for SILVER
             wide_record = {
