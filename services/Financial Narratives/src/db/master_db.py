@@ -177,6 +177,20 @@ class JobQueue:
         cursor = self._execute_with_retry(query, (limit,), commit=False)
         return [dict(row) for row in cursor.fetchall()]
 
+    def force_reset_active_jobs(self):
+        """システム起動時、未完了のすべてのアクティブジョブを 'PENDING' に戻す"""
+        try:
+            query = '''
+                UPDATE jobs
+                SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'System restart reset'
+                WHERE status IN ('PROCESSING', 'FETCHING', 'LLM_WAITING', 'SAVING')
+            '''
+            cursor = self._execute_with_retry(query)
+            if cursor.rowcount > 0:
+                logger.info(f"Forcefully reset {cursor.rowcount} active/waiting jobs to PENDING for system restart.")
+        except Exception:
+            logger.exception("Failed to force reset active jobs")
+
     def cleanup_zombie_jobs(self, timeout_minutes: int = 60):
         """長時間停滞しているジョブを 'PENDING' に戻す"""
         try:

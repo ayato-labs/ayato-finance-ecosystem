@@ -81,6 +81,9 @@ class Reconciler:
     def run(self):
         """日米両市場の調停を実行する"""
         try:
+            # 0. 起動時の強制クリーンアップ (アクティブなジョブをすべて PENDING に戻す)
+            self.queue.force_reset_active_jobs()
+
             # 1. ゾンビジョブ (PROCESSING のまま停滞) のクリーンアップ
             self.queue.cleanup_zombie_jobs(timeout_minutes=60)
 
