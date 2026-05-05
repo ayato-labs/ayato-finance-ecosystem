@@ -254,6 +254,8 @@ class JPEngine:
             # fetch_daily_bars is already decorated with @rate_limit and @retry
             df = self.fetch_daily_bars(date_str)
             if df is not None and not df.empty:
+                logger.info(f"Ingesting {len(df)} price records for {date_str}")
+                self.ingest_prices(df, session_id)
                 all_dfs.append(df)
             current += datetime.timedelta(days=1)
             
@@ -273,6 +275,8 @@ class JPEngine:
             # fetch_fin_summary is already decorated with @rate_limit and @retry
             df = self.fetch_fin_summary(date_str)
             if df is not None and not df.empty:
+                logger.info(f"Ingesting {len(df)} financial records for {date_str}")
+                self.ingest_facts(df, session_id)
                 all_dfs.append(df)
             current += datetime.timedelta(days=1)
             
