@@ -53,8 +53,7 @@ async def test_true_asynchronous_overlap_proof():
     # 全体で約0.8〜1.0秒で終わるはず
     duration = end_time - start_time
     assert duration < 1.5, (
-        f"実行時間が長すぎます({duration:.2f}s)。"
-        "非同期オーバーラップが機能していません。"
+        f"実行時間が長すぎます({duration:.2f}s)。非同期オーバーラップが機能していません。"
     )
 
     # 2. 実行順序の証明 (非ブロッキングの証拠):
@@ -63,9 +62,9 @@ async def test_true_asynchronous_overlap_proof():
     t1_struct_end_idx = event_log.index("T1_STRUCT_END")
     t2_fetch_start_idx = event_log.index("T2_FETCH_START")
 
-    assert (
-        t2_fetch_start_idx < t1_struct_end_idx
-    ), "T1の構造化が終わるまでT2のフェッチがブロックされています！"
+    assert t2_fetch_start_idx < t1_struct_end_idx, (
+        "T1の構造化が終わるまでT2のフェッチがブロックされています！"
+    )
 
 
 @pytest.mark.asyncio

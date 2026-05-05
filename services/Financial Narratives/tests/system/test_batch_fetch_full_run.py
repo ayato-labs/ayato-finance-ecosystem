@@ -7,13 +7,12 @@ from src.batch_fetch import batch_fetch
 
 @pytest.fixture
 def mock_dependencies():
-    with patch("src.batch_fetch.EdgarFetcher") as mock_edgar_cls, patch(
-        "src.batch_fetch.EdinetFetcher"
-    ) as mock_edinet_cls, patch(
-        "src.batch_fetch.FinancialNarrativeStorage"
-    ) as mock_storage_cls, patch(
-        "src.batch_fetch.run_structuring_for_filing", new_callable=AsyncMock
-    ) as mock_struct:
+    with (
+        patch("src.batch_fetch.EdgarFetcher") as mock_edgar_cls,
+        patch("src.batch_fetch.EdinetFetcher") as mock_edinet_cls,
+        patch("src.batch_fetch.FinancialNarrativeStorage") as mock_storage_cls,
+        patch("src.batch_fetch.run_structuring_for_filing", new_callable=AsyncMock) as mock_struct,
+    ):
         yield {
             "edgar": mock_edgar_cls.return_value,
             "edinet": mock_edinet_cls.return_value,

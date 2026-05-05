@@ -1,4 +1,4 @@
-from src.engines.us_engine import USEngine
+from src.providers.sec_edgar.engine import USEngine
 
 
 def test_us_engine_fetch_company_facts_real():

@@ -1,8 +1,8 @@
 import pytest
 import duckdb
 from src.core.config import settings
-from src.edinet.storage import EDINETStorage
-from src.edinet.parser import EDINETParser
+from src.providers.edinet.storage import EDINETStorage
+from src.providers.edinet.parser import EDINETParser
 
 def test_parser_resilience_malformed_xml():
     """Test parser with completely broken XML content."""

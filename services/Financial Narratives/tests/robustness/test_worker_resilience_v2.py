@@ -20,9 +20,11 @@ async def test_worker_poison_pill_isolation(robustness_env):
     特定のタスクが「毒入り（致命的な例外を投げる）」であっても、
     他の正常なタスクが巻き添えにならず、システムが止まらないことを証明する。
     """
-    with patch("src.structuring_worker.JobQueue") as mock_q_cls, patch(
-        "src.structuring_worker.FinancialNarrativeStorage"
-    ) as mock_s_cls, patch("src.structuring_worker.FilingStructurer") as mock_st_cls:
+    with (
+        patch("src.structuring_worker.JobQueue") as mock_q_cls,
+        patch("src.structuring_worker.FinancialNarrativeStorage") as mock_s_cls,
+        patch("src.structuring_worker.FilingStructurer") as mock_st_cls,
+    ):
         # Setup real JobQueue and storage with temp paths
         real_queue = JobQueue(db_path=robustness_env["master"])
         mock_q_cls.return_value = real_queue

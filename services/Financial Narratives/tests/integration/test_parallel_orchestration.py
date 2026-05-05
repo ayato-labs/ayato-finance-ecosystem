@@ -16,12 +16,10 @@ async def test_parallel_execution_timing():
         await asyncio.sleep(1)  # 1秒待機
         return []
 
-    with patch(
-        "src.batch_fetch.sync_recent_jp_filings", side_effect=delayed_fetch
-    ) as mock_jp, patch(
-        "src.batch_fetch.sync_recent_us_filings", side_effect=delayed_fetch
-    ) as mock_us:
-
+    with (
+        patch("src.batch_fetch.sync_recent_jp_filings", side_effect=delayed_fetch) as mock_jp,
+        patch("src.batch_fetch.sync_recent_us_filings", side_effect=delayed_fetch) as mock_us,
+    ):
         start_time = time.perf_counter()
 
         # 実行 (daysは任意、モックが呼ばれることを重視)
@@ -33,7 +31,7 @@ async def test_parallel_execution_timing():
         # もし逐次（シリアル）実行なら、1s + 1s = 2s 以上かかるはず。
         # 並列実行なら、ほぼ 1s 程度で終わるはず。
         assert duration < 1.5, (
-            f"Execution took too long ({duration:.2f}s), " "parallelization might be broken."
+            f"Execution took too long ({duration:.2f}s), parallelization might be broken."
         )
         assert mock_jp.called
         assert mock_us.called
@@ -50,10 +48,10 @@ async def test_parallel_error_isolation():
         await asyncio.sleep(0.1)
         return "Success"
 
-    with patch("src.batch_fetch.sync_recent_jp_filings", side_effect=fail_fetch), patch(
-        "src.batch_fetch.sync_recent_us_filings", side_effect=success_fetch
-    ) as mock_us:
-
+    with (
+        patch("src.batch_fetch.sync_recent_jp_filings", side_effect=fail_fetch),
+        patch("src.batch_fetch.sync_recent_us_filings", side_effect=success_fetch) as mock_us,
+    ):
         # batch_fetch自体は例外をキャッチして正常終了するはず（ログにはエラーが出る）
         await batch_fetch(days=1)
 

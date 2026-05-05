@@ -38,9 +38,7 @@ class EdinetParser:
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
                 # Inline XBRL documents are usually in PublicDoc/*.htm
                 html_files = [
-                    f
-                    for f in z.namelist()
-                    if "PublicDoc/" in f and f.endswith((".htm", ".html"))
+                    f for f in z.namelist() if "PublicDoc/" in f and f.endswith((".htm", ".html"))
                 ]
 
                 combined_results = {}
@@ -71,7 +69,7 @@ class EdinetParser:
         results = {}
 
         # 1. まずは ix:nonNumeric タグのブロックをすべて抜き出す (属性の順序に依存しない)
-        tag_pattern = re.compile(r'<(ix:nonNumeric)[^>]*>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
+        tag_pattern = re.compile(r"<(ix:nonNumeric)[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 
         # 2. 抜き出したタグの中から name 属性を抽出する (シングル/ダブルクォート両対応)
         name_pattern = re.compile(r'name\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
@@ -102,12 +100,14 @@ class EdinetParser:
                         table_conversion="github",
                     )
                 except (RecursionError, Exception) as e:
-                    logger.warning(f"Markdown conversion failed (Recursion/Error), falling back to text: {str(e)[:100]}")
+                    logger.warning(
+                        f"Markdown conversion failed (Recursion/Error), falling back to text: {str(e)[:100]}"
+                    )
                     # 2. フォールバック: 生テキスト
                     text = fragment_soup.get_text(separator="\n", strip=True)
             except Exception:
                 # 3. 最終手段: タグ除去
-                text = re.sub(r'<[^>]+>', '', content)
+                text = re.sub(r"<[^>]+>", "", content)
 
             cleaned_text = self.clean_text(text)
             if cleaned_text:
@@ -120,6 +120,7 @@ class EdinetParser:
             logger.debug(f"Found {match_count} ix:nonNumeric blocks in HTML fragment")
 
         return results
+
 
 if __name__ == "__main__":
     # Test with a dummy string

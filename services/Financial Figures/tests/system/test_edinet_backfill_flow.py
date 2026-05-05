@@ -54,7 +54,7 @@ def test_backfill_minimal_end_to_end(tmp_path):
             "E02144,法人,あり,上場,連結,635401,トヨタ自動車,TOYOTA,トヨタ,愛知,輸送用機器,72030,0\n"
         )
 
-    from src.edinet.mapping import EDINETMapper
+    from src.providers.edinet.mapping import EDINETMapper
 
     mapper = EDINETMapper(str(db_path))
     mapper.load_csv(str(csv_path))
@@ -78,9 +78,9 @@ def test_backfill_flow_simulated(tmp_path, mocker):
         )
         f.write("E001,法人,あり,上場,連結,100,TestCo,T,T,T,T,12340,0\n")
 
-    from src.edinet.mapping import EDINETMapper
-    from src.edinet.storage import EDINETStorage
-    from src.edinet.sync_worker import EDINETSyncWorker
+    from src.providers.edinet.mapping import EDINETMapper
+    from src.providers.edinet.storage import EDINETStorage
+    from src.providers.edinet.sync_worker import EDINETSyncWorker
 
     worker = EDINETSyncWorker()
     worker.storage = EDINETStorage(db_path=str(db_path))
@@ -133,9 +133,9 @@ def test_historical_backfill_flow_full(tmp_path, mocker):
         )
         f.write("E001,法人,あり,上場,連結,100,TestCo,T,T,T,T,12340,0\n")
 
-    from src.edinet.mapping import EDINETMapper
-    from src.edinet.storage import EDINETStorage
-    from src.edinet.sync_worker import EDINETSyncWorker
+    from src.providers.edinet.mapping import EDINETMapper
+    from src.providers.edinet.storage import EDINETStorage
+    from src.providers.edinet.sync_worker import EDINETSyncWorker
 
     worker = EDINETSyncWorker()
     worker.storage = EDINETStorage(db_path=str(db_path))

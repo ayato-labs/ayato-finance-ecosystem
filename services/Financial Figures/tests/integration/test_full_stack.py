@@ -35,12 +35,12 @@ def test_full_pipeline_integration(integration_env):
     test_audit_manager = AuditManager(db_path=integration_env["audit"])
 
     with (
-        patch("src.engines.us_engine.httpx.Client") as mock_httpx_cls,
-        patch("src.engines.jp_engine.jquantsapi.ClientV2"),
+        patch("src.providers.sec_edgar.engine.httpx.Client") as mock_httpx_cls,
+        patch("src.providers.jquants.engine.jquantsapi.ClientV2"),
         patch("src.core.audit_manager.audit_manager", test_audit_manager),
         patch("src.services.market_sync.audit_manager", test_audit_manager),
-        patch("src.engines.us_engine.settings") as mock_settings_us,
-        patch("src.engines.jp_engine.settings") as mock_settings_jp,
+        patch("src.providers.sec_edgar.engine.settings") as mock_settings_us,
+        patch("src.providers.jquants.engine.settings") as mock_settings_jp,
     ):
         for s in [mock_settings_us, mock_settings_jp]:
             s.DB_PATH_US = integration_env["us"]
@@ -55,7 +55,7 @@ def test_full_pipeline_integration(integration_env):
             json=lambda: {"1": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}},
         )
 
-        with patch("src.engines.us_engine.USEngine.fetch_company_facts") as mock_fetch:
+        with patch("src.providers.sec_edgar.engine.USEngine.fetch_company_facts") as mock_fetch:
             mock_fetch.return_value = {
                 "cik": "0000320193",
                 "facts": {

@@ -32,7 +32,7 @@ jp_db_write_lock = asyncio.Lock()
 us_db_write_lock = asyncio.Lock()
 
 
-async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
+async def batch_fetch(market: str | None = None, tickers: list[str] | None = None, days: int = 7):
     """
     日米市場の定性データを一括取得・Data Lake(DuckDB)へ保存する。
     構造化は別プロセスのReconciler/Workerに委譲するためここでは行わない。
@@ -42,8 +42,8 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
         f"tickers_specified={tickers is not None} | days={days}"
     )
 
-    storage_jp = FinancialNarrativeStorage(market="jp")
-    storage_us = FinancialNarrativeStorage(market="us")
+    storage_jp = FinancialNarrativeStorage(market="jp") if not market or market == "jp" else None
+    storage_us = FinancialNarrativeStorage(market="us") if not market or market == "us" else None
     edgar_fetcher = EdgarFetcher(USER_AGENT)
     edgar_parser = EdgarParser()
     edinet_fetcher = EdinetFetcher()
@@ -70,10 +70,34 @@ async def batch_fetch(tickers: list[str] | None = None, days: int = 7):
             # 2. 自動同期 (全上場企業対象)
             logger.info(f"Starting automated parallel sync | lookback_days={days}")
 
-            tasks = [
-                sync_recent_jp_filings(edinet_fetcher, edinet_parser, storage_jp, queue, days=days),
-                sync_recent_us_filings(edgar_fetcher, edgar_parser, storage_us, queue, days=days)
-            ]
+            # 2a. 市場全体の最近の書類を同期
+            tasks = []
+            if not market or market == "jp":
+                tasks.append(
+                    sync_recent_jp_filings(
+                        edinet_fetcher, edinet_parser, storage_jp, queue, days=days
+                    )
+                )
+            if not market or market == "us":
+                tasks.append(
+                    sync_recent_us_filings(
+                        edgar_fetcher, edgar_parser, storage_us, queue, days=days
+                    )
+                )
+
+            # 2b. デフォルト銘柄リストについては深掘り同期を実行
+            for ticker in TICKERS:
+                is_jp = ticker.isdigit()
+                if is_jp and (not market or market == "jp"):
+                    tasks.append(
+                        process_jp_ticker(ticker, edinet_fetcher, edinet_parser, storage_jp)
+                    )
+                if not is_jp and (not market or market == "us"):
+                    tasks.append(
+                        process_us_ticker(
+                            ticker, edgar_fetcher, edgar_parser, storage_us, queue, days=days
+                        )
+                    )
 
             try:
                 await asyncio.gather(*tasks)
@@ -151,13 +175,13 @@ async def sync_recent_jp_filings(fetcher, parser, storage, queue, days=7):
                 continue
 
             logger.info(f"Syncing {target_date} | Found {len(relevant_docs)} target filings")
-            
+
             # 並列実行
             tasks = [process_doc(d) for d in relevant_docs]
             await asyncio.gather(*tasks)
-            
+
             await asyncio.sleep(1.0)
-            
+
         except Exception:
             logger.exception(f"Failed to sync JP filings for {target_date}")
 
@@ -242,6 +266,7 @@ async def process_us_ticker(ticker, fetcher, parser, storage, queue, days=7):
                     continue
 
                 filing["cik"] = fetcher.get_cik(ticker).lstrip("0")
+                filing["ticker"] = ticker
                 await download_and_save_us_filing(filing, fetcher, parser, storage, queue)
                 await asyncio.sleep(0.1)
             except Exception:

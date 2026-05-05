@@ -47,8 +47,8 @@ class FilingStructurer:
 
     【最重要ルール】
     1. 該当する記述がわずか一行でもあれば、必ず漏らさず抽出してください。
-    2. 数値（金額、件数、人数、年数、パーセント等）が含まれる事実は、投資判断に極めて重要であるため、
-       必ず数値を含めて抽出してください。
+    2. 数値（金額、件数、人数、年数、パーセント等）が含まれる事実は、
+       投資判断に極めて重要であるため、必ず数値を含めて抽出してください。
     3. 主観的な解釈や要約は行わず、原文にある客観的な事実（計画、実績、数値、体制）のみを抽出してください。
     4. 該当する記述が全く見当たらない場合のみ null としてください。
 
@@ -127,7 +127,7 @@ class FilingStructurer:
                 "governance": ["full_content"],
                 "employees": ["full_content"],
                 "compensation": ["full_content"],
-                "cross_shareholding": ["full_content"]
+                "cross_shareholding": ["full_content"],
             }
 
         tag_list_str = "\n".join(tag_names)
@@ -147,12 +147,17 @@ class FilingStructurer:
                 "governance": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "employees": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "compensation": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "cross_shareholding": {"type": "ARRAY", "items": {"type": "STRING"}}
+                "cross_shareholding": {"type": "ARRAY", "items": {"type": "STRING"}},
             },
             "required": [
-                "thinking", "capex", "rd", "governance", "employees",
-                "compensation", "cross_shareholding"
-            ]
+                "thinking",
+                "capex",
+                "rd",
+                "governance",
+                "employees",
+                "compensation",
+                "cross_shareholding",
+            ],
         }
 
         models_to_try = [self.model_name] if self.model_name else self.models
@@ -167,8 +172,8 @@ class FilingStructurer:
                         system_instruction=self.SYSTEM_PROMPT_MAPPING,
                         response_mime_type="application/json",
                         response_schema=schema,
-                        http_options={"timeout": 180000}  # 3分
-                    )
+                        http_options={"timeout": 180000},  # 3分
+                    ),
                 )
                 if response and response.text:
                     mapping = self._parse_json(response.text)
@@ -184,10 +189,15 @@ class FilingStructurer:
                             all_mapped.update(tags)
 
                     critical_keywords = [
-                        "研究開発", "R&D", "設備投資", "Capex", "Capital Expenditures"
+                        "研究開発",
+                        "R&D",
+                        "設備投資",
+                        "Capex",
+                        "Capital Expenditures",
                     ]
                     missed = [
-                        t for t in tag_names
+                        t
+                        for t in tag_names
                         if any(k in t for k in critical_keywords) and t not in all_mapped
                     ]
                     if missed:
@@ -205,6 +215,11 @@ class FilingStructurer:
         """
         2段階のプロセスで事実を構造化抽出する
         """
+        if not isinstance(sections, dict):
+            logger.warning(
+                f"Expected dict for sections, got {type(sections)}. Skipping extraction."
+            )
+            return {}
         try:
             tag_names = list(sections.keys())
             mapping = await self._identify_tags(tag_names)
@@ -241,7 +256,7 @@ class FilingStructurer:
                     )
 
                 for i, chunk in enumerate(chunks):
-                    suffix = f" (Part {i+1})" if len(chunks) > 1 else ""
+                    suffix = f" (Part {i + 1})" if len(chunks) > 1 else ""
                     final_prompt_parts.append(f"## Category: {cat}{suffix}\n{chunk}")
 
             final_prompt = (
@@ -255,14 +270,14 @@ class FilingStructurer:
                 "properties": {
                     "facts": {
                         "type": "STRING",
-                        "description": "抽出された事実内容。該当なしは空文字"
+                        "description": "抽出された事実内容。該当なしは空文字",
                     },
                     "raw_evidence": {
                         "type": "STRING",
-                        "description": "根拠となった原文の引用。該当なしは空文字"
-                    }
+                        "description": "根拠となった原文の引用。該当なしは空文字",
+                    },
                 },
-                "required": ["facts", "raw_evidence"]
+                "required": ["facts", "raw_evidence"],
             }
 
             schema = {
@@ -270,19 +285,24 @@ class FilingStructurer:
                 "properties": {
                     "thinking": {
                         "type": "STRING",
-                        "description": "情報の欠落がないかの注意深い推論過程"
+                        "description": "情報の欠落がないかの注意深い推論過程",
                     },
                     "capex": fact_item_schema,
                     "rd": fact_item_schema,
                     "governance": fact_item_schema,
                     "employees": fact_item_schema,
                     "compensation": fact_item_schema,
-                    "cross_shareholding": fact_item_schema
+                    "cross_shareholding": fact_item_schema,
                 },
                 "required": [
-                    "thinking", "capex", "rd", "governance", "employees",
-                    "compensation", "cross_shareholding"
-                ]
+                    "thinking",
+                    "capex",
+                    "rd",
+                    "governance",
+                    "employees",
+                    "compensation",
+                    "cross_shareholding",
+                ],
             }
 
             models_to_try = [self.model_name] if self.model_name else self.models
@@ -297,8 +317,8 @@ class FilingStructurer:
                             system_instruction=self.SYSTEM_PROMPT_STRUCTURING,
                             response_mime_type="application/json",
                             response_schema=schema,
-                            http_options={"timeout": 180000}
-                        )
+                            http_options={"timeout": 180000},
+                        ),
                     )
                     if response and response.text:
                         return self._parse_json(response.text)

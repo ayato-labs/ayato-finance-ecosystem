@@ -1,13 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import date
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 @pytest.fixture
 def mocked_worker(test_settings):
     """Provides a SyncWorker with mocked external dependencies."""
-    with patch("src.edinet.sync_worker.EDINETClient") as mock_client:
-        with patch("src.edinet.sync_worker.AIMapper") as mock_ai:
+    with patch("src.providers.edinet.sync_worker.EDINETClient") as mock_client:
+        with patch("src.providers.edinet.sync_worker.AIMapper") as mock_ai:
             worker = EDINETSyncWorker()
             worker.client = mock_client.return_value
             worker.ai_mapper = mock_ai.return_value

@@ -48,7 +48,7 @@ def master_manager(test_settings):
 @pytest.fixture
 def storage(test_settings):
     """Provides an EDINETStorage instance for testing."""
-    from src.edinet.storage import EDINETStorage
+    from src.providers.edinet.storage import EDINETStorage
     return EDINETStorage()
 
 

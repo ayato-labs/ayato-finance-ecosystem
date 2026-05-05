@@ -1,4 +1,3 @@
-
 from src.edinet_parser import EdinetParser
 
 

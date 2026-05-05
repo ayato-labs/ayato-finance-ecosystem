@@ -90,6 +90,6 @@ async def test_structurer_dirty_data_resilience():
     # ここで例外が発生せず、内部で安全にキャッチされ、辞書を返すことが必須要件。
     facts = await structurer.extract_facts(sections)
 
-    assert isinstance(
-        facts, dict
-    ), "Dirty data caused the structurer to return a non-dict format or crash."
+    assert isinstance(facts, dict), (
+        "Dirty data caused the structurer to return a non-dict format or crash."
+    )

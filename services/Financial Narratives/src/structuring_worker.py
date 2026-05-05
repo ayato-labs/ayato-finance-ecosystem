@@ -44,6 +44,7 @@ class StructuringWorkerPool:
         def fetch_db():
             import random
             import time
+
             for attempt in range(10):
                 try:
                     # read_only=True かつメモリ制限を明示して接続
@@ -52,7 +53,7 @@ class StructuringWorkerPool:
                         conn.execute("PRAGMA threads=1")  # ワーカー内では単一スレッドで十分
                         res = conn.execute(
                             "SELECT sections FROM filings WHERE accession_number = ?",
-                            (accession_number,)
+                            (accession_number,),
                         ).fetchone()
                         if res and res[0]:
                             sections_data = json.loads(res[0])
@@ -61,9 +62,9 @@ class StructuringWorkerPool:
                 except Exception as e:
                     err_str = str(e).lower()
                     if any(kw in err_str for kw in ["already open", "handle conflict", "io error"]):
-                        wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.2)
+                        wait_time = (2**attempt) * 0.1 + random.uniform(0, 0.2)
                         logger.warning(
-                            f"DB locked, retrying fetch in {wait_time:.2f}s ({attempt+1}/10)..."
+                            f"DB locked, retrying fetch in {wait_time:.2f}s ({attempt + 1}/10)..."
                         )
                         time.sleep(wait_time)
                         continue
@@ -74,7 +75,9 @@ class StructuringWorkerPool:
 
     async def _worker_loop(self, worker_id: int, model_name: str, market: str | None = None):
         """個々のワーカーの無限ループ"""
-        logger.info(f"Worker-{worker_id} started using model: {model_name} (Market: {market or 'ALL'})")
+        logger.info(
+            f"Worker-{worker_id} started using model: {model_name} (Market: {market or 'ALL'})"
+        )
         structurer = FilingStructurer(api_key=self.api_key, model_name=model_name)
 
         while True:
@@ -100,12 +103,18 @@ class StructuringWorkerPool:
                 try:
                     await asyncio.to_thread(
                         self.queue.update_job_status,
-                        acc_no, "FETCHING", f"{worker_id}|{model_name}"
+                        acc_no,
+                        "FETCHING",
+                        f"{worker_id}|{model_name}",
                     )
                     sections = await self._get_sections_from_lake(acc_no, market)
                     if not sections:
-                        logger.error(f"[Worker-{worker_id}] FETCH_FAILED for {acc_no}: Not found in Data Lake")
-                        await asyncio.to_thread(self.queue.fail_job, acc_no, "No sections found in Data Lake")
+                        logger.error(
+                            f"[Worker-{worker_id}] FETCH_FAILED for {acc_no}: Not found in Data Lake"
+                        )
+                        await asyncio.to_thread(
+                            self.queue.fail_job, acc_no, "No sections found in Data Lake"
+                        )
                         continue
 
                     section_count = len(sections)
@@ -123,7 +132,7 @@ class StructuringWorkerPool:
                         self.queue.update_job_status,
                         acc_no,
                         "LLM_WAITING",
-                        f"{worker_id}|{model_name}"
+                        f"{worker_id}|{model_name}",
                     )
                     logger.info(f"[Worker-{worker_id}] Requesting LLM extraction for {acc_no}...")
                     facts = await structurer.extract_facts(sections)
@@ -152,7 +161,7 @@ class StructuringWorkerPool:
                     continue
                 finally:
                     # テキストデータは巨大なため、推論が終わったら即座に解放を試みる
-                    if 'sections' in locals():
+                    if "sections" in locals():
                         del sections
                     gc.collect()
 
@@ -166,13 +175,13 @@ class StructuringWorkerPool:
                     await asyncio.to_thread(self.queue.fail_job, acc_no, f"STAGE_ERR: {str(e)}")
                     continue
                 finally:
-                    if 'facts' in locals():
+                    if "facts" in locals():
                         del facts
                     gc.collect()
 
             except Exception as e:
                 logger.exception(f"[Worker-{worker_id}] UNEXPECTED_CRITICAL_ERROR: {e}")
-                if job and 'acc_no' in locals():
+                if job and "acc_no" in locals():
                     await asyncio.to_thread(self.queue.fail_job, acc_no, f"CRITICAL: {str(e)}")
                 await asyncio.sleep(5)
 
@@ -197,6 +206,7 @@ if __name__ == "__main__":
     setup_logging("worker_pool")
 
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--market", type=str, default=None, help="Target market (jp/us)")
     parser.add_argument("--workers", type=int, default=10, help="Number of concurrent workers")

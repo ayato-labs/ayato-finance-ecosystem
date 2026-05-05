@@ -14,14 +14,15 @@ async def test_parallel_market_sync_execution(tmp_path):
 
     # テスト対象のモジュールをリロードせずにパッチを当てるために、
     # 関数のローカルスコープでパッチを当てる
-    with patch("src.batch_fetch.EdinetFetcher") as mock_edinet_fetcher, \
-         patch("src.batch_fetch.EdgarFetcher") as mock_edgar_fetcher, \
-         patch("src.batch_fetch.EdinetParser") as mock_edinet_parser, \
-         patch("src.batch_fetch.EdgarParser") as mock_edgar_parser, \
-         patch("src.batch_fetch.FinancialNarrativeStorage") as mock_storage_class, \
-         patch("src.batch_fetch.SEC_TICKERS", ["AAPL"]), \
-         patch("src.batch_fetch.asyncio.sleep", return_value=None):
-
+    with (
+        patch("src.batch_fetch.EdinetFetcher") as mock_edinet_fetcher,
+        patch("src.batch_fetch.EdgarFetcher") as mock_edgar_fetcher,
+        patch("src.batch_fetch.EdinetParser") as mock_edinet_parser,
+        patch("src.batch_fetch.EdgarParser") as mock_edgar_parser,
+        patch("src.batch_fetch.FinancialNarrativeStorage") as mock_storage_class,
+        patch("src.batch_fetch.SEC_TICKERS", ["AAPL"]),
+        patch("src.batch_fetch.asyncio.sleep", return_value=None),
+    ):
         # ストレージのインスタンスを固定
         mock_storage_class.return_value = storage
 
@@ -35,7 +36,7 @@ async def test_parallel_market_sync_execution(tmp_path):
                 "formCode": "120",
                 "edinetCode": "E00001",
                 "filingDate": date.today().isoformat(),
-                "filerName": "TOYOTA"
+                "filerName": "TOYOTA",
             }
         ]
         edinet_instance.download_document.return_value = b"zip_content"
@@ -50,7 +51,7 @@ async def test_parallel_market_sync_execution(tmp_path):
                 "accessionNumber": "US1",
                 "filingDate": date.today().isoformat(),
                 "form": "10-K",
-                "primaryDocument": "doc.html"
+                "primaryDocument": "doc.html",
             }
         ]
         edgar_instance.get_cik.return_value = "320193"

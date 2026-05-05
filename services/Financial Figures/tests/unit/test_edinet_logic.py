@@ -1,7 +1,7 @@
 import json
 
-from src.edinet.mapper import EDINETMapper
-from src.edinet.reconciler import EDINETReconciler
+from src.providers.edinet.mapper import EDINETMapper
+from src.providers.edinet.reconciler import EDINETReconciler
 from src.mappers.ai_mapper import AIMapper
 from tests.utils.fake_gemini import FakeGeminiClient
 

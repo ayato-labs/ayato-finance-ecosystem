@@ -2,7 +2,7 @@ import duckdb
 import pandas as pd
 import pytest
 
-from src.edinet.mapping import EDINETMapper
+from src.providers.edinet.mapping import EDINETMapper
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from src.core.config import settings
 from src.core.db import db_manager
 from src.core.logging import setup_logging
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 from src.services.market_sync import BatchSyncService
 
 # Initialize logging

@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from src.core.config import settings
-from src.engines.jp_engine import JPEngine
-from src.engines.us_engine import USEngine
+from src.providers.jquants.engine import JPEngine
+from src.providers.sec_edgar.engine import USEngine
 
 
 @pytest.fixture

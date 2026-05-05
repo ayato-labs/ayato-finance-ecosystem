@@ -3,10 +3,10 @@ from datetime import date
 import duckdb
 import pytest
 
-from src.edinet.client import EDINETClient
-from src.edinet.parser import EDINETParser
-from src.edinet.storage import EDINETStorage
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.client import EDINETClient
+from src.providers.edinet.parser import EDINETParser
+from src.providers.edinet.storage import EDINETStorage
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 
 def test_client_url_logic():

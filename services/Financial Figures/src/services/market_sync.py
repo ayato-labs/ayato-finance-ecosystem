@@ -10,8 +10,8 @@ from src.core.audit_manager import audit_manager
 from src.core.config import settings
 from src.core.db import db_manager
 from src.core.logging import track_performance
-from src.engines.jp_engine import JPEngine
-from src.engines.us_engine import USEngine
+from src.providers.jquants.engine import JPEngine
+from src.providers.sec_edgar.engine import USEngine
 from src.mappers.ai_mapper import AIMapper
 
 

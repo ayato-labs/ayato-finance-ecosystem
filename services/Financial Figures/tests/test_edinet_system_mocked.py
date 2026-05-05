@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 
 def create_mock_zip():
@@ -56,8 +56,8 @@ def test_edinet_full_system_flow(mock_get, tmp_path):
 
     # Initialize worker with test DB via settings patch
     with (
-        patch("src.edinet.storage.settings.DB_PATH_EDINET", test_db),
-        patch("src.edinet.sync_worker.AIMapper") as mock_mapper_cls,
+        patch("src.providers.edinet.storage.settings.DB_PATH_EDINET", test_db),
+        patch("src.providers.edinet.sync_worker.AIMapper") as mock_mapper_cls,
     ):
         mock_mapper = mock_mapper_cls.return_value
         mock_mapper.map_tags_bulk.return_value = []  # No mappings needed for this check

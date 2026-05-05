@@ -5,7 +5,7 @@ import pytest
 
 from src.core.config import settings
 from src.core.db import db_manager
-from src.engines.jp_engine import JPEngine
+from src.providers.jquants.engine import JPEngine
 
 
 @pytest.fixture

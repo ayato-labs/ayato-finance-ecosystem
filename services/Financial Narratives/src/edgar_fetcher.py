@@ -53,7 +53,9 @@ class EdgarFetcher:
 
                 if response.status_code == 403:
                     # 403 はインデックスが未生成の場合などに発生するため、警告に留める
-                    logger.warning(f"SEC API Forbidden (403) | url={url} - Likely not available yet.")
+                    logger.warning(
+                        f"SEC API Forbidden (403) | url={url} - Likely not available yet."
+                    )
                     return response
 
                 # その他のエラーはリトライせず終了
@@ -164,7 +166,7 @@ class EdgarFetcher:
         response = self._request_with_retry(url)
 
         if not response or response.status_code != 200:
-            status = response.status_code if response else 'N/A'
+            status = response.status_code if response else "N/A"
             logger.error(f"Failed to fetch SEC RSS feed | status={status}")
             return []
 
@@ -205,14 +207,16 @@ class EdgarFetcher:
 
                 actual_ticker = cik_to_ticker.get(cik, f"CIK{cik}")
 
-                recent_filings.append({
-                    "accessionNumber": acc_no,
-                    "ticker": actual_ticker,
-                    "cik": cik,
-                    "form": form,
-                    "filingDate": pub_date.isoformat(),
-                    "primaryDocument": item.find("link").text.split("/")[-1]
-                })
+                recent_filings.append(
+                    {
+                        "accessionNumber": acc_no,
+                        "ticker": actual_ticker,
+                        "cik": cik,
+                        "form": form,
+                        "filingDate": pub_date.isoformat(),
+                        "primaryDocument": item.find("link").text.split("/")[-1],
+                    }
+                )
         except Exception:
             logger.exception("Error parsing SEC XBRL RSS feed")
 

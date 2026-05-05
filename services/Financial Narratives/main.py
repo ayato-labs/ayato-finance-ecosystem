@@ -39,7 +39,9 @@ def main():
         description="Financial Narratives - SEC/EDINET Qualitative Data Service"
     )
     parser.add_argument("--sync", nargs="*", help="Tickers to sync (empty for default list)")
-    parser.add_argument("--days", type=int, default=7, help="Days to look back for automated sync")
+    parser.add_argument(
+        "--days", type=int, default=1825, help="Days to look back for automated sync"
+    )
     parser.add_argument(
         "--reconcile",
         action="store_true",
@@ -70,12 +72,13 @@ def main():
             logger.info(
                 f"Starting batch fetch task (Ingestion) | tickers={tickers} | days={args.days}"
             )
-            asyncio.run(batch_fetch(tickers=tickers, days=args.days))
+            asyncio.run(batch_fetch(market=args.market, tickers=tickers, days=args.days))
             run_diagnostics()
             return
 
         if args.reconcile:
             from src.reconciler import Reconciler
+
             market = args.market or "all"
             logger.info(f"Starting Reconciler for {market}...")
             reconciler = Reconciler(market=args.market)
@@ -84,6 +87,7 @@ def main():
 
         if args.work:
             from src.structuring_worker import StructuringWorkerPool
+
             logger.info(f"Starting Worker Pool with {args.workers} workers...")
             pool = StructuringWorkerPool(num_workers=args.workers)
             asyncio.run(pool.run_forever())

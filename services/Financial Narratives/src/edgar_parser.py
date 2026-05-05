@@ -9,6 +9,7 @@ from markdownify import markdownify as md
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 sys.setrecursionlimit(10000)
 
+
 class EdgarParser:
     """
     SEC 10-K/10-Q ドキュメントから網羅的にテキストセクションを抽出するクラス。
@@ -83,7 +84,7 @@ class EdgarParser:
             is_item = item_pattern.match(line_stripped)
             is_short = len(line_stripped) < 250
             not_link = "[" not in line_stripped or "](#" not in line_stripped
-            
+
             if is_item and is_short and not_link:
                 indices.append((line_stripped.strip("# ").strip(), i))
 
@@ -103,6 +104,7 @@ class EdgarParser:
             sections_found["full_content"] = self.clean_text(full_markdown)
 
         return sections_found
+
 
 if __name__ == "__main__":
     parser = EdgarParser()

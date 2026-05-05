@@ -72,9 +72,7 @@ def get_status(
 
 
 @app.get("/analysis/{ticker}")
-def get_analysis(
-    ticker: str, storage: Annotated[FinancialNarrativeStorage, Depends(get_storage)]
-):
+def get_analysis(ticker: str, storage: Annotated[FinancialNarrativeStorage, Depends(get_storage)]):
     """特定銘柄の構造化済みAI分析データを取得"""
     try:
         data = storage.get_structuring_by_ticker(ticker)

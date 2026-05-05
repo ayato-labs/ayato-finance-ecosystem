@@ -15,7 +15,7 @@ def test_comprehensive_user_flow(test_settings, mocker):
     2. Background Sync starts (Mocked network)
     3. User queries API for synced data
     """
-    mocker.patch("src.engines.us_engine.USEngine.sync_tickers", return_value=1)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.sync_tickers", return_value=1)
     # Using 10-digit CIK for consistency with engine internal logic
     cik = "0000000001"
     mock_facts = {
@@ -41,7 +41,7 @@ def test_comprehensive_user_flow(test_settings, mocker):
             }
         },
     }
-    mocker.patch("src.engines.us_engine.USEngine.fetch_company_facts", return_value=mock_facts)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.fetch_company_facts", return_value=mock_facts)
 
     fake_client = FakeGeminiClient(
         [
@@ -82,7 +82,7 @@ def test_comprehensive_user_flow(test_settings, mocker):
 
 def test_chaos_db_locking_stress(test_settings, mocker):
     """Chaos Test: Stress the DB with rapid concurrent reads while sync is writing."""
-    mocker.patch("src.engines.us_engine.USEngine.sync_tickers", return_value=1)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.sync_tickers", return_value=1)
     cik = "0000000002"
 
     def slow_fetch(ticker):
@@ -110,7 +110,7 @@ def test_chaos_db_locking_stress(test_settings, mocker):
             },
         }
 
-    mocker.patch("src.engines.us_engine.USEngine.fetch_company_facts", side_effect=slow_fetch)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.fetch_company_facts", side_effect=slow_fetch)
 
     service = BatchSyncService(start_workers=True)
     import duckdb

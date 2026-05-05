@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 
 @pytest.fixture

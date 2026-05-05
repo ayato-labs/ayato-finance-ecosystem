@@ -27,9 +27,8 @@ TABLES: dict[str, Table] = {
                 "accession_number",
                 "VARCHAR",
                 "書類固有の受付番号 (SEC/EDINET共通)",
-                is_primary_key=True
+                is_primary_key=True,
             ),
-
             Column("ticker", "VARCHAR", "銘柄ティッカーまたは証券コード"),
             Column("cik", "VARCHAR", "SEC固有の企業識別番号 (米国株のみ)"),
             Column("form", "VARCHAR", "書類の種類 (10-K, 10-Q, 有価証券報告書など)"),
@@ -39,7 +38,7 @@ TABLES: dict[str, Table] = {
             Column(
                 "updated_at", "TIMESTAMP", "レコードの最終更新日時", default="CURRENT_TIMESTAMP"
             ),
-        ]
+        ],
     ),
     "structured_data": Table(
         name="structured_data",
@@ -48,10 +47,8 @@ TABLES: dict[str, Table] = {
             Column("accession_number", "VARCHAR", "紐付け用の受付番号", is_primary_key=True),
             Column("ticker", "VARCHAR", "銘柄ティッカーまたは証券コード"),
             Column("structured_facts", "JSON", "AIが抽出した構造化事実 (JSON形式)"),
-            Column(
-                "updated_at", "TIMESTAMP", "AI処理の最終更新日時", default="CURRENT_TIMESTAMP"
-            ),
-        ]
+            Column("updated_at", "TIMESTAMP", "AI処理の最終更新日時", default="CURRENT_TIMESTAMP"),
+        ],
     ),
     "schema_migrations": Table(
         name="schema_migrations",
@@ -60,8 +57,8 @@ TABLES: dict[str, Table] = {
             Column("version", "INTEGER", "スキーマバージョン番号", is_primary_key=True),
             Column("applied_at", "TIMESTAMP", "適用日時", default="CURRENT_TIMESTAMP"),
             Column("description", "VARCHAR", "変更内容の説明"),
-        ]
-    )
+        ],
+    ),
 }
 
 # 現状のスキーマバージョン

@@ -4,20 +4,20 @@ from unittest.mock import MagicMock
 import duckdb
 import pytest
 
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 
 def test_chaos_corrupt_zip_skip(tmp_path, mocker):
     """Test that invalid ZIP content is skipped gracefully without crashing the worker."""
     db_file = tmp_path / "chaos_skip.duckdb"
-    from src.edinet.storage import EDINETStorage
-    from src.edinet.sync_worker import EDINETSyncWorker
+    from src.providers.edinet.storage import EDINETStorage
+    from src.providers.edinet.sync_worker import EDINETSyncWorker
 
     worker = EDINETSyncWorker()
     worker.storage = EDINETStorage(db_path=str(db_file))
 
     # Mock Document List with 1 doc
-    from src.edinet.client import EDINETClient
+    from src.providers.edinet.client import EDINETClient
 
     worker.client = mocker.Mock(spec=EDINETClient)
     worker.client.get_document_list.return_value = {
@@ -55,7 +55,7 @@ def test_chaos_network_timeout(tmp_path):
 
 def test_chaos_malformed_csv_columns(tmp_path):
     """Test parser resilience against unexpected CSV headers or missing columns."""
-    from src.edinet.parser import EDINETParser
+    from src.providers.edinet.parser import EDINETParser
 
     # Truly broken: only 2 columns in data, while 5 expected by fallback
     bad_csv = "ID\tName\tContext\tUnit\n1\tN\n"
@@ -90,13 +90,13 @@ def test_chaos_db_lock_resilience(tmp_path):
 def test_chaos_mixed_api_responses(tmp_path, mocker):
     """Test that one document failure does not prevent other documents from being processed."""
     db_file = tmp_path / "chaos_mixed.duckdb"
-    from src.edinet.storage import EDINETStorage
-    from src.edinet.sync_worker import EDINETSyncWorker
+    from src.providers.edinet.storage import EDINETStorage
+    from src.providers.edinet.sync_worker import EDINETSyncWorker
 
     worker = EDINETSyncWorker()
     worker.storage = EDINETStorage(db_path=str(db_file))
 
-    from src.edinet.client import EDINETClient
+    from src.providers.edinet.client import EDINETClient
     from tests.integration.test_edinet_sync_chain import create_mock_zip
 
     # We use a real client but mock its network methods to ensure logic like

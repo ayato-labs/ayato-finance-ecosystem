@@ -4,7 +4,7 @@ from loguru import logger
 
 from src.core.audit_manager import audit_manager
 from src.core.logging import setup_logging
-from src.engines.us_engine import USEngine
+from src.providers.sec_edgar.engine import USEngine
 
 # Initialize logging
 setup_logging()

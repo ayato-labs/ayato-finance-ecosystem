@@ -7,7 +7,7 @@ from tests.utils.fake_gemini import FakeGeminiClient, create_mapping_response
 def test_integration_full_sync_flow(test_settings, mocker):
     """Integration test: Verify the flow from fetch -> DB Queue -> AI Queue -> DB Storage."""
     # 1. Setup mocks for external network calls
-    mocker.patch("src.engines.us_engine.USEngine.sync_tickers", return_value=1)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.sync_tickers", return_value=1)
 
     mock_facts = {
         "cik": "0000320193",
@@ -32,7 +32,7 @@ def test_integration_full_sync_flow(test_settings, mocker):
             }
         },
     }
-    mocker.patch("src.engines.us_engine.USEngine.fetch_company_facts", return_value=mock_facts)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.fetch_company_facts", return_value=mock_facts)
 
     # 2. Setup Fake Gemini for AI mapping
     fake_response = create_mapping_response(
@@ -81,14 +81,14 @@ def test_integration_full_sync_flow(test_settings, mocker):
 
 def test_integration_error_resilience(test_settings, mocker):
     """Resilience test: Verify that a single ticker fetch failure doesn't stop the whole sync."""
-    mocker.patch("src.engines.us_engine.USEngine.sync_tickers", return_value=2)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.sync_tickers", return_value=2)
 
     def mock_fetch(ticker):
         if ticker == "FAIL":
             raise Exception("Network error")
         return {"cik": "2", "facts": {}}
 
-    mocker.patch("src.engines.us_engine.USEngine.fetch_company_facts", side_effect=mock_fetch)
+    mocker.patch("src.providers.sec_edgar.engine.USEngine.fetch_company_facts", side_effect=mock_fetch)
 
     service = BatchSyncService()
 

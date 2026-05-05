@@ -30,21 +30,16 @@ async def test_self_healing_user_flow(clean_env):
     """
 
     # --- Mocks ---
-    with patch("src.batch_fetch.EdgarFetcher") as mock_edgar_cls, patch(
-        "src.batch_fetch.EdinetFetcher"
-    ), patch(
-        "src.batch_fetch.FinancialNarrativeStorage"
-    ) as mock_storage_cls, patch(
-        "src.reconciler.FinancialNarrativeStorage"
-    ) as mock_rec_storage_cls, patch(
-        "src.reconciler.JobQueue"
-    ) as mock_rec_q_cls, patch(
-        "src.structuring_worker.JobQueue"
-    ) as mock_worker_q_cls, patch(
-        "src.structuring_worker.FinancialNarrativeStorage"
-    ) as mock_worker_storage_cls, patch(
-        "src.structuring_worker.FilingStructurer"
-    ) as mock_st_cls:
+    with (
+        patch("src.batch_fetch.EdgarFetcher") as mock_edgar_cls,
+        patch("src.batch_fetch.EdinetFetcher"),
+        patch("src.batch_fetch.FinancialNarrativeStorage") as mock_storage_cls,
+        patch("src.reconciler.FinancialNarrativeStorage") as mock_rec_storage_cls,
+        patch("src.reconciler.JobQueue") as mock_rec_q_cls,
+        patch("src.structuring_worker.JobQueue") as mock_worker_q_cls,
+        patch("src.structuring_worker.FinancialNarrativeStorage") as mock_worker_storage_cls,
+        patch("src.structuring_worker.FilingStructurer") as mock_st_cls,
+    ):
         # Real objects using temp paths
         from src.db.master_db import JobQueue
         from src.storage import FinancialNarrativeStorage

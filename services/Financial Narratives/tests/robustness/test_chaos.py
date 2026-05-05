@@ -39,12 +39,15 @@ async def test_chaos_llm_json_corruption(temp_db_path):
     storage = FinancialNarrativeStorage(temp_db_path)
 
     # ダミーデータを保存
-    storage.save_filing({
-        "accessionNumber": "TEST-123",
-        "ticker": "AAPL",
-        "form": "10-K",
-        "filingDate": "2024-01-01"
-    }, {"mda": "content"})
+    storage.save_filing(
+        {
+            "accessionNumber": "TEST-123",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2024-01-01",
+        },
+        {"mda": "content"},
+    )
 
     # FilingStructurer.extract_facts をモック
     # 壊れたJSONをパースしようとして ValueError を吐く状況
@@ -53,6 +56,7 @@ async def test_chaos_llm_json_corruption(temp_db_path):
         mock_struct.extract_facts.side_effect = ValueError("Invalid JSON")
 
         from src.batch_fetch import run_structuring_for_filing
+
         # エラーが発生しても全体が止まらないことを確認
         await run_structuring_for_filing("TEST-123", "AAPL", {"mda": "text"}, storage)
 
@@ -70,8 +74,7 @@ def test_storage_db_corruption_recovery(temp_db_path):
     try:
         with pytest.raises(duckdb.Error):  # DuckDB will raise some operational error
             storage.save_filing(
-                {"accessionNumber": "1", "ticker": "A", "form": "F", "filingDate": "2024-01-01"},
-                {}
+                {"accessionNumber": "1", "ticker": "A", "form": "F", "filingDate": "2024-01-01"}, {}
             )
     finally:
         # クリーンアップのために戻す

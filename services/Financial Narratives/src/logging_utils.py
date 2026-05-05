@@ -21,8 +21,8 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     # Windows環境での文字化け対策 (UTF-8強制)
     if sys.platform == "win32":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
-            sys.stderr.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stderr.reconfigure(encoding="utf-8")
         except (AttributeError, io.UnsupportedOperation) as e:
             logger.debug(f"Encoding reconfiguration skipped: {e}")
 
@@ -58,10 +58,10 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     logger.add(
         str(log_file_pattern),
         level=log_level,
-        serialize=True,     # JSON形式で出力
-        enqueue=True,       # マルチプロセス安全
-        rotation="1 day",   # またはファイルサイズ
-        retention=2,        # 直近2世代のみ保持
+        serialize=True,  # JSON形式で出力
+        enqueue=True,  # マルチプロセス安全
+        rotation="1 day",  # またはファイルサイズ
+        retention=2,  # 直近2世代のみ保持
         backtrace=True,
         diagnose=True,
     )
@@ -81,9 +81,7 @@ def setup_logging(unit_name: str, run_id: str | None = None):
         diagnose=True,
     )
 
-    logger.info(
-        f"Structured logging initialized | unit={unit_name} | run_id={run_id}"
-    )
+    logger.info(f"Structured logging initialized | unit={unit_name} | run_id={run_id}")
     return logger
 
 

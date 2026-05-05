@@ -28,7 +28,7 @@ async def test_high_concurrency_writes(temp_db):
                 "accessionNumber": acc_no,
                 "ticker": ticker,
                 "form": "10-K",
-                "filingDate": "2026-05-01"
+                "filingDate": "2026-05-01",
             }
             sections = {"content": "X" * random.randint(100, 1000)}
 
@@ -60,9 +60,9 @@ async def test_deadlock_prevention_sim(temp_db):
                     "accessionNumber": f"W-{i}",
                     "ticker": "BUSY",
                     "form": "10-Q",
-                    "filingDate": "2026-05-01"
+                    "filingDate": "2026-05-01",
                 },
-                {"data": "info"}
+                {"data": "info"},
             )
             await asyncio.sleep(0.01)
 

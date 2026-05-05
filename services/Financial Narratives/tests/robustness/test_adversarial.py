@@ -48,7 +48,7 @@ def test_storage_high_concurrency(tmp_path):
             "ticker": f"T{i}",
             "cik": f"{i}",
             "form": "10-K",
-            "filingDate": "2024-01-01"
+            "filingDate": "2024-01-01",
         }
         storage.save_filing(metadata, {"content": "foo" * 100})
         return True

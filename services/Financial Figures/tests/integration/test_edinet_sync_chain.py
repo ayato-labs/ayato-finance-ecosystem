@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from src.edinet.storage import EDINETStorage
-from src.edinet.sync_worker import EDINETSyncWorker
+from src.providers.edinet.storage import EDINETStorage
+from src.providers.edinet.sync_worker import EDINETSyncWorker
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_sync_date_chain_success(sync_worker, mocker):
         ],
     }
     mocker.patch(
-        "src.edinet.client.requests.get",
+        "src.providers.edinet.client.requests.get",
         side_effect=[
             mocker.Mock(
                 status_code=200,

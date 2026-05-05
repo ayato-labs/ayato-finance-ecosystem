@@ -18,17 +18,20 @@ class Reconciler:
 
     def _safe_connect(self, db_path: str, read_only: bool = True):
         """Windows環境でのファイルロック競合を回避しながらDuckDBに接続する"""
-        import time
         import random
+        import time
+
         for attempt in range(10):
             try:
                 return duckdb.connect(db_path, read_only=read_only)
             except Exception as e:
                 err_str = str(e).lower()
                 if "cannot open file" in err_str or "already open" in err_str or "lock" in err_str:
-                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.5)
+                    wait_time = (2**attempt) * 0.1 + random.uniform(0, 0.5)
                     if attempt > 2:
-                        logger.warning(f"DB {db_path} locked by another process, retrying in {wait_time:.2f}s...")
+                        logger.warning(
+                            f"DB {db_path} locked by another process, retrying in {wait_time:.2f}s..."
+                        )
                     time.sleep(wait_time)
                     continue
                 raise e
@@ -101,6 +104,7 @@ class Reconciler:
 
 if __name__ == "__main__":
     from src.logging_utils import setup_logging
+
     setup_logging("reconciler")
     reconciler = Reconciler()
     reconciler.run()

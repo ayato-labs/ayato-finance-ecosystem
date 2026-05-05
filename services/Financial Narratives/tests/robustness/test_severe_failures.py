@@ -18,7 +18,7 @@ def test_concurrent_db_writes(temp_db_path):
             "accessionNumber": f"ACC-{i}",
             "ticker": "AAPL",
             "form": "10-K",
-            "filingDate": "2024-01-01"
+            "filingDate": "2024-01-01",
         }
         storage.save_filing(metadata, {"content": f"data-{i}"})
         return True
@@ -40,7 +40,7 @@ async def test_llm_json_garbage_recovery():
     structurer = FilingStructurer(api_key="dummy")
     garbage_json = (
         "Here is the result: ```json\n"
-        "{\"capex\": {\"intent\": \"recovered\"}, \"rd\": null, \"governance\": null}\n"
+        '{"capex": {"intent": "recovered"}, "rd": null, "governance": null}\n'
         "``` hope this helps!"
     )
 
@@ -56,7 +56,7 @@ def test_storage_sql_injection_attempt(temp_db_path):
         "accessionNumber": "ACC-MALICIOUS",
         "ticker": malicious_ticker,
         "form": "10-K",
-        "filingDate": "2024-01-01"
+        "filingDate": "2024-01-01",
     }
     # パラメータ化クエリを使用していれば安全
     storage.save_filing(metadata, {"mda": "safe"})

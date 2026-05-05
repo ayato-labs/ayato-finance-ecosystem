@@ -90,22 +90,23 @@ class FinancialNarrativeStorage:
                 err_str = str(e).lower()
                 # Windows特有のロックエラーやIOエラーを捕捉
                 lock_msgs = [
-                    "cannot open file", "already open", "lock",
-                    "io error", "process cannot access"
+                    "cannot open file",
+                    "already open",
+                    "lock",
+                    "io error",
+                    "process cannot access",
                 ]
                 if any(msg in err_str for msg in lock_msgs):
                     wait_time = (2**attempt) * 0.1 + random.uniform(0, 0.5)
                     if attempt > 3:
                         logger.warning(
                             f"DB {self.db_path} locked (read_only={read_only}), "
-                            f"retrying in {wait_time:.2f}s... ({attempt+1}/15)"
+                            f"retrying in {wait_time:.2f}s... ({attempt + 1}/15)"
                         )
                     time.sleep(wait_time)
                     continue
                 raise e
-        raise RuntimeError(
-            f"Failed to connect to DuckDB after maximum retries: {self.db_path}"
-        )
+        raise RuntimeError(f"Failed to connect to DuckDB after maximum retries: {self.db_path}")
 
     def _init_db(self):
         """テーブルの初期化とリソース制限の設定"""
@@ -117,9 +118,7 @@ class FinancialNarrativeStorage:
 
             manager = MigrationManager(conn)
             manager.apply_migrations()
-            logger.info(
-                f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit"
-            )
+            logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
 
     def save_filing(self, metadata: dict, sections: dict):
         """メタデータとセクション情報をDuckDBにUPSERTする"""
@@ -136,7 +135,7 @@ class FinancialNarrativeStorage:
         boilerplate_patterns = [
             r"本資料に含まれる将来の予想に関する記述は.*?(?=。|$)",
             r"Forward-looking statements involve risks and uncertainties.*?(?=\.|$)",
-            r"実際の業績等は様々な要因により大きく異なる可能性があります.*?(?=。|$)"
+            r"実際の業績等は様々な要因により大きく異なる可能性があります.*?(?=。|$)",
         ]
 
         cleaned_sections = {}
@@ -151,10 +150,11 @@ class FinancialNarrativeStorage:
 
         # 金融ドキュメント用ヒント辞書（圧縮率向上のため）
         financial_dict_raw = (
-            "当連結会計年度 経営成績 財政状態 キャッシュ・フロー 設備投資 研究開発 従業員 ガバナンス "
-            "有価証券報告書 四半期 役員報酬 政策保有株式 投資計画 事業等のリスク 経営方針 "
-            "Item Business Risk Factors Management's Discussion and Analysis Financial Statements "
-            "Executive Compensation Corporate Governance Common Stock Operations Revenue Net Income"
+            "当連結会計年度 経営成績 財政状態 キャッシュ・フロー 設備投資 研究開発 従業員 "
+            "ガバナンス 有価証券報告書 四半期 役員報酬 政策保有株式 投資計画 事業等のリスク "
+            "経営方針 Item Business Risk Factors Management's Discussion and Analysis "
+            "Financial Statements Executive Compensation Corporate Governance Common Stock "
+            "Operations Revenue Net Income"
         )
         financial_dict = financial_dict_raw.encode("utf-8")
 
@@ -195,8 +195,7 @@ class FinancialNarrativeStorage:
         with self._connect(read_only=False) as conn:
             # executemany を使って一括挿入
             records = [
-                (acc_no, ticker.upper(), json.dumps(facts))
-                for acc_no, ticker, facts in batch_data
+                (acc_no, ticker.upper(), json.dumps(facts)) for acc_no, ticker, facts in batch_data
             ]
             conn.execute("BEGIN TRANSACTION")
             try:
@@ -206,7 +205,7 @@ class FinancialNarrativeStorage:
                         accession_number, ticker, structured_facts, updated_at
                     ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                     """,
-                    records
+                    records,
                 )
                 conn.execute("COMMIT")
             except Exception as e:
@@ -236,18 +235,28 @@ class FinancialNarrativeStorage:
                 return {}
 
             raw_data = res[0]
-            # DuckDBからBLOBが文字列として返ってくるケースへの対応
-            if isinstance(raw_data, str) and not raw_data.startswith("{"):
-                try:
-                    # 文字列として解釈されたバイナリを元に戻す
-                    raw_data = raw_data.encode("latin-1")
-                except Exception:
-                    pass
+            if not raw_data:
+                return {}
+
+            # DuckDBからBLOBが文字列として返ってくるケース、または latin-1 エンコードされたバイナリへの対応
+            if isinstance(raw_data, str):
+                if raw_data.startswith("{"):
+                    # 平文JSONの場合
+                    try:
+                        return json.loads(raw_data)
+                    except Exception:
+                        return {}
+                else:
+                    # 圧縮バイナリが文字列として化けている場合
+                    try:
+                        raw_data = raw_data.encode("latin-1")
+                    except Exception as e:
+                        logger.warning(f"Failed to re-encode potential binary string: {e}")
 
             if isinstance(raw_data, (bytes, bytearray)):
                 # 圧縮されている場合は解凍
                 try:
-                    # 同じ辞書を使用して解凍
+                    # 共通辞書を使用して解凍を試行
                     dict_data_raw = (
                         "当連結会計年度 経営成績 財政状態 キャッシュ・フロー 設備投資 研究開発 "
                         "従業員 ガバナンス 有価証券報告書 四半期 役員報酬 政策保有株式 "
@@ -261,13 +270,15 @@ class FinancialNarrativeStorage:
                     dctx = zstd.ZstdDecompressor(dict_data=zdict)
                     decompressed = dctx.decompress(raw_data)
                     return json.loads(decompressed.decode("utf-8"))
-                except Exception:
-                    # 辞書なしでの解凍を試行（以前のデータ用）
+                except Exception as e:
+                    logger.debug(f"Zstd dictionary decompression failed, trying without dict: {e}")
                     try:
                         dctx = zstd.ZstdDecompressor()
                         decompressed = dctx.decompress(raw_data)
                         return json.loads(decompressed.decode("utf-8"))
-                    except Exception:
+                    except Exception as e2:
+                        logger.error(f"Critical decompression failure for {acc_no}: {e2}")
+
                         try:
                             return json.loads(raw_data.decode("utf-8"))
                         except Exception:
@@ -284,8 +295,7 @@ class FinancialNarrativeStorage:
     def filing_exists(self, accession_number: str) -> bool:
         with self._connect(read_only=True) as conn:
             res = conn.execute(
-                "SELECT 1 FROM filings WHERE accession_number = ?",
-                (accession_number,)
+                "SELECT 1 FROM filings WHERE accession_number = ?", (accession_number,)
             ).fetchone()
             return res is not None
         """指定された書類が既にDBに存在するか確認する"""

@@ -4,7 +4,7 @@ import traceback
 from dotenv import load_dotenv
 
 from src.core.audit_manager import audit_manager
-from src.engines.jp_engine import JPEngine
+from src.providers.jquants.engine import JPEngine
 
 
 def main():

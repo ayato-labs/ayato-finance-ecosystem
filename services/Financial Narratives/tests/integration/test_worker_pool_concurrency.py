@@ -58,9 +58,11 @@ async def test_worker_pool_parallel_efficiency(test_setup):
     3. DuckDB に 50件のレコードがあること
     """
     # Override paths in WorkerPool
-    with patch("src.structuring_worker.JobQueue") as mock_q_cls, patch(
-        "src.structuring_worker.FinancialNarrativeStorage"
-    ) as mock_s_cls, patch("src.structuring_worker.FilingStructurer") as mock_st_cls:
+    with (
+        patch("src.structuring_worker.JobQueue") as mock_q_cls,
+        patch("src.structuring_worker.FinancialNarrativeStorage") as mock_s_cls,
+        patch("src.structuring_worker.FilingStructurer") as mock_st_cls,
+    ):
         # Real JobQueue but test path
         real_queue = JobQueue(db_path=test_setup["master"])
         mock_q_cls.return_value = real_queue

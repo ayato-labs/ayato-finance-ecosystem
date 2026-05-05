@@ -1,6 +1,6 @@
 import pytest
 from datetime import date
-from src.edinet.client import EDINETClient
+from src.providers.edinet.client import EDINETClient
 
 @pytest.mark.skip(reason="Avoid hitting EDINET too frequently in basic runs")
 def test_edinet_client_real_metadata():
