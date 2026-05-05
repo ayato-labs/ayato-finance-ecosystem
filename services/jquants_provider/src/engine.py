@@ -231,37 +231,43 @@ class JPEngine:
                 return pd.DataFrame()
             raise e
 
-    @track_performance("fetch_prices_range_api")
-    @rate_limit
-    @retry(
-        wait=wait_exponential(multiplier=5, min=30, max=600),
-        stop=stop_after_attempt(3),
-        retry=retry_if_exception_type(Exception),
-        reraise=True,
-    )
     def fetch_prices_range(self, start_date: str, end_date: str) -> pd.DataFrame:
-        """Fetch historical prices for a date range in bulk."""
-        if hasattr(self.cli, "get_eq_bars_daily_range"):
-            return self.cli.get_eq_bars_daily_range(start_dt=start_date, end_dt=end_date)
-        # Fallback for V1 or if range not available
-        logger.warning(
-            "Range fetch not supported by client, using sequential fallback (not implemented)"
-        )
-        return pd.DataFrame()
+        """Fetch historical prices for a date range sequentially to respect rate limits."""
+        all_dfs = []
+        current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
+        end = datetime.datetime.strptime(end_date, "%Y%m%d").date()
+        
+        total_days = (end - current).days + 1
+        logger.info(f"Sequential range fetch: {start_date} to {end_date} ({total_days} days)")
+        
+        while current <= end:
+            date_str = current.strftime("%Y%m%d")
+            # fetch_daily_bars is already decorated with @rate_limit and @retry
+            df = self.fetch_daily_bars(date_str)
+            if df is not None and not df.empty:
+                all_dfs.append(df)
+            current += datetime.timedelta(days=1)
+            
+        return pd.concat(all_dfs) if all_dfs else pd.DataFrame()
 
-    @track_performance("fetch_fin_range_api")
-    @rate_limit
-    @retry(
-        wait=wait_exponential(multiplier=5, min=30, max=600),
-        stop=stop_after_attempt(3),
-        retry=retry_if_exception_type(Exception),
-        reraise=True,
-    )
     def fetch_fin_range(self, start_date: str, end_date: str) -> pd.DataFrame:
-        """Fetch historical financials for a date range in bulk."""
-        if hasattr(self.cli, "get_fin_summary_range"):
-            return self.cli.get_fin_summary_range(start_dt=start_date, end_dt=end_date)
-        return pd.DataFrame()
+        """Fetch financial summaries for a date range sequentially to respect rate limits."""
+        all_dfs = []
+        current = datetime.datetime.strptime(start_date, "%Y%m%d").date()
+        end = datetime.datetime.strptime(end_date, "%Y%m%d").date()
+        
+        total_days = (end - current).days + 1
+        logger.info(f"Sequential financial fetch: {start_date} to {end_date} ({total_days} days)")
+        
+        while current <= end:
+            date_str = current.strftime("%Y%m%d")
+            # fetch_fin_summary is already decorated with @rate_limit and @retry
+            df = self.fetch_fin_summary(date_str)
+            if df is not None and not df.empty:
+                all_dfs.append(df)
+            current += datetime.timedelta(days=1)
+            
+        return pd.concat(all_dfs) if all_dfs else pd.DataFrame()
 
     @track_performance("ingest_facts_jp")
     def ingest_facts(self, df: pd.DataFrame, session_id: str):
