@@ -113,12 +113,14 @@ class StructuringWorkerPool:
                     facts = await structurer.extract_facts(sections)
 
                     if not facts:
-                        raise RuntimeError("LLM returned empty or failed to extract facts")
+                        logger.error(f"[Worker-{worker_id}] LLM_EMPTY: No facts extracted for {acc_no}")
+                        await asyncio.to_thread(self.queue.fail_job, acc_no, "LLM_EMPTY_RESPONSE")
+                        continue
                     
                     fact_count = len(facts) if isinstance(facts, list) else (len(facts.get("facts", [])) if isinstance(facts, dict) else "N/A")
                     logger.success(f"[Worker-{worker_id}] LLM Extraction Succeeded: {fact_count} items for {acc_no}")
                 except Exception as e:
-                    logger.exception(f"[Worker-{worker_id}] LLM_FAILED for {acc_no}: {e}")
+                    logger.error(f"[Worker-{worker_id}] LLM_FAILED for {acc_no}: {e}")
                     await asyncio.to_thread(self.queue.fail_job, acc_no, f"LLM_ERR: {str(e)}")
                     continue
                 finally:

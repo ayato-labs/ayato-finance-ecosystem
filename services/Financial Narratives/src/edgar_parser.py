@@ -1,4 +1,5 @@
 import re
+import sys
 import warnings
 from typing import ClassVar
 
@@ -6,6 +7,7 @@ from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from markdownify import markdownify as md
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+sys.setrecursionlimit(10000)
 
 class EdgarParser:
     """
@@ -45,13 +47,17 @@ class EdgarParser:
         return soup
 
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
-        return md(
-            str(soup),
-            heading_style="ATX",
-            bullets="-",
-            strip=["script", "style", "head"],
-            table_conversion="github",
-        )
+        try:
+            return md(
+                str(soup),
+                heading_style="ATX",
+                bullets="-",
+                strip=["script", "style", "head"],
+                table_conversion="github",
+            )
+        except (RecursionError, Exception):
+            # 巨大すぎるHTMLの場合はプレーンテキストにフォールバック
+            return soup.get_text(separator="\n", strip=True)
 
     def extract_all_sections(self, html_content: str, form_type: str) -> dict[str, str]:
         """

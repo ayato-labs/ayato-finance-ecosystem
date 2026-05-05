@@ -241,7 +241,7 @@ class AIMapper:
             batch_size = settings.AI_MAPPING_BATCH_SIZE
 
         available_models = settings.LIGHT_GOOGLE_AI_MODELS
-        max_parallelism = 5  # Fixed slots to bypass model-count bottleneck
+        max_parallelism = settings.AI_MAX_PARALLELISM
         results = []
 
         work_queue = deque(

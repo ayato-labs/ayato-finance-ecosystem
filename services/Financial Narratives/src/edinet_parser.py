@@ -8,7 +8,7 @@ from loguru import logger
 from markdownify import markdownify as md
 
 # Increase recursion depth for deep iXBRL HTML structures
-sys.setrecursionlimit(5000)
+sys.setrecursionlimit(10000)
 
 
 class EdinetParser:
@@ -92,7 +92,7 @@ class EdinetParser:
                 # フラグメントをパース
                 fragment_soup = BeautifulSoup(content, "html.parser")
 
-                # 1. 第一志望: マークダウン化
+                # 1. 第一志望: マークダウン化 (RecursionError を警戒)
                 try:
                     text = md(
                         str(fragment_soup),
@@ -101,7 +101,8 @@ class EdinetParser:
                         strip=["script", "style", "head"],
                         table_conversion="github",
                     )
-                except (RecursionError, Exception):
+                except (RecursionError, Exception) as e:
+                    logger.warning(f"Markdown conversion failed (Recursion/Error), falling back to text: {str(e)[:100]}")
                     # 2. フォールバック: 生テキスト
                     text = fragment_soup.get_text(separator="\n", strip=True)
             except Exception:
