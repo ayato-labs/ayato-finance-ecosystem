@@ -243,9 +243,13 @@ class USEngine:
                 conn.execute(f"SET max_memory='{settings.DUCKDB_MEMORY_LIMIT}'")
                 conn.execute(f"SET threads={settings.DUCKDB_THREADS}")
                 conn.execute("PRAGMA disable_optimizer")
-                # Generate fact_id MD5 hash inside DuckDB for collision-free uniqueness
+                
+                # Use a temporary table for staging to handle potential PK issues gracefully
+                conn.execute("CREATE TEMPORARY TABLE staging_facts AS SELECT * FROM df")
+                
+                # Deduplicate and Ingest using fact_id comparison
                 conn.execute("""
-                    INSERT OR IGNORE INTO company_facts (
+                    INSERT INTO company_facts (
                         fact_id, cik, taxonomy, tag, label, unit, value, end_date,
                         fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
                     )
@@ -254,8 +258,13 @@ class USEngine:
                           as fact_id,
                         cik, taxonomy, tag, label, unit, value, end_date,
                         fiscal_year, fiscal_period, form, filed_date, accession_number, session_id
-                    FROM df
+                    FROM staging_facts s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM company_facts c 
+                        WHERE c.fact_id = md5(concat_ws('|', s.cik, s.taxonomy, s.tag, s.end_date, s.accession_number))
+                    )
                 """)
+                conn.execute("DROP TABLE staging_facts")
                 logger.info(f"Successfully ingested facts for {ticker}.")
         except Exception as e:
             logger.error(f"Ingestion failed for US Ticker {ticker}: {e}")

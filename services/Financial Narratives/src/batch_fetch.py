@@ -252,8 +252,10 @@ async def process_us_ticker(ticker, fetcher, parser, storage, queue, days=7):
         if not subs:
             return
 
-        filings = fetcher.filter_relevant_filings(subs, doc_types=None)
+        # 10-K と 10-Q のみに厳格に限定
+        filings = fetcher.filter_relevant_filings(subs, doc_types=["10-K", "10-Q"])
         if not filings:
+            logger.info(f"No 10-K/10-Q found for {ticker} in specified period.")
             return
 
         threshold_date = (date.today() - timedelta(days=days)).isoformat()

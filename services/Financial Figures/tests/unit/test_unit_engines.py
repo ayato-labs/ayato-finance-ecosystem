@@ -57,7 +57,12 @@ def test_jp_engine_ingest_facts_numeric_parsing(jp_engine):
         [
             {
                 "LocalCode": "7203",
-                "Date": "2023-12-31",
+                "DisclosedDate": "2023-12-31",
+                "DisclosedTime": "15:00:00",
+                "DisclosureNumber": "2023001",
+                "Type": "Quarterly",
+                "FiscalYear": "2023",
+                "FiscalPeriod": "FY",
                 "NetSales": "1234.56",
                 "Note": "This is a string",
                 "Empty": None,
@@ -70,9 +75,13 @@ def test_jp_engine_ingest_facts_numeric_parsing(jp_engine):
         conn.execute("DELETE FROM company_facts")
         jp_engine.ingest_facts("7203", df, "session-jp-unit")
 
-        # Check if NetSales was ingested as numeric, but Note was ignored
-        res = conn.execute("SELECT tag, value FROM company_facts").fetchall()
-        tags = [r[0] for r in res]
-        assert "NetSales" in tags
-        assert "Note" not in tags
-        assert len(tags) == 1
+        # In WIDE FORMAT, NetSales is a column.
+        res = conn.execute("SELECT NetSales FROM company_facts").fetchone()
+        assert res[0] == 1234.56
+        
+        # Check that metadata columns exist
+        cols = [c[1] for c in conn.execute("PRAGMA table_info('company_facts')").fetchall()]
+        assert "LocalCode" in cols
+        assert "DisclosedDate" in cols
+        # "Note" should NOT be in cols because it's not in the contract
+        assert "Note" not in cols

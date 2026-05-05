@@ -313,7 +313,7 @@ INDEX_SCHEMAS: dict[str, list[str]] = {
 
 # --- Documentation Generation ---
 
-def generate_schema_docs(output_path: str = "docs/schema_definition.md"):
+def generate_schema_docs(output_path: str = "docs/設計/データベーススキーマ定義.md"):
     """
     Generates a Markdown documentation file from the TABLE_SCHEMAS and INDEX_SCHEMAS.
     This ensures the documentation is always in sync with the Code-as-Schema.

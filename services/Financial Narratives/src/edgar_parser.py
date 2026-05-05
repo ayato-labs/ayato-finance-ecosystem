@@ -60,50 +60,61 @@ class EdgarParser:
             # 巨大すぎるHTMLの場合はプレーンテキストにフォールバック
             return soup.get_text(separator="\n", strip=True)
 
-    def extract_all_sections(self, html_content: str, form_type: str) -> dict[str, str]:
+    def extract_all_sections(self, html_content: str, form_type: str = "10-K") -> dict[str, str]:
         """
-        ドキュメントから網羅的にセクションを分割して抽出する。
+        Unstructuredライブラリを使用して、HTMLをセクション（Item 1, 7等）ごとに分割する。
         """
-        soup = self._preprocess_html(html_content)
-        full_markdown = self._html_to_markdown(soup)
-        lines = full_markdown.split("\n")
+        if not html_content:
+            return {}
 
-        # 1. すべての "Item" ヘッダーを動的に検出する
-        # パターン: "Item 1.", "Item 1A.", "PART I", "Item 7." 等
-        # Markdown変換後の「## Item 1.」や「   Item 1.」に柔軟に対応
-        item_pattern = re.compile(r"^\s*#*\s*(Item|Part)\s*[0-9A-Z]+[\s\.]", re.IGNORECASE)
+        try:
+            from unstructured.partition.html import partition_html
+            
+            # 1. HTMLを要素（Title, NarrativeText等）に分解
+            elements = partition_html(text=html_content)
+            
+            sections_found = {}
+            current_section = "preamble"
+            current_content = []
+            
+            # SEC書類のセクション見出しパターン (Item 1., Part I, etc.)
+            item_regex = re.compile(r"^\s*(ITEM|PART)\s+[0-9A-Z]+[\.\:\s]", re.IGNORECASE)
+            
+            for el in elements:
+                text = str(el).strip()
+                if not text:
+                    continue
+                    
+                # 見出しの検出
+                if item_regex.match(text) and len(text) < 150:
+                    # 前のセクションを保存
+                    if current_content:
+                        sections_found[current_section] = self.clean_text("\n".join(current_content))
+                    
+                    # キーの正規化 ("Item 1. Business" -> "item_1__business")
+                    current_section = re.sub(r"[^a-z0-9]", "_", text.lower()).strip("_")
+                    current_content = []
+                else:
+                    current_content.append(text)
+            
+            # 最後のセクションを保存
+            if current_content:
+                sections_found[current_section] = self.clean_text("\n".join(current_content))
+                
+            # 万が一分割に失敗した場合のフォールバック
+            if len(sections_found) <= 1:
+                logger.warning(f"Unstructured split yielded few sections ({len(sections_found)}). Falling back to full_content.")
+                sections_found["full_content"] = self.clean_text(html_content)
+                
+            return sections_found
 
-        indices = []
-
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-
-            # 目次のリンク ([Item 1.](#link)) を除外しつつ、見出しを検出
-            is_item = item_pattern.match(line_stripped)
-            is_short = len(line_stripped) < 250
-            not_link = "[" not in line_stripped or "](#" not in line_stripped
-
-            if is_item and is_short and not_link:
-                indices.append((line_stripped.strip("# ").strip(), i))
-
-        # 2. 分割実行
-        sections_found = {}
-        for i, (label, start_idx) in enumerate(indices):
-            # キーをクリーンに（"Item 1. Business" -> "item_1" または "business"）
-            # ここでは将来的な検索性を考慮し、正規化したラベルをキーにする
-            key = re.sub(r"[^a-z0-9]", "_", label.lower()).strip("_")
-
-            end_idx = indices[i + 1][1] if i + 1 < len(indices) else None
-            content = "\n".join(lines[start_idx:end_idx])
-            sections_found[key] = self.clean_text(content)
-
-        # 3. もし一つもセクションが見つからなかった場合のフォールバック（ドキュメント全量を保存）
-        if not sections_found:
-            sections_found["full_content"] = self.clean_text(full_markdown)
-
-        return sections_found
+        except ImportError:
+            logger.error("Unstructured library not found. Falling back to simple regex.")
+            # 従来のフォールバックロジック（簡略化して維持）
+            return {"full_content": self.clean_text(html_content)}
+        except Exception as e:
+            logger.exception(f"Critical error in EdgarParser: {e}")
+            return {"full_content": self.clean_text(html_content)}
 
 
 if __name__ == "__main__":
