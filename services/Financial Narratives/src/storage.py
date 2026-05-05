@@ -72,28 +72,38 @@ class FinancialNarrativeStorage:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    def _connect(self, read_only: bool = False):
+        """Windows環境でのファイルロック競合を回避しながらDuckDBに接続する"""
+        import random
+        for attempt in range(15):  # 並列度が高いので試行回数を多めに設定
+            try:
+                return duckdb.connect(self.db_path, read_only=read_only)
+            except Exception as e:
+                err_str = str(e).lower()
+                # Windows特有のロックエラーやIOエラーを捕捉
+                if any(msg in err_str for msg in ["cannot open file", "already open", "lock", "io error", "process cannot access"]):
+                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.5)
+                    if attempt > 3:
+                        logger.warning(f"DB {self.db_path} locked (read_only={read_only}), retrying in {wait_time:.2f}s... ({attempt+1}/15)")
+                    time.sleep(wait_time)
+                    continue
+                raise e
+        raise RuntimeError(f"Failed to connect to DuckDB after maximum retries: {self.db_path}")
+
     def _init_db(self):
         """テーブルの初期化とリソース制限の設定"""
-        with CrossProcessLock(self.db_path):
-            with duckdb.connect(self.db_path) as conn:
-                # RAM使用効率の向上のため制限を設定
-                conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
-                conn.execute("SET threads=4")
+        with self._connect(read_only=False) as conn:
+            # RAM使用効率の向上のため制限を設定
+            conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
+            conn.execute("SET threads=4")
+            conn.execute("SET checkpoint_threshold='1GB'")
 
-                # 並列書き込み時のパフォーマンスと整合性のための設定
-                conn.execute("SET checkpoint_threshold='1GB'")
-
-                # マイグレーションマネージャーを使用して初期化
-                manager = MigrationManager(conn)
-                manager.apply_migrations()
-
-                logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
+            manager = MigrationManager(conn)
+            manager.apply_migrations()
+            logger.info(f"Initialized DuckDB at {self.db_path} with {DUCKDB_MEMORY_LIMIT} limit")
 
     def save_filing(self, metadata: dict, sections: dict):
-        """
-        メタデータとセクション情報をDuckDBにUPSERTする
-        """
-        # バリデーション
+        """メタデータとセクション情報をDuckDBにUPSERTする"""
         required_keys = ["accessionNumber", "ticker", "form", "filingDate"]
         missing = [k for k in required_keys if not metadata.get(k)]
         if missing:
@@ -101,51 +111,45 @@ class FinancialNarrativeStorage:
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
-
-        # セクションとメタデータをJSON文字列に変換
         sections_json = json.dumps(sections)
         metadata_json = json.dumps(metadata)
 
-        with CrossProcessLock(self.db_path):
-            with duckdb.connect(self.db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO filings (
-                        accession_number, ticker, cik, form, filing_date, sections, metadata, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                    (
-                        acc_no,
-                        ticker,
-                        metadata.get("cik"),
-                        metadata.get("form"),
-                        metadata.get("filingDate"),
-                        sections_json,
-                        metadata_json,
-                    ),
-                )
-                logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
+        with self._connect(read_only=False) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO filings (
+                    accession_number, ticker, cik, form, filing_date, sections, metadata, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+                (
+                    acc_no,
+                    ticker,
+                    metadata.get("cik"),
+                    metadata.get("form"),
+                    metadata.get("filingDate"),
+                    sections_json,
+                    metadata_json,
+                ),
+            )
+            logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
 
     def save_structuring(self, accession_number: str, ticker: str, structured_facts: dict):
-        """
-        AIによって構造化された事実情報を保存する
-        """
+        """AIによって構造化された事実情報を保存する"""
         facts_json = json.dumps(structured_facts)
-        with CrossProcessLock(self.db_path):
-            with duckdb.connect(self.db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO structured_data (
-                        accession_number, ticker, structured_facts, updated_at
-                    ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                    (accession_number, ticker.upper(), facts_json),
-                )
-                logger.success(f"Saved structured facts for {ticker} ({accession_number})")
+        with self._connect(read_only=False) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO structured_data (
+                    accession_number, ticker, structured_facts, updated_at
+                ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+                (accession_number, ticker.upper(), facts_json),
+            )
+            logger.success(f"Saved structured facts for {ticker} ({accession_number})")
 
     def get_structuring_by_ticker(self, ticker: str):
         """特定銘柄の構造化事実を取得"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._connect(read_only=True) as conn:
             query = """
                 SELECT structured_facts, updated_at
                 FROM structured_data WHERE ticker = ? ORDER BY updated_at DESC
@@ -156,10 +160,8 @@ class FinancialNarrativeStorage:
             return None
 
     def filing_exists(self, accession_number: str) -> bool:
-        """
-        指定された書類が既にDBに存在するか確認する
-        """
-        with duckdb.connect(self.db_path) as conn:
+        """指定された書類が既にDBに存在するか確認する"""
+        with self._connect(read_only=True) as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM filings WHERE accession_number = ?", (accession_number,)
             ).fetchone()
@@ -167,7 +169,7 @@ class FinancialNarrativeStorage:
 
     def get_summary(self):
         """保存されているデータの統計を取得"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._connect(read_only=True) as conn:
             res = conn.execute(
                 "SELECT ticker, form, filing_date FROM filings ORDER BY ticker, filing_date DESC"
             ).fetchall()
@@ -175,7 +177,7 @@ class FinancialNarrativeStorage:
 
     def get_filings_by_ticker(self, ticker: str):
         """特定銘柄の提出書類を全て取得"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._connect(read_only=True) as conn:
             query = """
                 SELECT ticker, form, filing_date, sections, metadata, updated_at
                 FROM filings WHERE ticker = ? ORDER BY filing_date DESC
@@ -185,7 +187,7 @@ class FinancialNarrativeStorage:
 
     def get_stats(self):
         """データベース全体の統計情報を取得"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._connect(read_only=True) as conn:
             query = """
                 SELECT ticker, COUNT(*) as count, MAX(filing_date) as latest
                 FROM filings GROUP BY ticker ORDER BY count DESC

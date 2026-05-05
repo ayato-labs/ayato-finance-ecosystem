@@ -112,18 +112,23 @@ class EDINETSyncWorker:
 
                     # 3. Extract and Parse CSVs
                     csv_files = self.client.extract_csv_from_zip(zip_content)
-                    all_facts = []
+                    
+                    # STREAMING: Save raw facts one file at a time to keep RAM low
+                    has_facts = False
                     for _filename, content in csv_files:
                         facts = self.parser.parse_financial_csv(content)
-                        all_facts.extend(facts)
+                        if facts:
+                            self.storage.save_facts(doc_id, facts)
+                            has_facts = True
+                            # Optional: Clear individual fact list from RAM
+                            del facts
 
-                    # 4. Save Raw Facts to RAW (Bronze)
-                    if all_facts:
-                        self.storage.save_facts(doc_id, all_facts)
-
-                        # 5. Map and Save to NORM (Silver)
+                    # 4. Map and Save to NORM (Silver)
+                    if has_facts:
                         try:
-                            self._map_and_save_facts(doc, all_facts)
+                            # Re-fetch only necessary tags for mapping to avoid large memory objects
+                            # (Alternatively, keep only unique tags in memory)
+                            self._map_and_save_facts(doc)
                         except Exception as e:
                             logger.error(f"[MAP] Failed to map and save facts for {doc_id}: {e}")
                     else:
@@ -145,7 +150,7 @@ class EDINETSyncWorker:
             return 0
 
     @track_performance("map_and_save_facts_edinet")
-    def _map_and_save_facts(self, doc: dict, raw_facts: list[dict]):
+    def _map_and_save_facts(self, doc: dict):
         """
         Uses AI Mapper to translate EDINET raw facts to standardized labels
         and saves them to the NORMALIZED database (Silver).
@@ -165,6 +170,11 @@ class EDINETSyncWorker:
             # Only sync if not already in J-Quants (Gold)
             if self._has_jquants_data(ticker, submission_date):
                 logger.info(f"[MAP] Skipping AI mapping for {ticker} (exists in J-Quants Gold).")
+                return
+
+            # Fetch raw facts from DB to avoid keeping them in RAM during the whole loop
+            raw_facts = self.storage.get_facts_by_doc(doc_id)
+            if not raw_facts:
                 return
 
             # Unique tags for efficient mapping
@@ -192,7 +202,7 @@ class EDINETSyncWorker:
             }
 
             # 2. Map facts to columns using standard labels
-            valid_labels = set(settings.JQUANTS_V2_LABELS) if market in ["EDINET", "JP_EDINET"] else set(settings.TARGET_LABELS)
+            valid_labels = set(settings.JQUANTS_V2_LABELS)
             for f in raw_facts:
                 label = tag_to_label.get(f["id"])
                 if label and label != "Other" and label in valid_labels:
@@ -207,7 +217,7 @@ class EDINETSyncWorker:
             else:
                 logger.warning(f"[MAP] No facts mapped to standard labels for {ticker}.")
         except Exception as e:
-            doc_id_label = doc_id if "doc_id" in locals() else "unknown"
+            doc_id_label = doc.get("docID", "unknown")
             logger.error(f"[MAP] Failed to map facts for {doc_id_label}: {e}")
             raise
 

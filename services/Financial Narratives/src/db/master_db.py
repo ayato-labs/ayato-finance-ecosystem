@@ -25,6 +25,7 @@ class JobQueue:
                     market TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'PENDING',
                     retry_count INTEGER DEFAULT 0,
+                    result_json TEXT,
                     error_message TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -34,157 +35,173 @@ class JobQueue:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_status ON jobs(status)')
             conn.commit()
 
+    def _execute_with_retry(self, query: str, params: tuple = (), commit: bool = True):
+        """SQLiteのロック競合時に自動リトライするヘルパー"""
+        import time
+        import random
+        for attempt in range(10):
+            try:
+                with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.execute(query, params)
+                    if commit:
+                        conn.commit()
+                    return cursor
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower():
+                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.2)
+                    time.sleep(wait_time)
+                    continue
+                logger.exception(f"SQL OperationalError: {e} | Query: {query}")
+                raise e
+            except Exception as e:
+                logger.exception(f"SQL Error: {e} | Query: {query}")
+                raise e
+        raise RuntimeError(f"Database locked for too long: {query}")
+
     def enqueue_job(self, accession_number: str, ticker: str, market: str) -> bool:
         """
         未処理のジョブをキューに登録する。
-        既に存在する場合、ステータスが 'COMPLETED' または 'FAILED' であれば 'PENDING' にリセット。
-        'PROCESSING' の場合は、現在実行中であるため上書きしない。
         """
         try:
-            with sqlite3.connect(str(self.db_path)) as conn:
-                # UPSERT (INSERT ... ON CONFLICT) を使用
-                cursor = conn.execute('''
-                    INSERT INTO jobs (accession_number, ticker, market, status)
-                    VALUES (?, ?, ?, 'PENDING')
-                    ON CONFLICT(accession_number) DO UPDATE SET
-                        status = 'PENDING',
-                        retry_count = 0,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE status IN ('COMPLETED', 'FAILED')
-                ''', (accession_number, ticker, market))
-                conn.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Failed to enqueue job {accession_number}: {e}")
+            query = '''
+                INSERT INTO jobs (accession_number, ticker, market, status)
+                VALUES (?, ?, ?, 'PENDING')
+                ON CONFLICT(accession_number) DO UPDATE SET
+                    status = 'PENDING',
+                    retry_count = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE status IN ('COMPLETED', 'FAILED')
+            '''
+            cursor = self._execute_with_retry(query, (accession_number, ticker, market))
+            return cursor.rowcount > 0
+        except Exception:
+            # _execute_with_retry 内でログ出力済み
             return False
 
     def dequeue_job(self) -> dict[str, Any] | None:
         """
         アトミックに未処理のジョブを1つ取得し、ステータスを 'PROCESSING' に変更する。
-        これにより、複数の並列ワーカーが同じジョブを取るのを防ぐ (Double Execution Prevention)。
         """
-        # SQLite 3.35.0+ の UPDATE ... RETURNING を使用して、アトミックに取得と更新を行う。
         try:
-            with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute('''
-                    UPDATE jobs
-                    SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP
-                    WHERE accession_number = (
-                        SELECT accession_number
-                        FROM jobs
-                        WHERE status = 'PENDING' OR (status = 'FAILED' AND retry_count < 3)
-                        ORDER BY created_at ASC
-                        LIMIT 1
-                    )
-                    RETURNING accession_number, ticker, market, retry_count
-                ''')
-                row = cursor.fetchone()
-                conn.commit()
-
-                if not row:
-                    return None
-
-                return dict(row)
-        except Exception as e:
-            # 他のプロセス/スレッドがロックしている場合は None を返してリトライを待つ
-            if "locked" in str(e).lower():
-                return None
-            logger.error(f"Error dequeuing job: {e}")
+            # RETURNING を使うため _execute_with_retry をラップせずに書く
+            import time
+            import random
+            for attempt in range(10):
+                try:
+                    with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
+                        conn.row_factory = sqlite3.Row
+                        cursor = conn.execute('''
+                            UPDATE jobs
+                            SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP
+                            WHERE accession_number = (
+                                SELECT accession_number
+                                FROM jobs
+                                WHERE status = 'PENDING' OR (status = 'FAILED' AND retry_count < 3)
+                                ORDER BY created_at ASC
+                                LIMIT 1
+                            )
+                            RETURNING accession_number, ticker, market, retry_count
+                        ''')
+                        row = cursor.fetchone()
+                        conn.commit()
+                        return dict(row) if row else None
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower():
+                        time.sleep((2 ** attempt) * 0.1 + random.uniform(0, 0.1))
+                        continue
+                    raise e
+            return None
+        except Exception:
+            logger.exception("Error during dequeue_job")
             return None
 
     def complete_job(self, accession_number: str):
         """ジョブの完了を記録する"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.execute('''
-                UPDATE jobs
-                SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP, error_message = NULL
-                WHERE accession_number = ?
-            ''', (accession_number,))
-            conn.commit()
+        query = '''
+            UPDATE jobs
+            SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP, error_message = NULL
+            WHERE accession_number = ?
+        '''
+        self._execute_with_retry(query, (accession_number,))
 
     def fail_job(self, accession_number: str, error_message: str):
         """ジョブの失敗を記録し、リトライ回数を増やす"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.execute('''
-                UPDATE jobs
-                SET status = 'FAILED',
-                    retry_count = retry_count + 1,
-                    error_message = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE accession_number = ?
-            ''', (str(error_message), accession_number))
-            conn.commit()
+        query = '''
+            UPDATE jobs
+            SET status = 'FAILED',
+                retry_count = retry_count + 1,
+                error_message = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE accession_number = ?
+        '''
+        self._execute_with_retry(query, (str(error_message), accession_number))
 
     def update_job_status(self, accession_number: str, status: str, worker_info: str = None):
-        """ジョブのステータスを詳細に更新する (可観測性の向上)"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            if worker_info:
-                conn.execute('''
-                    UPDATE jobs
-                    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE accession_number = ?
-                ''', (status, f"Worker: {worker_info}", accession_number))
-            else:
-                conn.execute('''
-                    UPDATE jobs
-                    SET status = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE accession_number = ?
-                ''', (status, accession_number))
-            conn.commit()
+        """ジョブのステータスを詳細に更新する"""
+        if worker_info:
+            query = '''
+                UPDATE jobs
+                SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE accession_number = ?
+            '''
+            self._execute_with_retry(query, (status, f"Worker: {worker_info}", accession_number))
+        else:
+            query = '''
+                UPDATE jobs
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE accession_number = ?
+            '''
+            self._execute_with_retry(query, (status, accession_number))
 
     def store_parsed_result(self, accession_number: str, result_json: str):
         """解析結果を一時保存し、Writerの処理待ちにする"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.execute('''
-                UPDATE jobs
-                SET status = 'PARSED',
-                    result_json = ?,
-                    updated_at = CURRENT_TIMESTAMP,
-                    error_message = NULL
-                WHERE accession_number = ?
-            ''', (result_json, accession_number))
-            conn.commit()
+        query = '''
+            UPDATE jobs
+            SET status = 'PARSED',
+                result_json = ?,
+                updated_at = CURRENT_TIMESTAMP,
+                error_message = NULL
+            WHERE accession_number = ?
+        '''
+        self._execute_with_retry(query, (result_json, accession_number))
 
     def get_parsed_jobs(self, limit: int = 50) -> list[dict]:
         """Writerが処理すべき解析済みジョブを取得する"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute('''
-                SELECT * FROM jobs
-                WHERE status = 'PARSED'
-                ORDER BY updated_at ASC
-                LIMIT ?
-            ''', (limit,))
-            return [dict(row) for row in cursor.fetchall()]
+        query = '''
+            SELECT * FROM jobs
+            WHERE status = 'PARSED'
+            ORDER BY updated_at ASC
+            LIMIT ?
+        '''
+        cursor = self._execute_with_retry(query, (limit,), commit=False)
+        return [dict(row) for row in cursor.fetchall()]
 
     def cleanup_zombie_jobs(self, timeout_minutes: int = 60):
         """長時間停滞しているジョブを 'PENDING' に戻す"""
         try:
-            with sqlite3.connect(str(self.db_path)) as conn:
-                # ゾンビとみなすステータスを拡張
-                cursor = conn.execute('''
-                    UPDATE jobs
-                    SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'Zombie cleanup'
-                    WHERE status IN ('PROCESSING', 'FETCHING', 'LLM_WAITING', 'SAVING')
-                    AND datetime(updated_at, 'localtime') < datetime('now', 'localtime', ?)
-                ''', (f'-{timeout_minutes} minutes',))
-                count = cursor.rowcount
-                if count > 0:
-                    logger.warning(f"Reset {count} zombie jobs back to PENDING")
-                conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to cleanup zombie jobs: {e}")
+            query = '''
+                UPDATE jobs
+                SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'Zombie cleanup'
+                WHERE status IN ('PROCESSING', 'FETCHING', 'LLM_WAITING', 'SAVING')
+                AND datetime(updated_at, 'localtime') < datetime('now', 'localtime', ?)
+            '''
+            cursor = self._execute_with_retry(query, (f'-{timeout_minutes} minutes',))
+            if cursor.rowcount > 0:
+                logger.warning(f"Reset {cursor.rowcount} zombie jobs back to PENDING")
+        except Exception:
+            logger.exception("Failed to cleanup zombie jobs")
 
     def get_stats(self) -> dict[str, int]:
         """キューの状態を取得する"""
-        with sqlite3.connect(str(self.db_path)) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT status, COUNT(*) FROM jobs GROUP BY status')
+        try:
+            cursor = self._execute_with_retry('SELECT status, COUNT(*) FROM jobs GROUP BY status', commit=False)
             rows = cursor.fetchall()
             stats = {row[0]: row[1] for row in rows}
-            # 未定義のステータスは0埋め
-            for state in ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']:
+            for state in ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'PARSED']:
                 if state not in stats:
                     stats[state] = 0
             return stats
+        except Exception:
+            logger.exception("Failed to get stats")
+            return {}

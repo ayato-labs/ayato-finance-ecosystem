@@ -143,7 +143,7 @@ class AIMapper:
                 response_mime_type="application/json",
                 response_schema=self._get_batch_response_schema(valid_labels),
                 temperature=settings.GEMINI_TEMPERATURE,
-                http_options=types.HttpOptions(timeout=60000),
+                http_options=types.HttpOptions(timeout=180000),
             )
             response = self.client.models.generate_content(
                 model=model_name, contents=prompt, config=config
@@ -207,7 +207,7 @@ class AIMapper:
         except Exception as e:
             # Detect 500 or 429 and specifically flag as retryable
             error_str = str(e).upper()
-            is_retryable = any(term in error_str for term in ["500", "INTERNAL", "429", "RATE"])
+            is_retryable = any(term in error_str for term in ["500", "504", "INTERNAL", "DEADLINE", "429", "RATE"])
 
             if is_retryable:
                 logger.warning(f"Transient AI API failure ({model_name}): {e}")
@@ -224,7 +224,7 @@ class AIMapper:
         tags_with_desc: list[tuple],
         session_id: str,
         batch_size: int | None = None,
-        timeout: int = 65,
+        timeout: int = 120,
     ) -> list[dict[str, Any]]:
         """
         Resilient Bulk Mapping: Automatically splits batches on failure.
@@ -241,43 +241,42 @@ class AIMapper:
             batch_size = settings.AI_MAPPING_BATCH_SIZE
 
         available_models = settings.LIGHT_GOOGLE_AI_MODELS
+        max_parallelism = 5  # Fixed slots to bypass model-count bottleneck
         results = []
 
         work_queue = deque(
             [tags_with_desc[i : i + batch_size] for i in range(0, len(tags_with_desc), batch_size)]
         )
 
-        logger.info(f"Starting resilient mapping of {len(tags_with_desc)} tags...")
+        logger.info(f"Starting resilient mapping of {len(tags_with_desc)} tags with {max_parallelism} parallel slots...")
 
         while work_queue:
-            current_chunk_size = min(len(work_queue), len(available_models))
-            current_batches = [work_queue.popleft() for _ in range(current_chunk_size)]
+            # Pop up to max_parallelism batches
+            current_batches = []
+            for _ in range(min(len(work_queue), max_parallelism)):
+                current_batches.append(work_queue.popleft())
 
             future_to_batch = {}
-            future_to_start_time = {}
+            future_to_model = {}
 
             with self._shutdown_lock:
                 if self._is_shutdown:
-                    logger.warning("Abort: AIMapper shut down during bulk mapping.")
                     break
 
                 for i, batch in enumerate(current_batches):
+                    # Round-robin through available models
                     model_name = available_models[i % len(available_models)]
-                    start_time = time.perf_counter()
                     try:
                         future = self.executor.submit(
                             self.map_tags_batch, market, batch, model_name, session_id
                         )
                         future_to_batch[future] = batch
-                        future_to_start_time[future] = start_time
-                    except RuntimeError as e:
-                        logger.error(f"Failed to submit task to AI Executor: {e}")
-                        # If the interpreter is shutting down, we must stop entirely
-                        if "shutdown" in str(e).lower():
-                            return results
-                        work_queue.append(batch)  # Put back for transient errors
+                        future_to_model[future] = model_name
+                    except RuntimeError:
+                        work_queue.append(batch)
+                        break
 
-            # HARD TIMEOUT: wait() does not block the threads, just returns status
+            # Process futures as they complete
             done, not_done = wait(future_to_batch.keys(), timeout=timeout)
 
             # Handle completed

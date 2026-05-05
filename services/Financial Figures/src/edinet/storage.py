@@ -110,6 +110,26 @@ class EDINETStorage:
             logger.error(f"Failed to bulk insert raw facts for {doc_id}: {e}", exc_info=True)
             raise
 
+    def get_facts_by_doc(self, doc_id: str) -> list[dict]:
+        """Retrieves raw facts for a specific document from the RAW database."""
+        try:
+            with db_manager.connect(self.raw_db_path, read_only=True) as con:
+                res = con.execute(
+                    """
+                    SELECT element_id, element_name, amount_value 
+                    FROM raw_facts 
+                    WHERE doc_id = ?
+                    """,
+                    [doc_id],
+                ).fetchall()
+                return [
+                    {"id": r[0], "name": r[1], "value": r[2]}
+                    for r in res
+                ]
+        except Exception as e:
+            logger.error(f"Failed to fetch facts for {doc_id}: {e}")
+            return []
+
     def save_normalized_facts(self, facts: list[dict]):
         """Saves AI-mapped facts into the NORMALIZED database (Silver)."""
         if not facts:

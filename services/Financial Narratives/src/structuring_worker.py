@@ -46,13 +46,17 @@ class StructuringWorkerPool:
             import random
             for attempt in range(10):
                 try:
+                    # read_only=True かつメモリ制限を明示して接続
                     with duckdb.connect(storage.db_path, read_only=True) as conn:
+                        conn.execute("PRAGMA memory_limit='256MB'")
+                        conn.execute("PRAGMA threads=1")  # ワーカー内では単一スレッドで十分
                         res = conn.execute(
                             "SELECT sections FROM filings WHERE accession_number = ?",
                             (accession_number,)
                         ).fetchone()
                         if res and res[0]:
-                            return json.loads(res[0])
+                            sections_data = json.loads(res[0])
+                            return sections_data
                         return {}
                 except Exception as e:
                     err_str = str(e).lower()
@@ -72,6 +76,7 @@ class StructuringWorkerPool:
         structurer = FilingStructurer(api_key=self.api_key, model_name=model_name)
 
         while True:
+            job = None
             try:
                 # 1. アトミックにタスクを取得
                 job = await asyncio.to_thread(self.queue.dequeue_job)
@@ -85,43 +90,60 @@ class StructuringWorkerPool:
                 market = job["market"]
                 retry_count = job["retry_count"]
 
-                logger.info(
-                    f"[Worker-{worker_id}|{model_name}] Dequeued {acc_no} "
-                    f"({ticker}, retry: {retry_count})"
-                )
+                logger.info(f"[Worker-{worker_id}] Processing {acc_no} ({ticker}, retry: {retry_count})")
 
                 # 2. Data Lake からテキストを取得 (FETCHING)
-                await asyncio.to_thread(self.queue.update_job_status, acc_no, "FETCHING", f"{worker_id}|{model_name}")
-                sections = await self._get_sections_from_lake(acc_no, market)
-                if not sections:
-                    raise ValueError("No sections found in Data Lake")
+                try:
+                    await asyncio.to_thread(self.queue.update_job_status, acc_no, "FETCHING", f"{worker_id}|{model_name}")
+                    sections = await self._get_sections_from_lake(acc_no, market)
+                    if not sections:
+                        raise ValueError("No sections found in Data Lake")
+                    
+                    section_count = len(sections)
+                    logger.info(f"[Worker-{worker_id}] Document Loaded: {section_count} sections for {acc_no}")
+                except Exception as e:
+                    logger.exception(f"[Worker-{worker_id}] FETCH_FAILED for {acc_no}: {e}")
+                    await asyncio.to_thread(self.queue.fail_job, acc_no, f"FETCH_ERR: {str(e)}")
+                    continue
 
                 # 3. LLM 推論 (LLM_WAITING)
-                await asyncio.to_thread(self.queue.update_job_status, acc_no, "LLM_WAITING", f"{worker_id}|{model_name}")
-                facts = await structurer.extract_facts(sections)
+                try:
+                    await asyncio.to_thread(self.queue.update_job_status, acc_no, "LLM_WAITING", f"{worker_id}|{model_name}")
+                    logger.info(f"[Worker-{worker_id}] Requesting LLM extraction for {acc_no}...")
+                    facts = await structurer.extract_facts(sections)
 
-                if not facts:
-                    raise RuntimeError("LLM returned empty or failed to extract facts")
+                    if not facts:
+                        raise RuntimeError("LLM returned empty or failed to extract facts")
+                    
+                    fact_count = len(facts) if isinstance(facts, list) else (len(facts.get("facts", [])) if isinstance(facts, dict) else "N/A")
+                    logger.success(f"[Worker-{worker_id}] LLM Extraction Succeeded: {fact_count} items for {acc_no}")
+                except Exception as e:
+                    logger.exception(f"[Worker-{worker_id}] LLM_FAILED for {acc_no}: {e}")
+                    await asyncio.to_thread(self.queue.fail_job, acc_no, f"LLM_ERR: {str(e)}")
+                    continue
+                finally:
+                    # テキストデータは巨大なため、推論が終わったら即座に解放を試みる
+                    del sections
+                    gc.collect()
 
                 # 4. 解析結果を SQLite に一時保存 (Writerに委譲)
-                import json
-                result_json = json.dumps(facts, ensure_ascii=False)
-                await asyncio.to_thread(self.queue.store_parsed_result, acc_no, result_json)
-                
-                logger.success(f"[Worker-{worker_id}|{model_name}] Parsed and Staged {acc_no} ({ticker})")
-
-                # メモリ解放の補助
-                del sections
-                del facts
-                gc.collect()
+                try:
+                    result_json = json.dumps(facts, ensure_ascii=False)
+                    await asyncio.to_thread(self.queue.store_parsed_result, acc_no, result_json)
+                    logger.info(f"[Worker-{worker_id}] Result Staged to SQLite: {acc_no}")
+                except Exception as e:
+                    logger.exception(f"[Worker-{worker_id}] STAGING_FAILED for {acc_no}: {e}")
+                    await asyncio.to_thread(self.queue.fail_job, acc_no, f"STAGE_ERR: {str(e)}")
+                    continue
+                finally:
+                    del facts
+                    gc.collect()
 
             except Exception as e:
-                if 'job' in locals() and job:
-                    logger.error(f"[Worker-{worker_id}|{model_name}] Failed {acc_no}: {e}")
-                    await asyncio.to_thread(self.queue.fail_job, acc_no, str(e))
-                else:
-                    logger.error(f"[Worker-{worker_id}] Unhandled error in loop: {e}")
-                    await asyncio.sleep(2)
+                logger.exception(f"[Worker-{worker_id}] UNEXPECTED_CRITICAL_ERROR: {e}")
+                if job and 'acc_no' in locals():
+                    await asyncio.to_thread(self.queue.fail_job, acc_no, f"CRITICAL: {str(e)}")
+                await asyncio.sleep(5)
 
     async def run_forever(self):
         """指定された数のワーカーを起動し、永久に走らせる"""
