@@ -2,6 +2,7 @@ import pytest
 import os
 from src.core.csv_parser import get_csv_from_edinet
 
+
 def test_get_csv_from_edinet_failure():
     """
     Unit Test: Verify behavior when API returns failure.
@@ -11,9 +12,10 @@ def test_get_csv_from_edinet_failure():
     api_key = os.getenv("EDINET_API_KEY", "invalid_key")
     # Using a known bad ID
     result = get_csv_from_edinet("INVALID_DOC_ID", api_key)
-    
+
     # Assert that it doesn't crash and returns None
     assert result is None
+
 
 def test_get_csv_from_edinet_real_request():
     """
@@ -24,7 +26,7 @@ def test_get_csv_from_edinet_real_request():
     api_key = os.getenv("EDINET_API_KEY")
     if not api_key:
         pytest.skip("EDINET_API_KEY not set")
-    
+
     # Try a known potentially valid ID or handle the failure
     result = get_csv_from_edinet("E00000", api_key)
     # Even if it fails, it shouldn't crash

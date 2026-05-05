@@ -46,7 +46,7 @@ TABLE_SCHEMAS = {
                 PRIMARY KEY (doc_id, section_name)
             )
         """
-    }
+    },
 }
 
 INDEX_SCHEMAS = [

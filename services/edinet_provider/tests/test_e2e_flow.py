@@ -1,25 +1,56 @@
-import pytest
-import os
-from src.engine import JPEDINETEngine
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+from src.core.db import db_manager
 
-def test_full_sync_flow():
+
+def test_full_sync_flow_with_db_verification(engine, db, mocker):
     """
-    Comprehensive/E2E Test: Run a full sync flow with real dependencies.
+    Comprehensive Test: Run sync using replayed API data and verify DB state.
     """
-    api_key = os.getenv("EDINET_API_KEY")
-    if not api_key:
-        pytest.skip("EDINET_API_KEY not set")
-    
-    # Use real engine and DB
-    engine = JPEDINETEngine()
-    
-    # We use a short lookback to minimize duration and resource usage
-    # This might fail if network is down or API key is invalid, which is part of the test
-    try:
-        engine.sync_company("7203", days=1, session_id="e2e-test")
-    except Exception as e:
-        # In a real E2E flow, we might want this to fail the test, 
-        # but for now we log and let it pass if it's an expected API error
-        print(f"E2E flow encountered an error: {e}")
-        
-    assert True
+    # 1. Setup Mock API Data
+    fixture_path = Path("tests/fixtures/edinet_replay.json")
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        replayed_data = json.load(f)
+
+    # Mock Document objects
+    mock_docs = []
+    for item in replayed_data:
+        doc = MagicMock()
+        doc._data = item
+        # Ensure doc.doc_id is accessible as engine uses it for error logging
+        doc.doc_id = item.get("docID", "unknown")
+        # Ensure parse returns a mock report that has 'business' attribute
+        mock_report = MagicMock()
+        mock_report.business = MagicMock()
+        doc.parse.return_value = mock_report
+        mock_docs.append(doc)
+
+    # Mock entity.documents
+    mock_entity = mocker.patch("edinet_tools.entity")
+    mock_entity.return_value.documents.return_value = mock_docs
+
+    ticker = "7203"
+    session_id = "e2e-replay-test"
+
+    # 2. Clear existing data for this session
+    with db_manager.connect(engine.db_path) as conn:
+        conn.execute("DELETE FROM filings WHERE session_id = ?", [session_id])
+
+    # 3. Run sync
+    # Use replayed data
+    engine.sync_company(ticker, days=365, session_id=session_id)
+
+    # 4. Verify DB state
+    with db_manager.connect(engine.db_path) as conn:
+        result = conn.execute(
+            "SELECT count(*) FROM filings WHERE session_id = ?", [session_id]
+        ).fetchone()[0]
+
+        assert result > 0, "No data found in filings"
+        assert result <= len(replayed_data)
+
+        row = conn.execute(
+            "SELECT edinet_code FROM filings WHERE session_id = ? LIMIT 1", [session_id]
+        ).fetchone()
+        assert row is not None

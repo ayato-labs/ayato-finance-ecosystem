@@ -3,6 +3,7 @@ import time
 from loguru import logger
 from src.engine import JPEDINETEngine
 
+
 def main():
     parser = argparse.ArgumentParser(description="EDINET Provider CLI")
     parser.add_argument("--ticker", type=str, help="Sync specific JP ticker (e.g. 7203)")
@@ -23,6 +24,7 @@ def main():
     if args.ticker:
         engine.sync_company(args.ticker, days=args.days, session_id=session_id)
         logger.info("Sync complete.")
+
 
 if __name__ == "__main__":
     main()

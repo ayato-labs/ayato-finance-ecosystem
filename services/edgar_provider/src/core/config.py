@@ -2,32 +2,32 @@ import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
-
 class Settings(BaseSettings):
-    # EDINET API Requirements
-    EDINET_API_KEY: str = ""
-
+    # SEC EDGAR Requirements
+    # Format: "Name <email@example.com>"
+    SEC_IDENTITY: str = "FinancialAppAdmin <admin@example.com>"
+    
     # Paths
     PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
     DATA_DIR: Path = PROJECT_ROOT / "data"
-
-    @property
-    def DB_PATH(self):
-        if os.getenv("TESTING") == "true":
-            return ":memory:"
-        return self.DATA_DIR / "edinet.duckdb"
+    DB_PATH: Path = DATA_DIR / "edgar.duckdb"
+    MASTER_DB_PATH: Path = DATA_DIR / "master.duckdb"
 
     # API Configuration
-    API_PORT: int = 5009
+    API_PORT: int = 5008
 
     # Performance & Storage
     DUCKDB_MEMORY_LIMIT: str = "4GB"
+    DUCKDB_THREADS: int = 4
     ZSTD_COMPRESSION_LEVEL: int = 10
+
+    @property
+    def db_read_only(self) -> bool:
+        return os.environ.get("DB_READ_ONLY", "false").lower() == "true"
 
     model_config = {
         "env_file": ".env",
         "extra": "ignore",
     }
-
 
 settings = Settings()

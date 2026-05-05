@@ -1,8 +1,10 @@
 from datetime import date
 from pydantic import BaseModel, ConfigDict
 
+
 class DataContract(BaseModel):
     model_config = ConfigDict(strict=False, extra="ignore")
+
 
 class JPFilingMetadata(DataContract):
     doc_id: str
@@ -14,6 +16,7 @@ class JPFilingMetadata(DataContract):
     form_code: str
     doc_type_code: str
     session_id: str
+
 
 class JPFactContract(DataContract):
     doc_id: str
@@ -27,10 +30,11 @@ class JPFactContract(DataContract):
     fiscal_period: str | None = None
     session_id: str
 
+
 class JPNarrativeContract(DataContract):
     doc_id: str
     ticker: str
-    section_name: str # e.g., '事業等のリスク', '経営方針'
+    section_name: str  # e.g., '事業等のリスク', '経営方針'
     content_md_zstd: bytes
     filed_date: date
     session_id: str

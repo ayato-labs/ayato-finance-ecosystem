@@ -2,6 +2,7 @@ from pathlib import Path
 from loguru import logger
 from src.core.db import db_manager
 
+
 class MigrationManager:
     @staticmethod
     def apply_migrations(db_path: str | Path) -> None:
@@ -19,9 +20,10 @@ class MigrationManager:
                     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
-            current_version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
-            
+
+            res = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            current_version = res[0] or 0
+
             # Apply missing migrations
             for migration_file in sorted(migrations_dir.glob("*.sql")):
                 version = int(migration_file.name.split("_")[0])
@@ -31,5 +33,5 @@ class MigrationManager:
                         sql = f.read()
                         conn.execute(sql)
                     logger.info(f"Migration {migration_file.name} applied")
-        
+
         logger.info("Migrations completed.")
