@@ -73,7 +73,7 @@ class EDINETSyncWorker:
 
             if not results:
                 logger.info(f"No documents found for {target_date}.")
-                return
+                return 0
 
             processed_count = 0
             for doc in results:
@@ -138,10 +138,11 @@ class EDINETSyncWorker:
                 time.sleep(1)
 
             logger.info(f"=== Sync Complete: {target_date}. Processed {processed_count} docs. ===")
+            return processed_count
 
         except Exception as e:
             logger.error(f"Critical error during sync for {target_date}: {e}", exc_info=True)
-            raise
+            return 0
 
     @track_performance("map_and_save_facts_edinet")
     def _map_and_save_facts(self, doc: dict, raw_facts: list[dict]):
@@ -318,20 +319,16 @@ class EDINETSyncWorker:
             end_date = date.today()
 
             delta = end_date - start_date
-            logger.info(f"Incremental sync: {start_date} to {end_date} ({delta.days} days)")
-
-            target_codes = set(self.mapper.get_all_target_edinet_codes())
-            
             total_docs = 0
             for i in range(delta.days + 1):
                 target_date = start_date + timedelta(days=i)
                 logger.info(
                     f"--- [INC] Processing Date {i + 1}/{delta.days + 1}: {target_date} ---"
                 )
-                # Note: processed_count in sync_date is local, ideally we should return it
-                self.sync_date(target_date, target_edinet_codes=target_codes)
+                count = self.sync_date(target_date, target_edinet_codes=target_codes)
+                total_docs += count
             
-            master_manager.end_job(job_id, status="COMPLETED")
+            master_manager.end_job(job_id, status="COMPLETED", records_processed=total_docs)
         except Exception as e:
             logger.error(f"Incremental sync failed: {e}")
             master_manager.end_job(job_id, status="FAILED", error_message=str(e))
@@ -339,17 +336,22 @@ class EDINETSyncWorker:
 
     @track_performance("run_backfill_edinet")
     def run_backfill(self, days: int = 7):
-        """Backfill data for the last N days sequentially."""
+        """Backfill data for the last N days sequentially with ticker filtering."""
         from src.core.master import master_manager
         job_id = master_manager.start_job("EDINET-Backfill", ["edinet_raw", "edinet_norm"])
         
         try:
             logger.info(f"Starting backfill for the last {days} days.")
+            self.ensure_ticker_master(force_update=False)
+            target_codes = set(self.mapper.get_all_target_edinet_codes())
+            
             end_date = date.today()
+            total_docs = 0
             for i in range(days):
                 target_date = end_date - timedelta(days=i)
-                self.sync_date(target_date)
-            master_manager.end_job(job_id, status="COMPLETED")
+                count = self.sync_date(target_date, target_edinet_codes=target_codes)
+                total_docs += count
+            master_manager.end_job(job_id, status="COMPLETED", records_processed=total_docs)
         except Exception as e:
             logger.error(f"Backfill failed: {e}")
             master_manager.end_job(job_id, status="FAILED", error_message=str(e))

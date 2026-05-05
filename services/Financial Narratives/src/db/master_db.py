@@ -133,11 +133,36 @@ class JobQueue:
                 ''', (status, accession_number))
             conn.commit()
 
+    def store_parsed_result(self, accession_number: str, result_json: str):
+        """解析結果を一時保存し、Writerの処理待ちにする"""
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute('''
+                UPDATE jobs
+                SET status = 'PARSED',
+                    result_json = ?,
+                    updated_at = CURRENT_TIMESTAMP,
+                    error_message = NULL
+                WHERE accession_number = ?
+            ''', (result_json, accession_number))
+            conn.commit()
+
+    def get_parsed_jobs(self, limit: int = 50) -> list[dict]:
+        """Writerが処理すべき解析済みジョブを取得する"""
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute('''
+                SELECT * FROM jobs
+                WHERE status = 'PARSED'
+                ORDER BY updated_at ASC
+                LIMIT ?
+            ''', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
     def cleanup_zombie_jobs(self, timeout_minutes: int = 60):
-        """長時間 'PROCESSING' 系のまま停滞しているジョブを 'PENDING' に戻す"""
+        """長時間停滞しているジョブを 'PENDING' に戻す"""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
-                # 'PROCESSING' で始まる詳細ステータスも含めてリセット
+                # ゾンビとみなすステータスを拡張
                 cursor = conn.execute('''
                     UPDATE jobs
                     SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP, error_message = 'Zombie cleanup'

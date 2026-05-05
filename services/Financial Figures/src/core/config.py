@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     API_PORT: int = 5006
 
     # Performance Tuning
-    AI_MAPPING_BATCH_SIZE: int = 20
+    AI_MAPPING_BATCH_SIZE: int = 10
     DUCKDB_MEMORY_LIMIT: str = "2GB"
     DUCKDB_THREADS: int = 4
     SYNC_QUEUE_MAXSIZE: int = 50

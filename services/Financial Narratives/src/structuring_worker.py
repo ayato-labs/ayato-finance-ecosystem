@@ -103,32 +103,12 @@ class StructuringWorkerPool:
                 if not facts:
                     raise RuntimeError("LLM returned empty or failed to extract facts")
 
-                # 4. Structured DB への書き込み (SAVING)
-                await asyncio.to_thread(self.queue.update_job_status, acc_no, "SAVING", f"{worker_id}|{model_name}")
-                storage = self.storage_jp if market == "jp" else self.storage_us
-                db_lock = db_write_lock_jp if market == "jp" else db_write_lock_us
-
-                async with db_lock:
-                    def save_db():
-                        import time
-                        import random
-                        for attempt in range(15):
-                            try:
-                                storage.save_structuring(acc_no, ticker, facts)
-                                return
-                            except Exception as e:
-                                err_str = str(e).lower()
-                                if "already open" in err_str or "file handle conflict" in err_str or "lock" in err_str:
-                                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.3)
-                                    logger.warning(f"DB locked, retrying save in {wait_time:.2f}s ({attempt+1}/15)...")
-                                    time.sleep(wait_time)
-                                    continue
-                                raise e
-                    await asyncio.to_thread(save_db)
-
-                # 5. SQLite ステータスの完了更新
-                await asyncio.to_thread(self.queue.complete_job, acc_no)
-                logger.success(f"[Worker-{worker_id}|{model_name}] Completed {acc_no} ({ticker})")
+                # 4. 解析結果を SQLite に一時保存 (Writerに委譲)
+                import json
+                result_json = json.dumps(facts, ensure_ascii=False)
+                await asyncio.to_thread(self.queue.store_parsed_result, acc_no, result_json)
+                
+                logger.success(f"[Worker-{worker_id}|{model_name}] Parsed and Staged {acc_no} ({ticker})")
 
                 # メモリ解放の補助
                 del sections

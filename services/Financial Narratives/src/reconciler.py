@@ -16,16 +16,34 @@ class Reconciler:
         self.storage_jp = FinancialNarrativeStorage(market="jp")
         self.storage_us = FinancialNarrativeStorage(market="us")
 
+    def _safe_connect(self, db_path: str, read_only: bool = True):
+        """Windows環境でのファイルロック競合を回避しながらDuckDBに接続する"""
+        import time
+        import random
+        for attempt in range(10):
+            try:
+                return duckdb.connect(db_path, read_only=read_only)
+            except Exception as e:
+                err_str = str(e).lower()
+                if "cannot open file" in err_str or "already open" in err_str or "lock" in err_str:
+                    wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.5)
+                    if attempt > 2:
+                        logger.warning(f"DB {db_path} locked by another process, retrying in {wait_time:.2f}s...")
+                    time.sleep(wait_time)
+                    continue
+                raise e
+        raise RuntimeError(f"Failed to connect to DuckDB after multiple attempts: {db_path}")
+
     def _get_lake_accessions(self, storage: FinancialNarrativeStorage) -> dict[str, str]:
         """Lake (filings) に存在する {accession_number: ticker} の辞書を取得"""
-        with duckdb.connect(storage.db_path) as conn:
+        with self._safe_connect(storage.db_path, read_only=True) as conn:
             # 必要なカラムだけを取得
             rows = conn.execute("SELECT accession_number, ticker FROM filings").fetchall()
             return {row[0]: row[1] for row in rows}
 
     def _get_structured_accessions(self, storage: FinancialNarrativeStorage) -> set[str]:
         """既に構造化済みの accession_number のセットを取得"""
-        with duckdb.connect(storage.db_path) as conn:
+        with self._safe_connect(storage.db_path, read_only=True) as conn:
             rows = conn.execute("SELECT accession_number FROM structured_data").fetchall()
             return {row[0] for row in rows}
 

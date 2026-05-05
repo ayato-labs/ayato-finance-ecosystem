@@ -66,14 +66,14 @@ def setup_logging(unit_name: str, run_id: str | None = None):
     )
 
     # 3. エラーログの隔離保存 (ERROR以上のみ)
-    # 障害調査用に、エラーログは通常のログより長期間（10世代）保持する
-    error_log_path = log_dir / "error.log"
+    # 障害調査用に、エラーログはユニットごとに分離して保存し、ファイル競合を防ぐ
+    error_log_path = log_dir / f"error_{unit_name}_{{time:YYYYMMDD_HHmmss}}.log"
     logger.add(
         str(error_log_path),
         format="{message}",
         level="ERROR",
         rotation="10 MB",
-        retention=10,
+        retention=3,
         serialize=True,
         enqueue=True,
     )
