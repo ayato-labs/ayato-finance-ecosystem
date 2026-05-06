@@ -584,3 +584,46 @@ class JPEngine:
             )
             logger.info(f"Successfully ingested {len(valid_df)} dividend records.")
             self._update_catalog("dividends", len(valid_df))
+
+    @track_performance("optimize_storage")
+    def optimize_storage(self):
+        """
+        Runs maintenance on all database shards to reclaim space and optimize performance.
+        """
+        from src.core.schema import TABLE_SCHEMAS
+
+        # Collect unique shard paths
+        shard_paths = set()
+        for table_meta in TABLE_SCHEMAS.values():
+            shard_name = table_meta.get("shard", "master")
+            if shard_name == "prices":
+                shard_paths.add(settings.JP_PRICES_DB_PATH)
+            elif shard_name == "financials":
+                shard_paths.add(settings.JP_FACTS_DB_PATH)
+            else:
+                shard_paths.add(settings.JP_MASTER_DB_PATH)
+
+        logger.info(f"Starting storage optimization for {len(shard_paths)} shards...")
+        for path in shard_paths:
+            if path.exists():
+                db_manager.maintenance(path)
+            else:
+                logger.debug(f"Skipping maintenance for non-existent DB: {path}")
+
+    @track_performance("export_to_parquet")
+    def export_to_parquet(self, table_name: str, output_path: Path):
+        """
+        Exports a table to a Parquet file with ZSTD compression.
+        This is a 'mature' way to archive data for long-term storage.
+        """
+        db_path = self._get_shard_path(table_name)
+        output_path.parent.mkdir(exist_ok=True, parents=True)
+
+        with db_manager.connect(db_path, read_only=True) as conn:
+            logger.info(f"Exporting table {table_name} to {output_path}...")
+            # Using ZSTD compression for best balance of size and speed
+            conn.execute(
+                f"COPY (SELECT * FROM {table_name}) TO '{output_path}' "
+                "(FORMAT PARQUET, COMPRESSION ZSTD)"
+            )
+            logger.info(f"Export completed: {output_path}")

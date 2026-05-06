@@ -28,5 +28,9 @@ echo [%DATE% %TIME%] Syncing Dividends...
 echo [%DATE% %TIME%] Syncing Indices (730 days window)...
 "%PYTHON_EXE%" main.py --sync-indices --limit 730
 
+:: 6. Storage Optimization
+echo [%DATE% %TIME%] Running Storage Optimization...
+"%PYTHON_EXE%" main.py --optimize
+
 echo [%DATE% %TIME%] Full Backfill Process Completed.
 pause

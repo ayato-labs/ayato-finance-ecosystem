@@ -24,6 +24,7 @@ def main():
             "--limit", type=int, help="Limit number of days to sync if no data exists"
         )
         parser.add_argument("--api", action="store_true", help="Start API server")
+        parser.add_argument("--optimize", action="store_true", help="Run database maintenance (VACUUM)")
         parser.add_argument("--port", type=int, default=5007)
 
         args = parser.parse_args()
@@ -174,6 +175,10 @@ def main():
                 except Exception as e:
                     logger.error(f"Critical failure in financial sync phase: {e}")
                     raise
+
+        if args.optimize:
+            logger.info("--- Phase: Storage Optimization ---")
+            engine.optimize_storage()
 
         logger.info("J-Quants Provider session completed successfully.")
 

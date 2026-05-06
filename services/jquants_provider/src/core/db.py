@@ -62,5 +62,26 @@ class DuckDBManager:
             if conn:
                 conn.close()
 
+    def maintenance(self, db_path: str | Path):
+        """
+        Performs maintenance operations (VACUUM and CHECKPOINT) on the database.
+        VACUUM reclaims unused space and rebuilds the database file.
+        CHECKPOINT ensures all data is flushed to the main file.
+        """
+        db_path_str = str(db_path)
+        with DuckDBManager._local_lock:
+            # We open a dedicated connection for maintenance
+            try:
+                # read_only must be False for VACUUM/CHECKPOINT
+                conn = duckdb.connect(db_path_str, read_only=False)
+                logger.info(f"Performing maintenance on {db_path}...")
+                conn.execute("CHECKPOINT")
+                conn.execute("VACUUM")
+                conn.close()
+                logger.info(f"Maintenance completed for {db_path}.")
+            except Exception as e:
+                logger.error(f"Maintenance failed for {db_path}: {e}")
+                raise e
+
 
 db_manager = DuckDBManager()
