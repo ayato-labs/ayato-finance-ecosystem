@@ -1,5 +1,6 @@
 import concurrent.futures
 import datetime
+import gc
 import pandas as pd
 from loguru import logger
 
@@ -102,7 +103,7 @@ class JPEDINETEngine:
             return
 
         logger.info(f"Processing {len(docs_to_process)} new documents...")
-        batch_size = 50
+        batch_size = 20  # Reduced for better RAM efficiency with large text
         results_batch = []
         processed_count = 0
 
@@ -128,7 +129,8 @@ class JPEDINETEngine:
                     if len(results_batch) >= batch_size:
                         with db_manager.connect_master() as conn:
                             self._flush_results_to_db(conn, results_batch)
-                        results_batch = []
+                        results_batch.clear()  # Aid memory cleanup
+                        gc.collect()
                         logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
                 except Exception as e:
                     logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
@@ -137,6 +139,8 @@ class JPEDINETEngine:
             if results_batch:
                 with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
+                results_batch.clear()
+                gc.collect()
 
     def backfill_missing_data(self, max_workers: int = 5):
         logger.info("Starting backfill for missing data...")
@@ -188,7 +192,7 @@ class JPEDINETEngine:
             logger.warning("Could not retrieve any document objects for backfill.")
             return
 
-        batch_size = 50
+        batch_size = 20
         results_batch = []
         processed_count = 0
 
@@ -209,7 +213,8 @@ class JPEDINETEngine:
                     if len(results_batch) >= batch_size:
                         with db_manager.connect_master() as conn:
                             self._flush_results_to_db(conn, results_batch)
-                        results_batch = []
+                        results_batch.clear()
+                        gc.collect()
                         logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)}")
                 except Exception as e:
                     logger.error(f"Backfill processing error: {e}")
@@ -218,6 +223,8 @@ class JPEDINETEngine:
             if results_batch:
                 with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
+                results_batch.clear()
+                gc.collect()
             
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
 

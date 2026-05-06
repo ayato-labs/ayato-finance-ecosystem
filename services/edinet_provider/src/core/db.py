@@ -1,9 +1,39 @@
 import threading
 import time
+import os
+import platform
+import ctypes
 from contextlib import contextmanager
 import duckdb
 from src.core.logging_config import logger
 from src.core.config import settings
+
+def get_system_ram_bytes() -> int:
+    """Gets total system RAM in bytes without external dependencies."""
+    try:
+        if platform.system() == "Windows":
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(stat)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            return stat.ullTotalPhys
+        else:
+            # POSIX / Linux
+            return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+    except Exception as e:
+        logger.warning(f"Failed to detect system RAM: {e}. Defaulting to 1GB.")
+        return 1 * 1024 * 1024 * 1024
 
 class DuckDBManager:
     _local_lock = threading.Lock()
@@ -58,6 +88,17 @@ class DuckDBManager:
                         # Use READ_ONLY flag if the master connection is read_only to avoid unnecessary write locks on shards
                         ro_suffix = " (READ_ONLY)" if read_only else ""
                         logger.debug(f"Attaching sub-databases{ro_suffix}: registry, facts, narratives")
+                        
+                        # Apply dynamic memory limit (30% of total RAM)
+                        total_ram = get_system_ram_bytes()
+                        limit_bytes = int(total_ram * 0.3)
+                        limit_gb = limit_bytes / (1024**3)
+                        
+                        conn.execute(f"SET memory_limit = '{limit_bytes}B'")
+                        # Set temp directory for spilling to disk if memory limit is hit
+                        conn.execute(f"SET temp_directory = '{settings.DATA_DIR}/tmp'")
+                        
+                        logger.debug(f"DuckDB memory limit set to {limit_gb:.2f} GB (30% of system RAM)")
                         
                         conn.execute(f"ATTACH IF NOT EXISTS '{reg_path}' AS registry_db{ro_suffix}")
                         conn.execute(f"ATTACH IF NOT EXISTS '{facts_path}' AS facts_db{ro_suffix}")
