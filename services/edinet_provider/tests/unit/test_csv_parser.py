@@ -10,13 +10,22 @@ def test_parse_edinet_csv_valid():
     # Create a dummy ZIP in memory
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        csv_content = "Header\nItem1,Value1,Unit1,Context1,FY,Period,Extra,Extra,999"
+        # skiprows=1 is used, so the first row is skipped. 
+        # The second row becomes the header.
+        # The third row becomes the data.
+        csv_content = (
+            "Comment/Metadata Row (skipped)\n"
+            "Col1,Col2,Col3,Col4,Col5,Col6,Col7,Col8,ValueCol\n"
+            "Item1,Value1,Unit1,Context1,FY,Period,Extra,Extra,999"
+        )
         zip_file.writestr("test.csv", csv_content)
     
     results = parse_edinet_csv(zip_buffer.getvalue())
     assert "test.csv" in results
-    assert not results["test.csv"].empty
-    assert results["test.csv"].iloc[0, 8] == 999
+    df = results["test.csv"]
+    assert not df.empty
+    # Value is in the 9th column (index 8)
+    assert df.iloc[0, 8] == 999
 
 def test_parse_edinet_csv_empty_zip():
     """Severe Test: Handle empty ZIP archives gracefully."""

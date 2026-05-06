@@ -22,9 +22,8 @@ class MockDoc:
 
 @pytest.fixture
 def e2e_engine():
-    # Use in-memory DB for E2E testing
-    with patch("src.core.config.settings.MASTER_DB_PATH", ":memory:"):
-        return JPEDINETEngine()
+    # TESTING=true is already set in conftest.py
+    return JPEDINETEngine()
 
 def test_full_pipeline_success(e2e_engine):
     """

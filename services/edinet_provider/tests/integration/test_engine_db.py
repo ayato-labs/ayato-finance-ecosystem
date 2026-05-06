@@ -22,10 +22,9 @@ class MockDoc:
 
 @pytest.fixture
 def engine():
-    # Use in-memory DB for integration testing
-    with patch("src.core.config.settings.MASTER_DB_PATH", ":memory:"):
-        # Ensure fresh start
-        return JPEDINETEngine()
+    # TESTING=true is already set in conftest.py, so settings.MASTER_DB_PATH
+    # will naturally return ":memory:". No need to patch properties.
+    return JPEDINETEngine()
 
 def test_engine_process_single_doc_flow(engine):
     """Integration Test: Verify metadata and narrative extraction flow."""
