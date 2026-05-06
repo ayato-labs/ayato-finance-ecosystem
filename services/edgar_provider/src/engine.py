@@ -1,8 +1,12 @@
 import concurrent.futures
+import gc
 import json
 import os
+import queue
 import re
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import psutil
@@ -136,85 +140,130 @@ class USEngine:
         tickers = get_all_tickers()
         ticker_map = {t["cik"]: t["ticker"] for t in tickers}
 
-        with db_manager.connect(self.facts_db) as conn:
-            # DuckDB specific bulk optimizations and stability hardening
-            conn.execute("SET threads=1;")
-            conn.execute("SET memory_limit='2GB';")
-            conn.execute("SET wal_autocheckpoint='1GB';")
-            conn.execute("SET preserve_insertion_order=false;")
+        # Producer-Consumer Setup
+        write_queue = queue.Queue(maxsize=20)  # Backpressure: limit pending batches
+        stop_event = threading.Event()
 
+        def db_writer_worker():
+            """Dedicated thread for serial database writing."""
+            with db_manager.connect(self.facts_db) as conn:
+                # DuckDB specific bulk optimizations
+                conn.execute("SET threads=1;")
+                conn.execute(f"SET memory_limit='{settings.db_memory_limit}';")
+                conn.execute("SET preserve_insertion_order=false;")
+                
+                # Drop secondary index during bulk ingestion
+                logger.info("Dropping secondary index for bulk ingestion stability...")
+                conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
 
-            # Drop secondary index during bulk ingestion to prevent Segfaults with INSERT OR REPLACE
-            logger.info("Dropping secondary index for bulk ingestion stability...")
-            conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
+                batch_count = 0
+                while not stop_event.is_set() or not write_queue.empty():
+                    try:
+                        batch = write_queue.get(timeout=1)
+                        if batch is None:
+                            break
+                        
+                        filings, facts = batch
+                        if filings or facts:
+                            logger.info(f"Writing batch: {len(filings)} filings, {len(facts)} facts")
+                            self._save_optimized(conn, filings, facts)
+                            batch_count += 1
+                            
+                            # Periodic checkpoint to flush WAL and stabilize memory
+                            if batch_count % 5 == 0:
+                                logger.info("Periodic checkpoint...")
+                                conn.execute("CHECKPOINT;")
+                                
+                            gc.collect()
+                        
+                        write_queue.task_done()
+                    except queue.Empty:
+                        continue
+                    except Exception as e:
+                        logger.error(f"Writer error: {e}")
 
+                # Recreate index after bulk ingestion
+                logger.info("Recreating secondary index...")
+                conn.execute("CHECKPOINT;")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+                    "ON company_facts (accession_number, fiscal_year, fiscal_period);"
+                )
+                conn.execute("CHECKPOINT;")
+                logger.info("Writer thread finished.")
+
+        # Start writer thread
+        writer_thread = threading.Thread(target=db_writer_worker)
+        writer_thread.start()
+
+        try:
             with zipfile.ZipFile(zip_path, "r") as z:
                 all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
                 total_files = len(all_files)
-
+                
                 batch_filings = []
                 batch_facts = []
-                relevant_count = 0
+                
+                # Use ThreadPool for parallel parsing with a conservative worker count
+                num_workers = min(os.cpu_count() or 4, 4)
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    def process_file(file_info_name):
+                        try:
+                            # Use a separate ZipFile object per thread to avoid contention/errors
+                            with zipfile.ZipFile(zip_path, "r") as z_inner:
+                                with z_inner.open(file_info_name) as f:
+                                    content = f.read().decode("utf-8")
+                            return parse_company_facts_json(
+                                file_info_name, content, ticker_map, session_id
+                            )
+                        except Exception as e:
+                            logger.error(f"Parse error {file_info_name}: {e}")
+                            return [], []
 
-                for i, file_info in enumerate(all_files):
-                    if i % 500 == 0:
-                        mem = process.memory_info().rss / 1024 / 1024
-                        logger.info(
-                            f"Progress: {i}/{total_files} | Mem: {mem:.2f}MB | "
-                            f"Rel: {relevant_count}"
-                        )
+                    # Map filenames to the processor
+                    # Using a generator with imap/executor.map would be better,
+                    # but let's use submit for fine-grained control if needed.
+                    futures = [executor.submit(process_file, info.filename) for info in all_files]
+                    
+                    for i, future in enumerate(futures):
+                        if i % 500 == 0:
+                            mem = process.memory_info().rss / 1024 / 1024
+                            logger.info(f"Progress: {i}/{total_files} | Mem: {mem:.2f}MB")
 
-                    try:
-                        with z.open(file_info.filename) as f:
-                            content = f.read().decode("utf-8")
-
-                        filing_recs, fact_recs = parse_company_facts_json(
-                            file_info.filename, content, ticker_map, session_id
-                        )
-
+                        filing_recs, fact_recs = future.result()
+                        
                         if filing_recs:
                             batch_filings.extend(filing_recs)
                             batch_facts.extend(fact_recs)
-                            relevant_count += 1
 
-                            # Larger buffer for fewer, faster transactions
-                            if len(batch_facts) >= 50000:
-                                logger.info(
-                                    f"Saving transaction ({len(batch_filings)} filings, "
-                                    f"{len(batch_facts)} facts)..."
-                                )
-                                self._save_optimized(conn, batch_filings, batch_facts)
-                                logger.info("Batch saved successfully.")
+                            if len(batch_facts) >= 100000:
+                                # Send to writer queue
+                                write_queue.put((batch_filings, batch_facts))
                                 batch_filings = []
                                 batch_facts = []
-                    except Exception as e:
-                        logger.error(f"Error at {file_info.filename}: {e}")
 
-                if batch_facts:
-                    logger.info(f"Saving final batch ({len(batch_facts)} facts)...")
-                    self._save_optimized(conn, batch_filings, batch_facts)
-                    logger.info("Final batch saved.")
+                    # Final batch
+                    if batch_filings or batch_facts:
+                        write_queue.put((batch_filings, batch_facts))
 
-            # Flush all memory to disk before taking on memory-intensive index building
-            conn.execute("CHECKPOINT;")
-
-            # Recreate index after bulk ingestion
-            logger.info("Recreating secondary index...")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
-                "ON company_facts (accession_number, fiscal_year, fiscal_period);"
-            )
+        finally:
+            # Signal writer to stop
+            stop_event.set()
+            write_queue.put(None)
+            writer_thread.join()
 
         logger.info("Bulk ingestion completed successfully.")
 
     def _save_optimized(self, conn, batch_filings_list, batch_facts_list):
-        """Saves normalized records in sub-batches for extreme stability."""
+        """Saves normalized records using the most stable Arrow-based approach."""
         if not batch_filings_list and not batch_facts_list:
             return
 
         try:
-            # 1. Save filings metadata (deduplicated)
+            logger.debug("Starting _save_optimized")
+            # 1. Save filings
             if batch_filings_list:
+                logger.debug("Creating filings DataFrame")
                 f_df = pd.DataFrame(
                     batch_filings_list,
                     columns=[
@@ -226,18 +275,29 @@ class USEngine:
                         "session_id",
                     ],
                 )
+                logger.debug("Dropping duplicates in filings")
                 f_df.drop_duplicates(subset=["accession_number"], keep="last", inplace=True)
+                logger.debug("Converting filed_date")
                 f_df["filed_date"] = pd.to_datetime(f_df["filed_date"], errors="coerce").dt.date
+                
+                logger.debug("Writing filings to parquet")
+                temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_f_{threading.get_ident()}.parquet"
+                f_df.to_parquet(temp_parquet_path, engine="pyarrow")
+                
+                logger.debug("Executing INSERT OR REPLACE for filings")
+                conn.execute(f"""
+                    INSERT OR REPLACE INTO filings 
+                    (accession_number, ticker, cik, form, filed_date, session_id)
+                    SELECT * FROM read_parquet('{str(temp_parquet_path)}')
+                """)
+                
+                if temp_parquet_path.exists():
+                    temp_parquet_path.unlink()
+                logger.debug("Filings insertion complete")
 
-                # Robust insertion using TEMP table + conn.append (bypasses DuckDB Arrow scanner bugs)
-                conn.execute("CREATE TEMP TABLE IF NOT EXISTS tmp_f AS SELECT * FROM filings LIMIT 0")
-                f_df["ingested_at"] = pd.Timestamp.now()
-                conn.append("tmp_f", f_df)
-                conn.execute("INSERT OR REPLACE INTO filings SELECT * FROM tmp_f")
-                conn.execute("DROP TABLE tmp_f")
-
-            # 2. Save facts (deduplicated) in sub-batches
+            # 2. Save facts
             if batch_facts_list:
+                logger.debug("Creating facts DataFrame")
                 df = pd.DataFrame(
                     batch_facts_list,
                     columns=[
@@ -251,27 +311,41 @@ class USEngine:
                         "raw_tag",
                     ],
                 )
-
+                logger.debug("Dropping duplicates in facts")
                 df.drop_duplicates(subset=["accession_number", "label"], keep="last", inplace=True)
+                logger.debug("Converting value to numeric")
                 df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
 
-                # Sub-batch to prevent massive memory spikes
                 sub_batch_size = 100000
-                total = len(df)
-                
-                for i in range(0, total, sub_batch_size):
-                    chunk_df = df.iloc[i : i + sub_batch_size].copy()
-                    chunk_df["ingested_at"] = pd.Timestamp.now()
+                logger.debug(f"Starting chunked insert for {len(df)} facts")
+                for i in range(0, len(df), sub_batch_size):
+                    logger.debug(f"Processing chunk {i}")
+                    chunk_df = df.iloc[i : i + sub_batch_size]
                     
-                    conn.execute("CREATE TEMP TABLE IF NOT EXISTS tmp_c AS SELECT * FROM company_facts LIMIT 0")
-                    conn.append("tmp_c", chunk_df)
-                    conn.execute("INSERT OR REPLACE INTO company_facts SELECT * FROM tmp_c")
-                    conn.execute("DROP TABLE tmp_c")
+                    temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_c_{threading.get_ident()}.parquet"
+                    logger.debug("Writing chunk to parquet")
+                    chunk_df.to_parquet(temp_parquet_path, engine="pyarrow")
+                    
+                    logger.debug("Executing INSERT OR REPLACE for facts chunk")
+                    conn.execute(f"""
+                        INSERT OR REPLACE INTO company_facts 
+                        (accession_number, fiscal_year, fiscal_period, label, value, unit, is_standardized, raw_tag)
+                        SELECT * FROM read_parquet('{str(temp_parquet_path)}')
+                    """)
+                    
+                    if temp_parquet_path.exists():
+                        temp_parquet_path.unlink()
+                logger.debug("Facts insertion complete")
+
+        except Exception as e:
+            logger.error(f"Save failed during optimized batching: {e}")
+            raise
 
 
 
 
             # Removed CHECKPOINT from here. Frequent checkpoints cause DuckDB Segfaults.
+            gc.collect()
         except Exception as e:
             logger.exception(f"Save failed during optimized batching: {e}")
             raise

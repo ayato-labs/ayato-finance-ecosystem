@@ -24,7 +24,7 @@ def main():
         parser.add_argument("--sync-dividends", action="store_true", help="Sync dividends")
         parser.add_argument("--sync-indices", action="store_true", help="Sync indices")
         parser.add_argument(
-            "--limit", type=int, help="Limit number of days to sync if no data exists"
+            "--limit", type=int, default=730, help="Limit number of days to sync (default: 730)"
         )
         parser.add_argument("--api", action="store_true", help="Start API server")
         parser.add_argument(
@@ -100,8 +100,12 @@ def main():
                     else:
                         logger.warning("No price data was returned for the requested period.")
                 except Exception as e:
-                    logger.error(f"Critical failure in price sync phase: {e}")
-                    raise
+                    # Graceful skip for plan limitations (400 Bad Request)
+                    if "400" in str(e) and "subscription covers" in str(e).lower():
+                        logger.warning(f"Plan limit reached for prices: {e}")
+                    else:
+                        logger.error(f"Critical failure in price sync phase: {e}")
+                        raise
 
         if args.sync_market:
             logger.info("--- Phase: Financial Sync ---")
@@ -155,8 +159,12 @@ def main():
                     else:
                         logger.warning("No financial data was returned for the requested period.")
                 except Exception as e:
-                    logger.error(f"Critical failure in financial sync phase: {e}")
-                    raise
+                    # Graceful skip for plan limitations (400 Bad Request)
+                    if "400" in str(e) and "subscription covers" in str(e).lower():
+                        logger.warning(f"Plan limit reached for financials: {e}")
+                    else:
+                        logger.error(f"Critical failure in financial sync phase: {e}")
+                        raise
 
         if args.optimize:
             logger.info("--- Phase: Storage Optimization ---")

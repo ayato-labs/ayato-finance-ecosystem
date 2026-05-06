@@ -31,8 +31,14 @@ class DuckDBManager:
                         conn = duckdb.connect(db_path_str, read_only=False)
 
                     # Apply basic PRAGMAs for performance bounds
-                    conn.execute(f"PRAGMA memory_limit='{settings.DUCKDB_MEMORY_LIMIT}'")
-                    conn.execute(f"PRAGMA threads={settings.DUCKDB_THREADS}")
+                    conn.execute(f"PRAGMA memory_limit='{settings.db_memory_limit}'")
+                    conn.execute(f"PRAGMA threads={settings.db_threads}")
+
+                    # Set a dedicated temp directory for disk spilling
+                    temp_dir = settings.DATA_DIR / "temp"
+                    temp_dir.mkdir(exist_ok=True)
+                    conn.execute(f"SET temp_directory='{str(temp_dir)}';")
+
                     # Disable insertion order preservation to drastically save memory during bulk loads
                     conn.execute("SET preserve_insertion_order=false;")
                 break

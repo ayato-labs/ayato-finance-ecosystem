@@ -6,7 +6,6 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # SEC EDGAR Requirements
-    # Format: "Name <email@example.com>"
     SEC_IDENTITY: str = "FinancialAppAdmin <admin@example.com>"
 
     # Paths
@@ -15,16 +14,36 @@ class Settings(BaseSettings):
     MASTER_DB_PATH: Path = DATA_DIR / "master.duckdb"
     FACTS_DB_PATH: Path = DATA_DIR / "facts.duckdb"
     NARRATIVES_DB_PATH: Path = DATA_DIR / "narratives.duckdb"
-    # Legacy path for backward compatibility or temporary tasks
     DB_PATH: Path = FACTS_DB_PATH
 
     # API Configuration
     API_PORT: int = 5008
 
-    # Performance & Storage
-    DUCKDB_MEMORY_LIMIT: str = "2GB"
-    DUCKDB_THREADS: int = 4
+    # Performance & Storage (Defaults, can be overridden by ENV)
+    # If not set in ENV, we calculate them dynamically
+    DUCKDB_MEMORY_LIMIT: str | None = None
+    DUCKDB_THREADS: int | None = None
     ZSTD_COMPRESSION_LEVEL: int = 10
+
+    @property
+    def db_memory_limit(self) -> str:
+        if self.DUCKDB_MEMORY_LIMIT:
+            return self.DUCKDB_MEMORY_LIMIT
+        
+        import psutil
+        total_mem = psutil.virtual_memory().total
+        # Use 70% of total RAM, minimum 2GB
+        limit_gb = max(2, int((total_mem * 0.7) / (1024**3)))
+        return f"{limit_gb}GB"
+
+    @property
+    def db_threads(self) -> int:
+        if self.DUCKDB_THREADS:
+            return self.DUCKDB_THREADS
+        
+        import os
+        # Use physical core count (or half of logical if physical not available)
+        return os.cpu_count() or 4
 
     @property
     def db_read_only(self) -> bool:

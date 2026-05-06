@@ -377,7 +377,7 @@ class JPEngine:
             df["LocalCode"] = (
                 df["LocalCode"]
                 .astype(str)
-                .apply(lambda c: c[:4] if len(c) == 5 and c.endswith("0") else c)
+                .apply(lambda c: c + "0" if len(c) == 4 else c)
             )
             df["session_id"] = session_id
         except Exception as e:
@@ -461,7 +461,7 @@ class JPEngine:
                 df["Code"] = (
                     df["Code"]
                     .astype(str)
-                    .apply(lambda c: c[:4] if len(c) == 5 and c.endswith("0") else c)
+                    .apply(lambda c: c + "0" if len(c) == 4 else c)
                 )
         except Exception as e:
             logger.error(f"Data preprocessing failed for prices: {e}")
