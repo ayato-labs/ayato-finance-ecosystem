@@ -2,12 +2,12 @@ import pytest
 from pathlib import Path
 from src.engine import JPEngine
 
+
 def test_shard_routing_master():
-    """Verify master shard routing."""
     engine = JPEngine()
     path = engine._get_shard_path("tickers")
     assert "jquants_master.duckdb" in str(path)
-    
+
     path2 = engine._get_shard_path("market_sections")
     assert "jquants_master.duckdb" in str(path2)
 

@@ -1,12 +1,9 @@
-import pytest
-from datetime import date
-from decimal import Decimal
 from src.core.contracts import (
-    JPTickerContract, 
-    JPPriceContract, 
+    JPDividendContract,
     JPFactContract,
     JPIndexContract,
-    JPDividendContract
+    JPPriceContract,
+    JPTickerContract,
 )
 
 def test_ticker_contract_validation():

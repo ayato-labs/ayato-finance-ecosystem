@@ -137,8 +137,12 @@ class USEngine:
         ticker_map = {t["cik"]: t["ticker"] for t in tickers}
 
         with db_manager.connect(self.facts_db) as conn:
-            # DuckDB specific bulk optimizations
-            conn.execute(f"SET threads TO {settings.DUCKDB_THREADS};")
+            # DuckDB specific bulk optimizations and stability hardening
+            conn.execute("SET threads=1;")
+            conn.execute("SET memory_limit='2GB';")
+            conn.execute("SET wal_autocheckpoint='1GB';")
+            conn.execute("SET preserve_insertion_order=false;")
+
 
             # Drop secondary index during bulk ingestion to prevent Segfaults with INSERT OR REPLACE
             logger.info("Dropping secondary index for bulk ingestion stability...")
@@ -202,16 +206,16 @@ class USEngine:
 
         logger.info("Bulk ingestion completed successfully.")
 
-    def _save_optimized(self, conn, filings, facts):
+    def _save_optimized(self, conn, batch_filings_list, batch_facts_list):
         """Saves normalized records in sub-batches for extreme stability."""
-        if not filings and not facts:
+        if not batch_filings_list and not batch_facts_list:
             return
 
         try:
             # 1. Save filings metadata (deduplicated)
-            if filings:
+            if batch_filings_list:
                 f_df = pd.DataFrame(
-                    filings,
+                    batch_filings_list,
                     columns=[
                         "accession_number",
                         "ticker",
@@ -222,24 +226,19 @@ class USEngine:
                     ],
                 )
                 f_df.drop_duplicates(subset=["accession_number"], keep="last", inplace=True)
-                f_df["filed_date"] = pd.to_datetime(f_df["filed_date"]).dt.date
+                f_df["filed_date"] = pd.to_datetime(f_df["filed_date"], errors="coerce").dt.date
 
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO filings
-                    (accession_number, ticker, cik, form, filed_date, session_id, ingested_at)
-                    SELECT *, CURRENT_TIMESTAMP FROM f_df
-                """
-                )
+                # Robust insertion using TEMP table + conn.append (bypasses DuckDB Arrow scanner bugs)
+                conn.execute("CREATE TEMP TABLE IF NOT EXISTS tmp_f AS SELECT * FROM filings LIMIT 0")
+                f_df["ingested_at"] = pd.Timestamp.now()
+                conn.append("tmp_f", f_df)
+                conn.execute("INSERT OR REPLACE INTO filings SELECT * FROM tmp_f")
+                conn.execute("DROP TABLE tmp_f")
 
-            # 2. Save facts in sub-batches
-            sub_batch_size = 5000
-            total = len(facts)
-
-            for i in range(0, total, sub_batch_size):
-                chunk = facts[i : i + sub_batch_size]
+            # 2. Save facts (deduplicated) in sub-batches
+            if batch_facts_list:
                 df = pd.DataFrame(
-                    chunk,
+                    batch_facts_list,
                     columns=[
                         "accession_number",
                         "fiscal_year",
@@ -255,19 +254,27 @@ class USEngine:
                 df.drop_duplicates(subset=["accession_number", "label"], keep="last", inplace=True)
                 df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
 
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO company_facts
-                    (accession_number, fiscal_year, fiscal_period, label, value, unit,
-                     is_standardized, raw_tag, ingested_at)
-                    SELECT *, CURRENT_TIMESTAMP FROM df
-                """
-                )
+                # Sub-batch to prevent massive memory spikes
+                sub_batch_size = 100000
+                total = len(df)
+                
+                for i in range(0, total, sub_batch_size):
+                    chunk_df = df.iloc[i : i + sub_batch_size].copy()
+                    chunk_df["ingested_at"] = pd.Timestamp.now()
+                    
+                    conn.execute("CREATE TEMP TABLE IF NOT EXISTS tmp_c AS SELECT * FROM company_facts LIMIT 0")
+                    conn.append("tmp_c", chunk_df)
+                    conn.execute("INSERT OR REPLACE INTO company_facts SELECT * FROM tmp_c")
+                    conn.execute("DROP TABLE tmp_c")
 
-            conn.execute("CHECKPOINT;")
+
+
+
+            # Removed CHECKPOINT from here. Frequent checkpoints cause DuckDB Segfaults.
         except Exception as e:
-            logger.error(f"Save failed during sub-batching: {e}")
+            logger.exception(f"Save failed during optimized batching: {e}")
             raise
+
 
     def _save_raw_facts(self, records: list[tuple]):
         """Saves raw record tuples to Facts DB in small sub-batches to prevent C-level crashes."""
