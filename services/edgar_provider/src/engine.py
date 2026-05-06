@@ -155,6 +155,7 @@ class USEngine:
                 # Drop secondary index during bulk ingestion
                 logger.info("Dropping secondary index for bulk ingestion stability...")
                 conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
+                conn.execute("DROP INDEX IF EXISTS idx_filings_ticker;")
 
                 batch_count = 0
                 while not stop_event.is_set() or not write_queue.empty():
@@ -252,6 +253,12 @@ class USEngine:
             write_queue.put(None)
             writer_thread.join()
 
+            # Re-create secondary indexes after bulk operation completes
+            logger.info("Re-creating secondary indexes...")
+            with db_manager.connect(self.facts_db) as conn:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_filings_ticker ON filings (ticker);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (accession_number, fiscal_year, fiscal_period);")
+
         logger.info("Bulk ingestion completed successfully.")
 
     def _save_optimized(self, conn, batch_filings_list, batch_facts_list):
@@ -260,10 +267,8 @@ class USEngine:
             return
 
         try:
-            logger.debug("Starting _save_optimized")
             # 1. Save filings
             if batch_filings_list:
-                logger.debug("Creating filings DataFrame")
                 f_df = pd.DataFrame(
                     batch_filings_list,
                     columns=[
@@ -275,12 +280,9 @@ class USEngine:
                         "session_id",
                     ],
                 )
-                logger.debug("Dropping duplicates in filings")
                 f_df.drop_duplicates(subset=["accession_number"], keep="last", inplace=True)
-                logger.debug("Converting filed_date")
                 f_df["filed_date"] = pd.to_datetime(f_df["filed_date"], errors="coerce").dt.date
                 
-                logger.debug("Writing filings to parquet")
                 temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_f_{threading.get_ident()}.parquet"
                 f_df.to_parquet(temp_parquet_path, engine="pyarrow")
                 
@@ -323,10 +325,8 @@ class USEngine:
                     chunk_df = df.iloc[i : i + sub_batch_size]
                     
                     temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_c_{threading.get_ident()}.parquet"
-                    logger.debug("Writing chunk to parquet")
                     chunk_df.to_parquet(temp_parquet_path, engine="pyarrow")
                     
-                    logger.debug("Executing INSERT OR REPLACE for facts chunk")
                     conn.execute(f"""
                         INSERT OR REPLACE INTO company_facts 
                         (accession_number, fiscal_year, fiscal_period, label, value, unit, is_standardized, raw_tag)
@@ -338,18 +338,8 @@ class USEngine:
                 logger.debug("Facts insertion complete")
 
         except Exception as e:
-            logger.error(f"Save failed during optimized batching: {e}")
-            raise
-
-
-
-
-            # Removed CHECKPOINT from here. Frequent checkpoints cause DuckDB Segfaults.
-            gc.collect()
-        except Exception as e:
             logger.exception(f"Save failed during optimized batching: {e}")
             raise
-
 
     def _save_raw_facts(self, records: list[tuple]):
         """Saves raw record tuples to Facts DB in small sub-batches to prevent C-level crashes."""
