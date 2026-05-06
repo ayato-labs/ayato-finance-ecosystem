@@ -8,8 +8,13 @@ class Settings(BaseSettings):
     # SEC EDGAR Requirements
     SEC_IDENTITY: str = "FinancialAppAdmin <admin@example.com>"
 
+    # Component Identification
+    # Values: 'provider', 'api', or 'default'
+    EDGAR_COMPONENT: str = os.environ.get("EDGAR_COMPONENT", "default").lower()
+
     # Paths
-    PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
+    # We navigate up to find the true workspace root
+    PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.parent.parent
     DATA_DIR: Path = PROJECT_ROOT / "data"
     MASTER_DB_PATH: Path = DATA_DIR / "master.duckdb"
     FACTS_DB_PATH: Path = DATA_DIR / "facts.duckdb"
