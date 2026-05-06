@@ -12,14 +12,13 @@ import pandas as pd
 import psutil
 import zstandard as zstd
 from edgar import Company, set_identity
-from loguru import logger
-
 from edgar_core.config import settings
-from edgar_core.contracts import USFactContract, USNarrativeContract, USFilingContract
+from edgar_core.contracts import USFactContract, USFilingContract, USNarrativeContract
 from edgar_core.db import db_manager
 from edgar_core.logging import track_performance
 from edgar_core.telemetry import trace_step
 from edgar_core.utils import get_all_tickers, rate_limiter
+from loguru import logger
 
 
 def parse_company_facts_json(filename, content_str, ticker_map, session_id):
@@ -76,9 +75,7 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
 
                         try:
                             val = (
-                                float(entry.get("val", 0))
-                                if entry.get("val") is not None
-                                else 0.0
+                                float(entry.get("val", 0)) if entry.get("val") is not None else 0.0
                             )
                             if pd.isna(val) or val == float("inf") or val == float("-inf"):
                                 val = 0.0
@@ -151,7 +148,7 @@ class USEngine:
                 conn.execute("SET threads=1;")
                 conn.execute(f"SET memory_limit='{settings.db_memory_limit}';")
                 conn.execute("SET preserve_insertion_order=false;")
-                
+
                 # Drop secondary index during bulk ingestion
                 logger.info("Dropping secondary index for bulk ingestion stability...")
                 conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
@@ -163,20 +160,22 @@ class USEngine:
                         batch = write_queue.get(timeout=1)
                         if batch is None:
                             break
-                        
+
                         filings, facts = batch
                         if filings or facts:
-                            logger.info(f"Writing batch: {len(filings)} filings, {len(facts)} facts")
+                            logger.info(
+                                f"Writing batch: {len(filings)} filings, {len(facts)} facts"
+                            )
                             self._save_optimized(conn, filings, facts)
                             batch_count += 1
-                            
+
                             # Periodic checkpoint to flush WAL and stabilize memory
                             if batch_count % 5 == 0:
                                 logger.info("Periodic checkpoint...")
                                 conn.execute("CHECKPOINT;")
-                                
+
                             gc.collect()
-                        
+
                         write_queue.task_done()
                     except queue.Empty:
                         continue
@@ -201,15 +200,16 @@ class USEngine:
             with zipfile.ZipFile(zip_path, "r") as z:
                 all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
                 total_files = len(all_files)
-                
+
                 batch_filings = []
                 batch_facts = []
-                
+
                 # Use ThreadPool for parallel parsing with a conservative worker count
                 num_workers = min(os.cpu_count() or 4, 4)
                 chunk_size = 1000  # Process files in chunks to avoid massive Future lists
-                
+
                 with ThreadPoolExecutor(max_workers=num_workers) as executor:
+
                     def process_file(file_info_name):
                         try:
                             with zipfile.ZipFile(zip_path, "r") as z_inner:
@@ -225,15 +225,17 @@ class USEngine:
                     for chunk_idx in range(0, total_files, chunk_size):
                         chunk = all_files[chunk_idx : chunk_idx + chunk_size]
                         futures = [executor.submit(process_file, info.filename) for info in chunk]
-                        
+
                         for i, future in enumerate(concurrent.futures.as_completed(futures)):
                             current_total = chunk_idx + i
                             if current_total % 500 == 0:
                                 mem = process.memory_info().rss / 1024 / 1024
-                                logger.info(f"Progress: {current_total}/{total_files} | Mem: {mem:.2f}MB")
+                                logger.info(
+                                    f"Progress: {current_total}/{total_files} | Mem: {mem:.2f}MB"
+                                )
 
                             filing_recs, fact_recs = future.result()
-                            
+
                             if filing_recs:
                                 batch_filings.extend(filing_recs)
                                 batch_facts.extend(fact_recs)
@@ -243,7 +245,7 @@ class USEngine:
                                     write_queue.put((batch_filings, batch_facts))
                                     batch_filings = []
                                     batch_facts = []
-                        
+
                         # Explicitly clear futures and trigger GC after each chunk
                         del futures
                         gc.collect()
@@ -264,7 +266,9 @@ class USEngine:
             logger.info("Re-creating secondary indexes...")
             with db_manager.connect(self.facts_db) as conn:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_filings_ticker ON filings (ticker);")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (accession_number, fiscal_year, fiscal_period);")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (accession_number, fiscal_year, fiscal_period);"
+                )
 
         logger.info("Bulk ingestion completed successfully.")
 
@@ -289,17 +293,19 @@ class USEngine:
                 )
                 f_df.drop_duplicates(subset=["accession_number"], keep="last", inplace=True)
                 f_df["filed_date"] = pd.to_datetime(f_df["filed_date"], errors="coerce").dt.date
-                
-                temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_f_{threading.get_ident()}.parquet"
+
+                temp_parquet_path = (
+                    settings.DATA_DIR / "temp" / f"tmp_f_{threading.get_ident()}.parquet"
+                )
                 f_df.to_parquet(temp_parquet_path, engine="pyarrow")
-                
+
                 logger.debug("Executing INSERT OR REPLACE for filings")
                 conn.execute(f"""
-                    INSERT OR REPLACE INTO filings 
+                    INSERT OR REPLACE INTO filings
                     (accession_number, ticker, cik, form, filed_date, session_id)
                     SELECT * FROM read_parquet('{str(temp_parquet_path)}')
                 """)
-                
+
                 if temp_parquet_path.exists():
                     temp_parquet_path.unlink()
                 logger.debug("Filings insertion complete")
@@ -331,16 +337,18 @@ class USEngine:
                 for i in range(0, len(df), sub_batch_size):
                     logger.debug(f"Processing chunk {i}")
                     chunk_df = df.iloc[i : i + sub_batch_size]
-                    
-                    temp_parquet_path = settings.DATA_DIR / "temp" / f"tmp_c_{threading.get_ident()}.parquet"
+
+                    temp_parquet_path = (
+                        settings.DATA_DIR / "temp" / f"tmp_c_{threading.get_ident()}.parquet"
+                    )
                     chunk_df.to_parquet(temp_parquet_path, engine="pyarrow")
-                    
+
                     conn.execute(f"""
-                        INSERT OR REPLACE INTO company_facts 
+                        INSERT OR REPLACE INTO company_facts
                         (accession_number, fiscal_year, fiscal_period, label, value, unit, is_standardized, raw_tag)
                         SELECT * FROM read_parquet('{str(temp_parquet_path)}')
                     """)
-                    
+
                     if temp_parquet_path.exists():
                         temp_parquet_path.unlink()
                 logger.debug("Facts insertion complete")
@@ -494,7 +502,7 @@ class USEngine:
 
                 filings_to_save = []
                 contracts_to_save = []
-                
+
                 # We only need one filing record per filing
                 filings_to_save.append(
                     USFilingContract(
@@ -562,7 +570,7 @@ class USEngine:
             )
             for f in filings
         ]
-        
+
         fact_values = [
             (
                 c.accession_number,
@@ -588,7 +596,7 @@ class USEngine:
                 """,
                     filing_values,
                 )
-            
+
             # 2. Save facts
             conn.executemany(
                 """

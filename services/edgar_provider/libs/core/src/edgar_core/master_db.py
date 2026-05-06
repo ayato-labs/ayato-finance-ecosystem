@@ -18,13 +18,14 @@ class MasterDBManager:
     def _ensure_initialized(self):
         if self._initialized:
             return
-        
+
         self.master_db_path.parent.mkdir(parents=True, exist_ok=True)
         # Ensure physical file exists first
         if not self.master_db_path.exists():
             import duckdb
+
             duckdb.connect(str(self.master_db_path)).close()
-        
+
         self._init_master_schema()
         self._initialized = True
 
@@ -46,6 +47,7 @@ class MasterDBManager:
         # Double check file creation (sometimes OS lag or WAL mode hides it)
         if not self.master_db_path.exists():
             import duckdb
+
             # Force creating an empty DB just to ensure file presence
             conn = duckdb.connect(str(self.master_db_path))
             conn.close()

@@ -2,7 +2,7 @@ import json
 import time
 
 from edgar_core.utils import RateLimiter, get_all_tickers
-from edgar_provider\.engine import USEngine, parse_company_facts_json
+from edgar_provider.engine import USEngine, parse_company_facts_json
 
 
 def test_rate_limiter_timing():
@@ -20,11 +20,13 @@ def test_rate_limiter_timing():
     t2 = time.perf_counter()
     assert (t2 - t1) >= 0.15  # Roughly 1/5 second
 
+
 def test_get_all_tickers_real_api():
     """Unit test: Real SEC API call (No mock allowed for unit)."""
     tickers = get_all_tickers()
     assert len(tickers) > 5000
-    assert any(t['ticker'] == 'AAPL' for t in tickers)
+    assert any(t["ticker"] == "AAPL" for t in tickers)
+
 
 def test_parse_company_facts_json_logic():
     """Unit test: Verify parsing logic with a sample JSON string."""
@@ -39,15 +41,18 @@ def test_parse_company_facts_json_logic():
                     "units": {
                         "USD": [
                             {
-                                "val": 1000000, "accn": "0001-test",
-                                "filed": "2024-01-01", "fy": 2023,
-                                "fp": "FY", "form": "10-K"
+                                "val": 1000000,
+                                "accn": "0001-test",
+                                "filed": "2024-01-01",
+                                "fy": 2023,
+                                "fp": "FY",
+                                "form": "10-K",
                             }
                         ]
-                    }
+                    },
                 }
             }
-        }
+        },
     }
 
     filings, facts = parse_company_facts_json(
@@ -55,14 +60,15 @@ def test_parse_company_facts_json_logic():
     )
     assert len(filings) == 1
     assert len(facts) == 1
-    
+
     # Verify filings record
     assert filings[0][1] == "AAPL"
-    
+
     # Verify facts record
     assert facts[0][0] == "0001-test"
     assert facts[0][3] == "Net Income"
     assert facts[0][4] == 1000000.0
+
 
 def test_engine_init_creates_files(clean_db_paths):
     """Unit test: USEngine initialization should trigger migration and create DB files."""

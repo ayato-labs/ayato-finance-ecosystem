@@ -1,6 +1,6 @@
 from edgar_core.db import db_manager
 from edgar_core.master_db import master_db
-from edgar_provider\.engine import USEngine
+from edgar_provider.engine import USEngine
 
 
 def test_full_routing_integration():
@@ -13,7 +13,7 @@ def test_full_routing_integration():
     session_id = "test-integration-123"
 
     # 1. Manually trigger a small ingestion or mock specific parts
-    from edgar_core.contracts import USFactContract, USNarrativeContract, USFilingContract
+    from edgar_core.contracts import USFactContract, USFilingContract, USNarrativeContract
 
     filing = USFilingContract(
         accession_number="TEST-ACCN-1",
@@ -51,11 +51,9 @@ def test_full_routing_integration():
 
     # Assert: Facts DB has the filing and the fact
     with db_manager.connect(engine.facts_db) as conn:
-        f_count = conn.execute(
-            "SELECT count(*) FROM filings WHERE ticker = 'AAPL'"
-        ).fetchone()[0]
+        f_count = conn.execute("SELECT count(*) FROM filings WHERE ticker = 'AAPL'").fetchone()[0]
         assert f_count == 1
-        
+
         c_count = conn.execute(
             "SELECT count(*) FROM company_facts WHERE accession_number = 'TEST-ACCN-1'"
         ).fetchone()[0]
@@ -63,9 +61,7 @@ def test_full_routing_integration():
 
     # Assert: Narratives DB has the narrative
     with db_manager.connect(engine.narratives_db) as conn:
-        count = conn.execute(
-            "SELECT count(*) FROM narratives WHERE ticker = 'AAPL'"
-        ).fetchone()[0]
+        count = conn.execute("SELECT count(*) FROM narratives WHERE ticker = 'AAPL'").fetchone()[0]
         assert count == 1
 
     # Assert: Master DB connection can see both via ATTACH and Star JOIN

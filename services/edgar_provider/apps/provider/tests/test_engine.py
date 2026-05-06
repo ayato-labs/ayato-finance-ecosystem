@@ -1,5 +1,5 @@
 from edgar_core.config import settings
-from edgar_provider\.engine import USEngine
+from edgar_provider.engine import USEngine
 
 
 def test_settings_load():

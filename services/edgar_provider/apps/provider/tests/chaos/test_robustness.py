@@ -1,13 +1,10 @@
 import threading
 import time
 
-import duckdb
-import pytest
-
-from loguru import logger
 from edgar_core.config import settings
 from edgar_core.db import db_manager
-from edgar_provider\.engine import USEngine
+from edgar_provider.engine import USEngine
+from loguru import logger
 
 
 def test_chaos_db_locking():
@@ -23,7 +20,7 @@ def test_chaos_db_locking():
                 for i in range(100):
                     conn.execute(
                         "INSERT INTO metrics (run_id, step_name, status) VALUES (?, ?, ?)",
-                        [f"chaos-{i}", "chaos_step", "success"]
+                        [f"chaos-{i}", "chaos_step", "success"],
                     )
                     time.sleep(0.01)  # Hold lock briefly
         except Exception as e:
@@ -38,9 +35,10 @@ def test_chaos_db_locking():
     # We expect our DuckDBManager to handle retries and succeed
     assert len(errors) == 0, f"Encountered {len(errors)} locking errors: {errors}"
 
+
 def test_chaos_malformed_json_bulk():
     """Chaos Test: Ingesting malformed JSON strings in bulk process."""
-    from edgar_provider\.engine import parse_company_facts_json
+    from edgar_provider.engine import parse_company_facts_json
 
     # Should not crash, should return empty lists (per our robust try-except)
     filings, facts = parse_company_facts_json(
@@ -49,10 +47,12 @@ def test_chaos_malformed_json_bulk():
     assert filings == []
     assert facts == []
 
+
 def test_chaos_null_primary_keys():
     """Chaos Test: Attempting to save records with NULL in Primary Key columns."""
     from edgar_core.contracts import USFactContract, USFilingContract
     from pydantic import ValidationError
+
     engine = USEngine()
 
     bad_filings = []
@@ -60,12 +60,32 @@ def test_chaos_null_primary_keys():
 
     # 1. Test Pydantic protection (Controlled failure)
     try:
-        bad_filings.append(USFilingContract(accession_number=None, ticker="AAPL", cik="320193", form="10-K", filed_date="2024-01-01", session_id="sid"))
+        bad_filings.append(
+            USFilingContract(
+                accession_number=None,
+                ticker="AAPL",
+                cik="320193",
+                form="10-K",
+                filed_date="2024-01-01",
+                session_id="sid",
+            )
+        )
     except ValidationError:
         logger.debug("Pydantic caught null accession_number correctly.")
 
     try:
-        bad_facts.append(USFactContract(accession_number="accn", fiscal_year=2023, fiscal_period="FY", label=None, value=1.0, unit="USD", is_standardized=True, raw_tag="tag"))
+        bad_facts.append(
+            USFactContract(
+                accession_number="accn",
+                fiscal_year=2023,
+                fiscal_period="FY",
+                label=None,
+                value=1.0,
+                unit="USD",
+                is_standardized=True,
+                raw_tag="tag",
+            )
+        )
     except ValidationError:
         logger.debug("Pydantic caught null label correctly.")
 

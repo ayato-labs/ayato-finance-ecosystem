@@ -34,8 +34,9 @@ class Settings(BaseSettings):
     def db_memory_limit(self) -> str:
         if self.DUCKDB_MEMORY_LIMIT:
             return self.DUCKDB_MEMORY_LIMIT
-        
+
         import psutil
+
         total_mem = psutil.virtual_memory().total
         # Use 40% of total RAM (leaving 60% for Python, OS, and buffers), minimum 2GB
         limit_gb = max(2, int((total_mem * 0.4) / (1024**3)))
@@ -45,8 +46,9 @@ class Settings(BaseSettings):
     def db_threads(self) -> int:
         if self.DUCKDB_THREADS:
             return self.DUCKDB_THREADS
-        
+
         import os
+
         # Use physical core count (or half of logical if physical not available)
         return os.cpu_count() or 4
 

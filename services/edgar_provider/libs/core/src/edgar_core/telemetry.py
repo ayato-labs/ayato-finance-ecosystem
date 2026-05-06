@@ -35,7 +35,7 @@ logger.add(
     level="DEBUG",
     rotation="10 MB",
     retention=2,
-    encoding="utf-8"
+    encoding="utf-8",
 )
 
 

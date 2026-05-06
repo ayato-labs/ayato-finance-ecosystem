@@ -24,7 +24,9 @@ def apply_initial_schema(conn, role: str = None):
     is_facts_db = role == "facts"
     is_narratives_db = role == "narratives"
 
-    logger.debug(f"Applying initial schema for role: {role} (facts: {is_facts_db}, narratives: {is_narratives_db})")
+    logger.debug(
+        f"Applying initial schema for role: {role} (facts: {is_facts_db}, narratives: {is_narratives_db})"
+    )
 
     for table_name, versions in TABLE_SCHEMAS.items():
         # Routing logic:
@@ -49,7 +51,9 @@ def apply_initial_schema(conn, role: str = None):
         index_sql_lower = index_sql.lower()
         if is_facts_db and "narratives" in index_sql_lower:
             continue
-        if is_narratives_db and ("company_facts" in index_sql_lower or "filings" in index_sql_lower):
+        if is_narratives_db and (
+            "company_facts" in index_sql_lower or "filings" in index_sql_lower
+        ):
             continue
         logger.debug(f"Applying index: {index_sql[:50]}...")
         conn.execute(index_sql)
@@ -85,7 +89,7 @@ def optimize_data_types_v1_0_1(conn, role: str = None):
 
     if is_facts_db and "company_facts" in tables:
         conn.execute("ALTER TABLE company_facts ALTER fiscal_year SET DATA TYPE SMALLINT;")
-    
+
     if is_facts_db and "filings" in tables:
         conn.execute("ALTER TABLE filings ALTER filed_date SET DATA TYPE DATE;")
 
@@ -173,4 +177,3 @@ class MigrationManager:
                         raise e
 
         logger.info(f"Database {db_path} is up to date.")
-

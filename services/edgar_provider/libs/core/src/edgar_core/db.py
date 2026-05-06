@@ -16,10 +16,10 @@ class DuckDBManager:
     @contextmanager
     def connect(db_path: str | Path, read_only: bool = False, timeout_seconds: int = 30):
         db_path_str = str(db_path)
-        
+
         # Enforce read-only if explicitly requested OR if we are in API mode
         effective_read_only = read_only or settings.EDGAR_COMPONENT == "api"
-        
+
         start_time = time.time()
         conn = None
         while time.time() - start_time < timeout_seconds:
@@ -33,7 +33,7 @@ class DuckDBManager:
                         if effective_read_only:
                             logger.error(f"Failed to open DB in read-only mode: {ce}")
                             raise
-                        
+
                         logger.debug(
                             "Read-only connection failed, attempting read-write "
                             f"for {db_path_str}: {ce}"

@@ -1,4 +1,5 @@
 import functools
+import json
 import sys
 import time
 from pathlib import Path
@@ -13,7 +14,10 @@ def setup_logging():
     # Remove default handler
     logger.remove()
 
-    log_dir = Path("logs")
+    # Find project root (data and logs should be at root)
+    # We navigate up relative to this file
+    project_root = Path(__file__).parent.parent.parent.parent.parent
+    log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True)
 
     app_log = log_dir / "app.json.log"
@@ -21,34 +25,52 @@ def setup_logging():
 
     # Execution-based rotation (Keep last 2 runs)
     try:
-        # Move current to .1 (previous .1 is overwritten)
         if app_log.exists():
             backup_log = log_dir / "app.json.log.1"
             if backup_log.exists():
                 backup_log.unlink()
             app_log.rename(backup_log)
 
+        # For the error log, we keep the previous run as well
         if error_log.exists():
             backup_err = log_dir / "error.log.1"
             if backup_err.exists():
                 backup_err.unlink()
             error_log.rename(backup_err)
     except PermissionError:
-        # On Windows, if file is locked, skip rotation to avoid crash
+        # On Windows, if file is locked, rotation might fail
         pass
     except Exception as e:
         print(f"Warning: Failed to rotate logs: {e}", file=sys.stderr)
 
-    # 1. Main JSON Log (DEBUG and above for full traceability)
+    # Handler for JSON serialization
+    def serialize_json(record):
+        subset = {
+            "timestamp": record["time"].isoformat(),
+            "level": record["level"].name,
+            "message": record["message"],
+            "name": record["name"],
+            "function": record["function"],
+            "line": record["line"],
+            "extra": record["extra"],
+        }
+        if record["exception"]:
+            subset["exception"] = str(record["exception"])
+        return json.dumps(subset)
+
+    def json_sink(message):
+        serialized = serialize_json(message.record)
+        print(serialized, file=open(app_log, "a", encoding="utf-8"))
+
+    # 1. Main JSON Log (Full traceability)
     logger.add(
-        str(app_log),
-        serialize=True,
+        json_sink,
         level="DEBUG",
         backtrace=True,
         diagnose=True,
     )
 
-    # 2. Isolated Error Log (Human readable, ERROR and above)
+    # 2. Isolated Error Log (Human readable, separate preservation)
     logger.add(
         str(error_log),
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
@@ -57,7 +79,7 @@ def setup_logging():
         diagnose=True,
     )
 
-    # 3. Console (Human readable, INFO and above)
+    # 3. Console (Human readable)
     logger.add(
         sys.stderr,
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
@@ -66,11 +88,11 @@ def setup_logging():
         colorize=True,
     )
 
-    logger.debug("Logging initialized: JSON structured file and error isolation active.")
+    logger.debug("Logging initialized with JSON and Error isolation.")
 
 
 def track_performance(name: str):
-    """Decorator to track performance and ensure exceptions are never silenced."""
+    """Decorator to track performance and ensure exceptions are logged before re-raising."""
 
     def decorator(func):
         @functools.wraps(func)
@@ -93,14 +115,14 @@ def track_performance(name: str):
                 return result
             except Exception as e:
                 logger.error(
-                    f"FAILED {name}: {type(e).__name__} - {str(e)}",
+                    f"CRITICAL FAILURE in {name}: {type(e).__name__} - {str(e)}",
                     extra={
                         "context": context,
-                        "error": type(e).__name__,
+                        "error_type": type(e).__name__,
                         "event": "failure",
                     },
                 )
-                # NEVER silence: re-raise the exception
+                # Ensure the error is never silenced
                 raise
 
         return wrapper
