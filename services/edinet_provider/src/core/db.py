@@ -89,9 +89,9 @@ class DuckDBManager:
                         ro_suffix = " (READ_ONLY)" if read_only else ""
                         logger.debug(f"Attaching sub-databases{ro_suffix}: registry, facts, narratives")
                         
-                        # Apply dynamic memory limit (30% of total RAM)
+                        # Apply dynamic memory limit (Ratio of total RAM from settings)
                         total_ram = get_system_ram_bytes()
-                        limit_bytes = int(total_ram * 0.3)
+                        limit_bytes = int(total_ram * settings.MEM_LIMIT_RATIO)
                         limit_gb = limit_bytes / (1024**3)
                         
                         conn.execute(f"SET memory_limit = '{limit_bytes}B'")

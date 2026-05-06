@@ -6,6 +6,7 @@ import os
 import time
 import pandas as pd
 from loguru import logger
+from src.core.governance import governor
 
 import edinet_tools
 from src.core.config import settings
@@ -104,44 +105,49 @@ class JPEDINETEngine:
         log_batch = []
         processed_count = 0
 
-        # Step 2: Process documents in parallel (Network I/O) without holding DB locks
+        # Step 2: Process documents in parallel (Network I/O) with memory governance
+        chunk_size = max_workers * 2
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_doc = {
-                executor.submit(
-                    with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
-                ): doc
-                for doc in docs_to_process
-            }
+            for i in range(0, len(docs_to_process), chunk_size):
+                # Check memory pressure before starting a new chunk
+                governor.wait_for_clearance()
+                
+                chunk = docs_to_process[i:i + chunk_size]
+                future_to_doc = {
+                    executor.submit(
+                        with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
+                    ): doc for doc in chunk
+                }
 
-            for future in concurrent.futures.as_completed(future_to_doc):
-                doc = future_to_doc[future]
-                doc_id = doc._data.get("docID")
-                try:
-                    result, status_info = future.result()
-                    if result:
-                        results_batch.append(result)
-                    
-                    log_batch.append((
-                        doc_id, 
-                        status_info["status"], 
-                        datetime.datetime.now(), 
-                        status_info.get("error")
-                    ))
-                    processed_count += 1
+                for future in concurrent.futures.as_completed(future_to_doc):
+                    doc = future_to_doc[future]
+                    doc_id = doc._data.get("docID")
+                    try:
+                        result, status_info = future.result()
+                        if result:
+                            results_batch.append(result)
+                        
+                        log_batch.append((
+                            doc_id, 
+                            status_info["status"], 
+                            datetime.datetime.now(), 
+                            status_info.get("error")
+                        ))
+                        processed_count += 1
 
-                    # Step 3: Flush batches to DB using a short-lived WRITE connection
-                    if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
-                        with db_manager.connect_master() as conn:
-                            if results_batch:
-                                self._flush_results_to_db(conn, results_batch)
-                                results_batch.clear()
-                            if log_batch:
-                                self._update_ingestion_logs(conn, log_batch)
-                                log_batch.clear()
-                        gc.collect()
-                        logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
-                except Exception as e:
-                    logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
+                        # Step 3: Flush batches to DB using a short-lived WRITE connection
+                        if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
+                            with db_manager.connect_master() as conn:
+                                if results_batch:
+                                    self._flush_results_to_db(conn, results_batch)
+                                    results_batch.clear()
+                                if log_batch:
+                                    self._update_ingestion_logs(conn, log_batch)
+                                    log_batch.clear()
+                            gc.collect()
+                            logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
+                    except Exception as e:
+                        logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
             # Final flush
             if results_batch or log_batch:

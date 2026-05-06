@@ -44,6 +44,14 @@ def parse_edinet_csv(content: bytes):
 
     try:
         results = {}
+        # Basic ZIP validation (Magic number: PK)
+        if not content.startswith(b"PK\x03\x04"):
+            logger.warning(
+                "Received non-ZIP content from EDINET (Magic number mismatch). "
+                f"First 100 bytes: {content[:100]!r}"
+            )
+            return {}
+
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             for file_name in z.namelist():
                 if file_name.endswith(".csv"):

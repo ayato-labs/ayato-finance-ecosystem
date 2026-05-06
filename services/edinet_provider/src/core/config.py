@@ -60,7 +60,9 @@ class Settings(BaseSettings):
     API_PORT: int = 5009
 
     # Performance & Storage
-    DUCKDB_MEMORY_LIMIT: str = "4GB"
+    MEM_LIMIT_RATIO: float = 0.3  # Ratio of system RAM for DuckDB and Python process
+    MEM_CRITICAL_THRESHOLD: float = 0.95  # Stop all ingestion if system RAM usage exceeds this
+    MEM_CHECK_INTERVAL: int = 5  # Seconds between memory pressure checks
     ZSTD_COMPRESSION_LEVEL: int = 10
 
     model_config = {
