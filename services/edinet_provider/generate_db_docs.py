@@ -6,11 +6,22 @@ def generate_docs():
     doc = []
     doc.append("# EDINET Provider Database Documentation")
     doc.append(f"*Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
-    doc.append("\nThis document is automatically generated from `src/core/schema.py` (Schema-as-Code).")
     
     doc.append("\n## Architecture: The Quad-Split (Master Governance)")
-    doc.append("The system uses a Master database to orchestrate three specialized storage databases.")
+    doc.append("The system uses a Master database to orchestrate specialized storage shards via `ATTACH DATABASE`.")
 
+    # Add Mermaid Diagram
+    doc.append("\n### Database Relationship Diagram")
+    doc.append("```mermaid")
+    doc.append("erDiagram")
+    doc.append("    MASTER ||--o{ REGISTRY : orchestrates")
+    doc.append("    MASTER ||--o{ FACTS : orchestrates")
+    doc.append("    MASTER ||--o{ NARRATIVE : orchestrates")
+    doc.append("    REGISTRY_filings ||--o{ FACTS_company_facts : \"doc_id (PK)\"")
+    doc.append("    REGISTRY_filings ||--o{ NARRATIVE_narratives : \"doc_id (PK)\"")
+    doc.append("```")
+
+    doc.append("\n## Database Shards")
     for db_alias, db_config in TABLE_DEFINITIONS.items():
         doc.append(f"\n### Database: `{db_alias}`")
         doc.append(f"**Description**: {db_config['description']}")

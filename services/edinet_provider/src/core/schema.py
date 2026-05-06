@@ -66,6 +66,7 @@ TABLE_DEFINITIONS = {
                         context_id VARCHAR,
                         fiscal_year INTEGER,
                         fiscal_period VARCHAR,
+                        session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
                     )
@@ -77,12 +78,13 @@ TABLE_DEFINITIONS = {
         "description": "Narratives Database - Unstructured Text Storage",
         "tables": {
             "narratives": {
-                "description": "Extracted text blocks (Business Risks, etc.) with ZSTD optimization",
+                "description": "Extracted text blocks (Business Risks, etc.)",
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS narratives (
                         doc_id VARCHAR,
                         section_name VARCHAR,
                         content_md VARCHAR,
+                        session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, section_name)
                     )

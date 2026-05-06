@@ -6,6 +6,7 @@ from loguru import logger
 import edinet_tools
 from src.core.config import settings
 from src.core.db import db_manager
+from src.core.contracts import JPFilingMetadata, JPFactContract, JPNarrativeContract
 
 
 class JPEDINETEngine:
@@ -186,9 +187,19 @@ class JPEDINETEngine:
             
             metadata = self._extract_metadata(doc, ticker, session_id)
             narratives = self._extract_narratives(doc, ticker, session_id)
-            return {"metadata": metadata, "narratives": narratives or [], "facts": facts or []}
+            
+            # Validate through contracts
+            valid_meta = JPFilingMetadata(**metadata)
+            valid_facts = [JPFactContract(**f) for f in facts or []]
+            valid_narrs = [JPNarrativeContract(**n) for n in narratives or []]
+            
+            return {
+                "metadata": valid_meta.model_dump(),
+                "narratives": [n.model_dump() for n in valid_narrs],
+                "facts": [f.model_dump() for f in valid_facts]
+            }
         except Exception as e:
-            logger.error(f"Failed extraction for {doc_id}: {e}", exc_info=True)
+            logger.error(f"Contract validation failed for {doc_id}: {e}")
             return None
 
     def _flush_results_to_db(self, conn, results):
@@ -199,7 +210,14 @@ class JPEDINETEngine:
 
         try:
             # 1. Metadata (registry_db)
-            metadata_batch = [r["metadata"] for r in results]
+            metadata_batch = [
+                (
+                    r["metadata"]["doc_id"], r["metadata"]["edinet_code"], r["metadata"]["sec_code"],
+                    r["metadata"]["filer_name"], r["metadata"]["doc_description"],
+                    r["metadata"]["submit_datetime"], r["metadata"]["form_code"],
+                    r["metadata"]["doc_type_code"], r["metadata"]["session_id"]
+                ) for r in results
+            ]
             conn.executemany(
                 f"""
                 INSERT OR IGNORE INTO {reg_prefix}filings 
@@ -212,19 +230,28 @@ class JPEDINETEngine:
 
             # 2. Narratives (narr_db)
             narrative_batch = []
-            for r in results: narrative_batch.extend(r["narratives"])
+            for r in results:
+                for n in r["narratives"]:
+                    narrative_batch.append((n["doc_id"], n["section_name"], n["content_md"], n["session_id"]))
+            
             if narrative_batch:
                 conn.executemany(
-                    f"INSERT OR REPLACE INTO {narr_prefix}narratives VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                    f"INSERT OR REPLACE INTO {narr_prefix}narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
                     narrative_batch,
                 )
 
             # 3. Facts (facts_db)
             fact_batch = []
-            for r in results: fact_batch.extend(r["facts"])
+            for r in results:
+                for f in r["facts"]:
+                    fact_batch.append((
+                        f["doc_id"], f["item_name"], f["item_value"], f["unit"],
+                        f["context_id"], f["fiscal_year"], f["fiscal_period"], f["session_id"]
+                    ))
+            
             if fact_batch:
                 conn.executemany(
-                    f"INSERT OR REPLACE INTO {facts_prefix}company_facts VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                    f"INSERT OR REPLACE INTO {facts_prefix}company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     fact_batch,
                 )
         except Exception as e:
@@ -233,17 +260,31 @@ class JPEDINETEngine:
 
     def _extract_metadata(self, doc, ticker, session_id):
         data = doc._data
-        return [
-            data.get("docID"), data.get("edinetCode"), ticker, data.get("filerName"),
-            data.get("docDescription"), data.get("submitDateTime"), data.get("formCode"),
-            data.get("docTypeCode"), session_id,
-        ]
+        return {
+            "doc_id": data.get("docID"),
+            "edinet_code": data.get("edinetCode"),
+            "sec_code": ticker,
+            "filer_name": data.get("filerName"),
+            "doc_description": data.get("docDescription"),
+            "submit_datetime": data.get("submitDateTime"),
+            "form_code": data.get("formCode"),
+            "doc_type_code": data.get("docTypeCode"),
+            "session_id": session_id,
+        }
 
     def _extract_narratives(self, doc, ticker, session_id):
         try:
             report = doc.parse()
             if not report or not hasattr(report, "text_blocks"): return []
-            return [[doc._data.get("docID"), k, str(v)] for k, v in report.text_blocks.items() if len(str(v)) > 20]
+            return [
+                {
+                    "doc_id": doc._data.get("docID"),
+                    "section_name": k,
+                    "content_md": str(v),
+                    "session_id": session_id
+                }
+                for k, v in report.text_blocks.items() if len(str(v)) > 20
+            ]
         except Exception as e:
             logger.warning(f"Narrative failed: {e}")
             return []
@@ -266,7 +307,16 @@ class JPEDINETEngine:
                     if pd.notna(row[cols[8]]):
                         try:
                             val = float(str(row[cols[8]]).replace(",", ""))
-                            results.append([data.get("docID"), str(row[cols[1]]), val, str(row[cols[7]]), str(file_name), filed_date.year, "FY"])
+                            results.append({
+                                "doc_id": data.get("docID"),
+                                "item_name": str(row[cols[1]]),
+                                "item_value": val,
+                                "unit": str(row[cols[7]]),
+                                "context_id": str(file_name),
+                                "fiscal_year": filed_date.year,
+                                "fiscal_period": "FY",
+                                "session_id": session_id
+                            })
                         except: continue
             return results
         except Exception as e:
