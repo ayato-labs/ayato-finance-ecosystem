@@ -47,13 +47,20 @@ def parse_edinet_csv(content: bytes):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             for file_name in z.namelist():
                 if file_name.endswith(".csv"):
-                    with z.open(file_name) as f:
-                        # Skip first line (header info) and use second line as columns
-                        try:
-                            df = pd.read_csv(f, encoding="shift_jis", skiprows=1)
+                    try:
+                        # Use cp932 (Windows-31J) which is a superset of shift_jis
+                        # Add errors="replace" to skip over stray illegal bytes
+                        with z.open(file_name) as f:
+                            # Read first few bytes to check for BOM or empty file
+                            sample = f.read(10)
+                            if not sample:
+                                continue
+                            f.seek(0)
+                            
+                            df = pd.read_csv(f, encoding="cp932", skiprows=1, on_bad_lines='warn', encoding_errors="replace")
                             results[file_name] = df
-                        except Exception as e:
-                            logger.warning(f"Failed to parse CSV {file_name}: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse CSV {file_name}: {e}")
         return results
     except zipfile.BadZipFile:
         logger.error("Failed to unzip: Not a valid ZIP file.")
