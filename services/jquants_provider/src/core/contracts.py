@@ -21,19 +21,19 @@ class JPFactContract(BaseModel):
     Type: str
     FiscalYear: str
     FiscalPeriod: str
-    NetSales: Optional[Decimal] = None
-    OperatingProfit: Optional[Decimal] = None
-    OrdinaryProfit: Optional[Decimal] = None
-    Profit: Optional[Decimal] = None
-    EarningsPerShare: Optional[Decimal] = None
-    TotalAssets: Optional[Decimal] = None
-    NetAssets: Optional[Decimal] = None
-    EquityToAssetRatio: Optional[Decimal] = None
-    BookValuePerShare: Optional[Decimal] = None
-    CashFlowsFromOperatingActivities: Optional[Decimal] = None
-    CashFlowsFromInvestingActivities: Optional[Decimal] = None
-    CashFlowsFromFinancingActivities: Optional[Decimal] = None
-    CashAndCashEquivalents: Optional[Decimal] = None
+    NetSales: Optional[float] = None
+    OperatingProfit: Optional[float] = None
+    OrdinaryProfit: Optional[float] = None
+    Profit: Optional[float] = None
+    EarningsPerShare: Optional[float] = None
+    TotalAssets: Optional[float] = None
+    NetAssets: Optional[float] = None
+    EquityToAssetRatio: Optional[float] = None
+    BookValuePerShare: Optional[float] = None
+    CashFlowsFromOperatingActivities: Optional[float] = None
+    CashFlowsFromInvestingActivities: Optional[float] = None
+    CashFlowsFromFinancingActivities: Optional[float] = None
+    CashAndCashEquivalents: Optional[float] = None
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
 
@@ -73,17 +73,17 @@ class JPFactContract(BaseModel):
 class JPPriceContract(BaseModel):
     Date: date
     Code: str
-    Open: Optional[Decimal] = None
-    High: Optional[Decimal] = None
-    Low: Optional[Decimal] = None
-    Close: Optional[Decimal] = None
+    Open: Optional[float] = None
+    High: Optional[float] = None
+    Low: Optional[float] = None
+    Close: Optional[float] = None
     Volume: Optional[int] = None
-    AdjustmentOpen: Optional[Decimal] = None
-    AdjustmentHigh: Optional[Decimal] = None
-    AdjustmentLow: Optional[Decimal] = None
-    AdjustmentClose: Optional[Decimal] = None
+    AdjustmentOpen: Optional[float] = None
+    AdjustmentHigh: Optional[float] = None
+    AdjustmentLow: Optional[float] = None
+    AdjustmentClose: Optional[float] = None
     AdjustmentVolume: Optional[int] = None
-    TurnoverValue: Optional[Decimal] = None
+    TurnoverValue: Optional[float] = None
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
 
@@ -116,10 +116,10 @@ class JPPriceContract(BaseModel):
 class JPIndexContract(BaseModel):
     Date: date
     Code: str
-    Open: Optional[Decimal] = None
-    High: Optional[Decimal] = None
-    Low: Optional[Decimal] = None
-    Close: Optional[Decimal] = None
+    Open: Optional[float] = None
+    High: Optional[float] = None
+    Low: Optional[float] = None
+    Close: Optional[float] = None
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
 
@@ -135,6 +135,6 @@ class JPDividendContract(BaseModel):
     AnnouncementDate: date
     Code: str
     RecordDate: date
-    DividendValue: Optional[Decimal] = None
+    DividendValue: Optional[float] = None
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
