@@ -1,8 +1,8 @@
 from loguru import logger
 
-from src.core.config import settings
-from src.core.db import db_manager
-from src.core.generated_schema import TABLE_SCHEMAS
+from edgar_core.config import settings
+from edgar_core.db import db_manager
+from edgar_core.generated_schema import TABLE_SCHEMAS
 
 
 class MasterDBManager:

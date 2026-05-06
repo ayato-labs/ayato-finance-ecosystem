@@ -1,25 +1,15 @@
 [project]
-name = "edgar-provider"
+name = "edgar-provider-workspace"
 version = "0.1.0"
-description = "US Market data provider using SEC EDGAR"
+description = "Monorepo for EDGAR Provider components"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "edgartools>=3.0.0",
-    "duckdb>=1.1.0",
-    "pandas>=2.2.0",
-    "pydantic-settings>=2.4.0",
-    "loguru>=0.7.2",
-    "zstandard>=0.23.0",
-    "fastapi>=0.112.0",
-    "uvicorn>=0.30.0",
-    "tenacity>=9.0.0",
-    "requests>=2.33.1",
+dependencies = []
+
+[tool.uv.workspace]
+members = ["libs/*", "apps/*"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
 ]
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["src"]

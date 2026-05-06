@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 from loguru import logger
 
-from src.core.config import settings
+from edgar_core.config import settings
 
 
 class DuckDBManager:

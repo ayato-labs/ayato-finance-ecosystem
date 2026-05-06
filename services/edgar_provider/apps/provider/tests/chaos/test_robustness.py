@@ -5,9 +5,9 @@ import duckdb
 import pytest
 
 from loguru import logger
-from src.core.config import settings
-from src.core.db import db_manager
-from src.engine import USEngine
+from edgar_core.config import settings
+from edgar_core.db import db_manager
+from edgar_provider\.engine import USEngine
 
 
 def test_chaos_db_locking():
@@ -40,7 +40,7 @@ def test_chaos_db_locking():
 
 def test_chaos_malformed_json_bulk():
     """Chaos Test: Ingesting malformed JSON strings in bulk process."""
-    from src.engine import parse_company_facts_json
+    from edgar_provider\.engine import parse_company_facts_json
 
     # Should not crash, should return empty lists (per our robust try-except)
     filings, facts = parse_company_facts_json(
@@ -51,7 +51,7 @@ def test_chaos_malformed_json_bulk():
 
 def test_chaos_null_primary_keys():
     """Chaos Test: Attempting to save records with NULL in Primary Key columns."""
-    from src.core.contracts import USFactContract, USFilingContract
+    from edgar_core.contracts import USFactContract, USFilingContract
     from pydantic import ValidationError
     engine = USEngine()
 

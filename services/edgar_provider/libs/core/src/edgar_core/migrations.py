@@ -1,7 +1,7 @@
 from loguru import logger
 
-from src.core.db import db_manager
-from src.core.generated_schema import INDEX_SCHEMAS, TABLE_SCHEMAS
+from edgar_core.db import db_manager
+from edgar_core.generated_schema import INDEX_SCHEMAS, TABLE_SCHEMAS
 
 
 def apply_initial_schema(conn, role: str = None):

@@ -2,7 +2,7 @@ import sys, time
 import zipfile, json
 import pandas as pd
 import duckdb
-from src.engine import parse_company_facts_json
+from edgar_provider.engine import parse_company_facts_json
 
 print('Start', flush=True)
 z = zipfile.ZipFile('data/companyfacts.zip')

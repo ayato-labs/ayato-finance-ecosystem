@@ -1,0 +1,19 @@
+[project]
+name = "edgar-core"
+version = "0.1.0"
+description = "Shared core logic for EDGAR services"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.1.0",
+    "pydantic-settings>=2.4.0",
+    "loguru>=0.7.2",
+    "psutil>=5.9.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

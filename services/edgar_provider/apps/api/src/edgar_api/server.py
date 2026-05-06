@@ -2,8 +2,8 @@ import zstandard as zstd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from src.core.config import settings
-from src.core.db import db_manager
+from edgar_core.config import settings
+from edgar_core.db import db_manager
 
 app = FastAPI(title="EDGAR Provider API")
 dctx = zstd.ZstdDecompressor()

@@ -1,0 +1,22 @@
+[project]
+name = "edgar-api"
+version = "0.1.0"
+description = "EDGAR Provider API Server"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "edgar-core",
+    "fastapi>=0.112.0",
+    "uvicorn>=0.30.0",
+    "zstandard>=0.23.0",
+]
+
+[tool.uv.sources]
+edgar-core = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

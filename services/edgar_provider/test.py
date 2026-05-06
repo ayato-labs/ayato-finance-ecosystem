@@ -7,7 +7,7 @@ try:
 
     z = zipfile.ZipFile('data/companyfacts.zip')
     content = z.read('CIK0000001750.json').decode('utf-8')
-    from src.engine import parse_company_facts_json
+    from edgar_provider.engine import parse_company_facts_json
     records = parse_company_facts_json('CIK0000001750.json', content, {'0000001750': 'AIR'}, 'test')
 
     df = pd.DataFrame(records, columns=['ticker', 'cik', 'accession_number', 'form', 'filed_date', 'fiscal_year', 'fiscal_period', 'label', 'value', 'unit', 'is_standardized', 'raw_tag', 'session_id'])

@@ -1,6 +1,6 @@
-from src.core.db import db_manager
-from src.core.master_db import master_db
-from src.engine import USEngine
+from edgar_core.db import db_manager
+from edgar_core.master_db import master_db
+from edgar_provider\.engine import USEngine
 
 
 def test_full_routing_integration():
@@ -13,7 +13,7 @@ def test_full_routing_integration():
     session_id = "test-integration-123"
 
     # 1. Manually trigger a small ingestion or mock specific parts
-    from src.core.contracts import USFactContract, USNarrativeContract, USFilingContract
+    from edgar_core.contracts import USFactContract, USNarrativeContract, USFilingContract
 
     filing = USFilingContract(
         accession_number="TEST-ACCN-1",

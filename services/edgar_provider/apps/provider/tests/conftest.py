@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.config import settings
+from edgar_core.config import settings
 
 
 @pytest.fixture(scope="session")
@@ -28,7 +28,7 @@ def clean_db_paths(test_data_dir):
 @pytest.fixture(autouse=True)
 def mock_settings_paths(monkeypatch, clean_db_paths):
     """Overwrites production paths with test paths as Path objects."""
-    from src.core.master_db import master_db
+    from edgar_core.master_db import master_db
     master_db._initialized = False  # Reset for each test to handle temp dirs correctly
 
     monkeypatch.setattr(settings, "MASTER_DB_PATH", Path(clean_db_paths["master"]))

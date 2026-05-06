@@ -14,12 +14,12 @@ import zstandard as zstd
 from edgar import Company, set_identity
 from loguru import logger
 
-from src.core.config import settings
-from src.core.contracts import USFactContract, USNarrativeContract, USFilingContract
-from src.core.db import db_manager
-from src.core.logging import track_performance
-from src.core.telemetry import trace_step
-from src.core.utils import get_all_tickers, rate_limiter
+from edgar_core.config import settings
+from edgar_core.contracts import USFactContract, USNarrativeContract, USFilingContract
+from edgar_core.db import db_manager
+from edgar_core.logging import track_performance
+from edgar_core.telemetry import trace_step
+from edgar_core.utils import get_all_tickers, rate_limiter
 
 
 def parse_company_facts_json(filename, content_str, ticker_map, session_id):
@@ -117,8 +117,8 @@ class USEngine:
         self.compressor = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
 
     def _init_db(self):
-        from src.core.master_db import master_db
-        from src.core.migrations import MigrationManager
+        from edgar_core.master_db import master_db
+        from edgar_core.migrations import MigrationManager
 
         # 1. Migrate all databases independently
         MigrationManager.apply_migrations(self.facts_db, role="facts")

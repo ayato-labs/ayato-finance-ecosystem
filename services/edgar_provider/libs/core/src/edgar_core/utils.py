@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from loguru import logger
 
-from src.core.config import settings
+from edgar_core.config import settings
 
 
 class RateLimiter:

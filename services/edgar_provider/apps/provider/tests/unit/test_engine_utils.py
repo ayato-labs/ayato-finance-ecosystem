@@ -1,8 +1,8 @@
 import json
 import time
 
-from src.core.utils import RateLimiter, get_all_tickers
-from src.engine import USEngine, parse_company_facts_json
+from edgar_core.utils import RateLimiter, get_all_tickers
+from edgar_provider\.engine import USEngine, parse_company_facts_json
 
 
 def test_rate_limiter_timing():
