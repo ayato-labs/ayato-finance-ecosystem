@@ -23,8 +23,8 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS ingestion_log (
                         doc_id VARCHAR PRIMARY KEY,
-                        status ingestion_status_t NOT NULL, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
-                        last_attempt TIMESTAMP NOT NULL,
+                        status ingestion_status_t, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
+                        last_attempt TIMESTAMP,
                         retry_count INTEGER DEFAULT 0,
                         error_message TEXT
                     )
@@ -41,14 +41,14 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS filings (
                         doc_id VARCHAR PRIMARY KEY,
-                        edinet_code VARCHAR NOT NULL,
+                        edinet_code VARCHAR,
                         sec_code VARCHAR, -- Normalized 4-digit code
-                        filer_name VARCHAR NOT NULL,
+                        filer_name VARCHAR,
                         doc_description VARCHAR,
-                        submit_datetime TIMESTAMP NOT NULL,
+                        submit_datetime TIMESTAMP,
                         form_code form_code_enum,
                         doc_type_code doc_type_code_enum,
-                        session_id VARCHAR NOT NULL,
+                        session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """
@@ -70,7 +70,7 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         context_id VARCHAR NOT NULL,
                         fiscal_year INTEGER,
                         fiscal_period period_enum,
-                        session_id VARCHAR NOT NULL,
+                        session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
                     )
@@ -89,7 +89,7 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         doc_id VARCHAR NOT NULL,
                         section_name section_name_t NOT NULL,
                         content_md VARCHAR NOT NULL USING COMPRESSION ZSTD,
-                        session_id VARCHAR NOT NULL,
+                        session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, section_name)
                     )
