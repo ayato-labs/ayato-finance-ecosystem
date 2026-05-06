@@ -4,6 +4,7 @@ import time
 from src.core.utils import RateLimiter, get_all_tickers
 from src.engine import USEngine, parse_company_facts_json
 
+
 def test_rate_limiter_timing():
     """Unit test: Verify rate limiter wait times (Real logic, no mock)."""
     limiter = RateLimiter(requests_per_second=5)  # 200ms per request

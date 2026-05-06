@@ -4,6 +4,7 @@ import pytest
 
 from src.core.config import settings
 
+
 @pytest.fixture(scope="session")
 def test_data_dir(tmp_path_factory):
     """Creates a temporary data directory for testing."""

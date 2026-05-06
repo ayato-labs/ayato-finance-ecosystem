@@ -131,8 +131,11 @@ class USEngine:
 
         with db_manager.connect(self.facts_db) as conn:
             # DuckDB specific bulk optimizations
-            conn.execute("SET preserve_insertion_order=false;")
             conn.execute(f"SET threads TO {settings.DUCKDB_THREADS};")
+
+            # Drop secondary index during bulk ingestion to prevent Segfaults with INSERT OR REPLACE
+            logger.info("Dropping secondary index for bulk ingestion stability...")
+            conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
 
             with zipfile.ZipFile(zip_path, "r") as z:
                 all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
@@ -165,38 +168,83 @@ class USEngine:
                             if len(batch_records) >= 50000:
                                 logger.info(f"Saving transaction ({len(batch_records)} rows)...")
                                 self._save_optimized(conn, batch_records)
+                                logger.info(f"Saved {len(batch_records)} rows successfully.")
                                 batch_records = []
                     except Exception as e:
                         logger.error(f"Error at {file_info.filename}: {e}")
 
                 if batch_records:
+                    logger.info(f"Saving final batch ({len(batch_records)} rows)...")
                     self._save_optimized(conn, batch_records)
+                    logger.info("Final batch saved.")
+
+            # Recreate index after bulk ingestion
+            logger.info("Recreating secondary index...")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+                "ON company_facts (ticker, fiscal_year, fiscal_period);"
+            )
 
             conn.execute("CHECKPOINT;")
 
         logger.info("Bulk ingestion completed successfully.")
 
     def _save_optimized(self, conn, records):
-        """Saves records in a single high-speed transaction."""
+        """Saves records in small chunks for extreme stability."""
         if not records:
             return
 
+        # Sub-batching to 5000 to prevent crash in DuckDB C++ layer
+        sub_batch_size = 5000
+        total = len(records)
+
         try:
-            # Explicit transaction block
-            conn.execute("BEGIN TRANSACTION;")
-            conn.executemany(
+            for i in range(0, total, sub_batch_size):
+                chunk = records[i : i + sub_batch_size]
+
+                # Use Pandas with explicit type cleaning
+                df = pd.DataFrame(  # noqa: F841
+                    chunk,
+                    columns=[
+                        "ticker",
+                        "cik",
+                        "accession_number",
+                        "form",
+                        "filed_date",
+                        "fiscal_year",
+                        "fiscal_period",
+                        "label",
+                        "value",
+                        "unit",
+                        "is_standardized",
+                        "raw_tag",
+                        "session_id",
+                    ],
+                )
+
+                # Drop duplicate PKs within the same chunk to prevent DuckDB ON CONFLICT crash
+                df.drop_duplicates(
+                    subset=["ticker", "accession_number", "label"], keep="last", inplace=True
+                )
+
+                # Defensive cleaning
+                df["filed_date"] = pd.to_datetime(df["filed_date"]).dt.date
+                df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
+
+                # Atomic insert per chunk (zero-copy from Pandas)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO company_facts
+                    (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
+                     label, value, unit, is_standardized, raw_tag, session_id, ingested_at)
+                    SELECT *, CURRENT_TIMESTAMP FROM df
                 """
-                INSERT OR REPLACE INTO company_facts
-                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
-                 label, value, unit, is_standardized, raw_tag, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                records,
-            )
-            conn.execute("COMMIT;")
+                )
+
+            # Final checkpoint to flush to disk
+            conn.execute("CHECKPOINT;")
         except Exception as e:
-            conn.execute("ROLLBACK;")
-            logger.error(f"Transaction failed: {e}")
+            logger.error(f"Save failed during sub-batching: {e}")
             raise
 
     def _save_raw_facts(self, records: list[tuple]):

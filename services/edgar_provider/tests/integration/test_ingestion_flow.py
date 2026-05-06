@@ -2,6 +2,7 @@ from src.core.db import db_manager
 from src.core.master_db import master_db
 from src.engine import USEngine
 
+
 def test_full_routing_integration():
     """
     Integration test:

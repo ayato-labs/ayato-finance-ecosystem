@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     API_PORT: int = 5008
 
     # Performance & Storage
-    DUCKDB_MEMORY_LIMIT: str = "4GB"
+    DUCKDB_MEMORY_LIMIT: str = "2GB"
     DUCKDB_THREADS: int = 4
     ZSTD_COMPRESSION_LEVEL: int = 10
 

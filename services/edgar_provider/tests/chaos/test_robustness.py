@@ -8,6 +8,7 @@ from src.core.config import settings
 from src.core.db import db_manager
 from src.engine import USEngine
 
+
 def test_chaos_db_locking():
     """Chaos Test: Multiple threads competing for the same database."""
     db_path = settings.FACTS_DB_PATH
