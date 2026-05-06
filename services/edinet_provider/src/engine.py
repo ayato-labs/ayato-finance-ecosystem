@@ -4,14 +4,16 @@ import gc
 import json
 import os
 import time
-import pandas as pd
-from loguru import logger
-from src.core.governance import governor
 
 import edinet_tools
+import pandas as pd
+from loguru import logger
+
 from src.core.config import settings
+from src.core.contracts import CompanyFact, FilingMetadata, NarrativeBlock
 from src.core.db import db_manager
-from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock
+from src.core.governance import governor
+from src.core.migrations import MigrationManager
 from src.core.tracing import with_context
 
 
@@ -25,7 +27,6 @@ class JPEDINETEngine:
         self._init_db()
 
     def _init_db(self):
-        from src.core.migrations import MigrationManager
         MigrationManager.apply_migrations()
 
     def _vacuum_db(self):
@@ -33,16 +34,22 @@ class JPEDINETEngine:
         logger.info("Running DB VACUUM to reclaim storage space...")
         try:
             with db_manager.connect_master() as conn:
-                conn.execute("VACUUM;") # Only main database vacuum is reliably supported across versions
+                conn.execute("VACUUM;")
             logger.info("VACUUM completed successfully.")
         except Exception as e:
             logger.error(f"Failed to execute VACUUM: {e}")
 
-    def sync_market(self, days: int = 30, end_date: datetime.date = None, session_id: str = "market-sync", max_workers: int = 5):
+    def sync_market(
+        self,
+        days: int = 30,
+        end_date: datetime.date = None,
+        session_id: str = "market-sync",
+        max_workers: int = 5,
+    ):
         logger.info(f"🚀 Launching Ultra-Fast Mode: Syncing market for the last {days} days...")
         if end_date is None:
             end_date = datetime.date.today()
-        start_date = end_date - datetime.timedelta(days=days - 1) # -1 to make it inclusive of end_date for the number of days
+        start_date = end_date - datetime.timedelta(days=days - 1)
 
         all_docs = []
         current_date = start_date
@@ -53,7 +60,7 @@ class JPEDINETEngine:
                     all_docs.extend(docs)
             except Exception as e:
                 logger.error(f"❌ Failed to fetch list for {current_date}: {e}", exc_info=True)
-            
+
             current_date += datetime.timedelta(days=1)
 
         if not all_docs:
@@ -63,7 +70,9 @@ class JPEDINETEngine:
         self._process_docs_concurrently(all_docs, session_id, max_workers)
         self._vacuum_db()
 
-    def sync_company(self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 5):
+    def sync_company(
+        self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 5
+    ):
         """Sync specific company's latest filings."""
         logger.info(f"🔍 Syncing JP Company {ticker} (Last {days} days)...")
         try:
@@ -81,11 +90,11 @@ class JPEDINETEngine:
         if not docs:
             return
 
-        # Step 1: Query existing doc IDs using a READ-ONLY connection
         with db_manager.connect_master(read_only=True) as conn:
             try:
                 existing_doc_ids = {
-                    row[0] for row in conn.execute("SELECT doc_id FROM registry_db.filings").fetchall()
+                    row[0]
+                    for row in conn.execute("SELECT doc_id FROM registry_db.filings").fetchall()
                 }
             except Exception as e:
                 logger.error(f"Failed to query existing filings: {e}", exc_info=True)
@@ -100,56 +109,53 @@ class JPEDINETEngine:
             return
 
         logger.info(f"Processing {len(docs_to_process)} new documents...")
-        batch_size = 20  # Reduced for better RAM efficiency with large text
+        batch_size = 20
         results_batch = []
         log_batch = []
         processed_count = 0
 
-        # Step 2: Process documents in parallel (Network I/O) with memory governance
-        chunk_size = max_workers * 2
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for i in range(0, len(docs_to_process), chunk_size):
-                # Check memory pressure before starting a new chunk
-                governor.wait_for_clearance()
-                
-                chunk = docs_to_process[i:i + chunk_size]
-                future_to_doc = {
-                    executor.submit(
-                        with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
-                    ): doc for doc in chunk
-                }
+            future_to_doc = {
+                executor.submit(
+                    with_context(self._process_single_doc),
+                    doc,
+                    doc._data.get("secCode", "0000"),
+                    session_id,
+                ): doc
+                for doc in docs_to_process
+            }
 
-                for future in concurrent.futures.as_completed(future_to_doc):
-                    doc = future_to_doc[future]
-                    doc_id = doc._data.get("docID")
-                    try:
-                        result, status_info = future.result()
-                        if result:
-                            results_batch.append(result)
-                        
-                        log_batch.append((
-                            doc_id, 
-                            status_info["status"], 
-                            datetime.datetime.now(), 
-                            status_info.get("error")
-                        ))
-                        processed_count += 1
+            for future in concurrent.futures.as_completed(future_to_doc):
+                doc = future_to_doc[future]
+                doc_id = doc._data.get("docID")
+                try:
+                    result, status_info = future.result()
+                    if result:
+                        results_batch.append(result)
 
-                        # Step 3: Flush batches to DB using a short-lived WRITE connection
-                        if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
-                            with db_manager.connect_master() as conn:
-                                if results_batch:
-                                    self._flush_results_to_db(conn, results_batch)
-                                    results_batch.clear()
-                                if log_batch:
-                                    self._update_ingestion_logs(conn, log_batch)
-                                    log_batch.clear()
-                            gc.collect()
-                            logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
-                    except Exception as e:
-                        logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
+                    log_batch.append(
+                        (
+                            doc_id,
+                            status_info["status"],
+                            datetime.datetime.now(),
+                            status_info.get("error"),
+                        )
+                    )
+                    processed_count += 1
 
-            # Final flush
+                    if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
+                        with db_manager.connect_master() as conn:
+                            if results_batch:
+                                self._flush_results_to_db(conn, results_batch)
+                                results_batch.clear()
+                            if log_batch:
+                                self._update_ingestion_logs(conn, log_batch)
+                                log_batch.clear()
+                        gc.collect()
+                        logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
+                except Exception as e:
+                    logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
+
             if results_batch or log_batch:
                 with db_manager.connect_master() as conn:
                     if results_batch:
@@ -162,7 +168,6 @@ class JPEDINETEngine:
 
     def _update_ingestion_logs(self, conn, logs):
         """Batch update ingestion_log table."""
-        # logs is list of (doc_id, status, last_attempt, error_message)
         sql = """
             INSERT INTO ingestion_log (doc_id, status, last_attempt, error_message, retry_count)
             VALUES (?, ?, ?, ?, 0)
@@ -176,8 +181,7 @@ class JPEDINETEngine:
 
     def backfill_missing_data(self, max_workers: int = 5):
         logger.info("Starting backfill for missing data...")
-        
-        # Step 1: Query missing records using a READ-ONLY connection
+
         with db_manager.connect_master(read_only=True) as conn:
             query = """
                 SELECT f.doc_id, f.sec_code, f.submit_datetime
@@ -189,7 +193,8 @@ class JPEDINETEngine:
                 WHERE 
                     (n.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%'))
                     OR
-                    (c.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%' OR f.form_code = '030001'))
+                    (c.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%' 
+                     OR f.form_code = '030001'))
             """
             missing = conn.execute(query).fetchall()
 
@@ -199,7 +204,6 @@ class JPEDINETEngine:
 
         logger.info(f"Identified {len(missing)} documents requiring backfill.")
 
-        # Group by date to minimize API calls (edinet_tools.documents(date=...))
         by_date = {}
         for did, sc, dt in missing:
             d = pd.to_datetime(dt).date()
@@ -214,7 +218,6 @@ class JPEDINETEngine:
                 target_ids = {did for did, sc in items}
                 for doc in all_docs_on_date:
                     if doc._data.get("docID") in target_ids:
-                        # Map sc back
                         sc = next(sc for did, sc in items if did == doc._data.get("docID"))
                         docs_to_process.append((doc, sc))
             except Exception as e:
@@ -228,20 +231,20 @@ class JPEDINETEngine:
         results_batch = []
         processed_count = 0
 
-        # Step 2: Process documents in parallel without holding DB locks
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_info = {
-                executor.submit(with_context(self._process_single_doc), d, sc, "backfill"): d
+                executor.submit(
+                    with_context(self._process_single_doc), d, sc, "backfill"
+                ): d
                 for d, sc in docs_to_process
             }
             for future in concurrent.futures.as_completed(future_to_info):
                 try:
-                    result = future.result()
+                    result, _ = future.result()
                     if result:
                         results_batch.append(result)
                         processed_count += 1
-                    
-                    # Step 3: Flush batches using a short-lived WRITE connection
+
                     if len(results_batch) >= batch_size:
                         with db_manager.connect_master() as conn:
                             self._flush_results_to_db(conn, results_batch)
@@ -251,13 +254,12 @@ class JPEDINETEngine:
                 except Exception as e:
                     logger.error(f"Backfill processing error: {e}")
 
-            # Final flush
             if results_batch:
                 with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
                 results_batch.clear()
                 gc.collect()
-            
+
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
 
     def _get_documents_with_cache(self, target_date: datetime.date):
@@ -266,30 +268,30 @@ class JPEDINETEngine:
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{target_date.isoformat()}.json"
 
-        # Check cache validity (1 day)
         if cache_file.exists():
             mtime = os.path.getmtime(cache_file)
-            if (time.time() - mtime) < 86400:  # 24 hours
+            if (time.time() - mtime) < 86400:
                 try:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         cached_data = json.load(f)
                     from edinet_tools.document import Document
+
                     return [Document(data) for data in cached_data]
                 except Exception as e:
                     logger.warning(f"Failed to load cache {cache_file}: {e}")
 
-        # Fetch from API
-        time.sleep(0.2)  # Rate limit mitigation
+        time.sleep(0.2)
         docs = edinet_tools.documents(date=target_date)
-        
-        # Save to cache
+
         if docs is not None:
             try:
                 with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump([doc._data for doc in docs], f, ensure_ascii=False, indent=2)
+                    json.dump(
+                        [doc._data for doc in docs], f, ensure_ascii=False, indent=2
+                    )
             except Exception as e:
                 logger.warning(f"Failed to save cache {cache_file}: {e}")
-        
+
         return docs or []
 
     def _process_single_doc(self, doc, ticker, session_id):
@@ -300,26 +302,24 @@ class JPEDINETEngine:
             if facts is None and doc._data.get("csvFlag") == "1":
                 status_info = {"status": "PARTIAL_FAIL", "error": "CSV content returned None"}
                 return None, status_info
-            
+
             metadata = self._extract_metadata(doc, ticker, session_id)
             narratives = self._extract_narratives(doc, ticker, session_id)
-            
-            # Check for potential 404 or extraction gaps
-            # Note: _extract_narratives already handles 404 warnings internally
-            if not narratives and (doc._data.get("formCode") or "").startswith(("030000", "043000")):
-                # This might be a 404 or just a document without the expected sections
-                status_info["status"] = "PARTIAL_FAIL"
-                status_info["error"] = "No narrative blocks extracted (possible 404 or empty sections)"
 
-            # Validate through contracts
+            if not narratives and (doc._data.get("formCode") or "").startswith(
+                ("030000", "043000")
+            ):
+                status_info["status"] = "PARTIAL_FAIL"
+                status_info["error"] = "No narrative blocks extracted (possible 404 or empty)"
+
             valid_meta = FilingMetadata(**metadata)
             valid_facts = [CompanyFact(**f) for f in facts or []]
             valid_narrs = [NarrativeBlock(**n) for n in narratives or []]
-            
+
             result = {
                 "metadata": valid_meta.model_dump(),
                 "narratives": [n.model_dump() for n in valid_narrs],
-                "facts": [f.model_dump() for f in valid_facts]
+                "facts": [f.model_dump() for f in valid_facts],
             }
             return result, status_info
         except Exception as e:
@@ -328,55 +328,67 @@ class JPEDINETEngine:
             return None, status_info
 
     def _flush_results_to_db(self, conn, results):
-        # 1. Metadata (registry_db)
         metadata_batch = [
             (
-                r["metadata"]["doc_id"], r["metadata"]["edinet_code"], r["metadata"]["sec_code"],
-                r["metadata"]["filer_name"], r["metadata"]["doc_description"],
-                r["metadata"]["submit_datetime"], r["metadata"]["form_code"],
-                r["metadata"]["doc_type_code"], r["metadata"]["session_id"]
-            ) for r in results
+                r["metadata"]["doc_id"],
+                r["metadata"]["edinet_code"],
+                r["metadata"]["sec_code"],
+                r["metadata"]["filer_name"],
+                r["metadata"]["doc_description"],
+                r["metadata"]["submit_datetime"],
+                r["metadata"]["form_code"],
+                r["metadata"]["doc_type_code"],
+                r["metadata"]["session_id"],
+            )
+            for r in results
         ]
         self._batch_insert_resilient(
-            conn, 
-            "INSERT OR IGNORE INTO registry_db.filings (doc_id, edinet_code, sec_code, filer_name, doc_description, submit_datetime, form_code, doc_type_code, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            metadata_batch
+            conn,
+            "INSERT OR IGNORE INTO registry_db.filings (doc_id, edinet_code, sec_code, filer_name, "
+            "doc_description, submit_datetime, form_code, doc_type_code, session_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            metadata_batch,
         )
 
-        # 2. Narratives (narr_db)
-        narrative_batch = []
-        for r in results:
-            for n in r["narratives"]:
-                narrative_batch.append((n["doc_id"], n["section_name"], n["content_md"], n["session_id"]))
-        
+        narrative_batch = [
+            (n["doc_id"], n["section_name"], n["content_md"], n["session_id"])
+            for r in results
+            for n in r["narratives"]
+        ]
+
         if narrative_batch:
             self._batch_insert_resilient(
                 conn,
-                "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
-                narrative_batch
+                "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, "
+                "session_id) VALUES (?, ?, ?, ?)",
+                narrative_batch,
             )
 
-        # 3. Facts (facts_db)
-        fact_batch = []
-        for r in results:
-            for f in r["facts"]:
-                fact_batch.append((
-                    f["doc_id"], f["item_name"], f["item_value"], f["unit"],
-                    f["context_id"], f["fiscal_year"], f["fiscal_period"], f["session_id"]
-                ))
-        
+        fact_batch = [
+            (
+                f["doc_id"],
+                f["item_name"],
+                f["item_value"],
+                f["unit"],
+                f["context_id"],
+                f["fiscal_year"],
+                f["fiscal_period"],
+                f["session_id"],
+            )
+            for r in results
+            for f in r["facts"]
+        ]
+
         if fact_batch:
             self._batch_insert_resilient(
                 conn,
-                "INSERT OR REPLACE INTO facts_db.company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                fact_batch
+                "INSERT OR REPLACE INTO facts_db.company_facts (doc_id, item_name, item_value, "
+                "unit, context_id, fiscal_year, fiscal_period, session_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                fact_batch,
             )
 
     def _batch_insert_resilient(self, conn, sql, batch):
-        """
-        Attempts a batch insert. If it fails, falls back to individual inserts 
-        to isolate and log the specific problematic record.
-        """
         try:
             conn.executemany(sql, batch)
         except Exception as batch_err:
@@ -385,7 +397,9 @@ class JPEDINETEngine:
                 try:
                     conn.execute(sql, record)
                 except Exception as rec_err:
-                    logger.error(f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}")
+                    logger.error(
+                        f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}"
+                    )
 
     def _extract_metadata(self, doc, ticker, session_id):
         data = doc._data
@@ -411,9 +425,10 @@ class JPEDINETEngine:
                     "doc_id": doc._data.get("docID"),
                     "section_name": k,
                     "content_md": str(v),
-                    "session_id": session_id
+                    "session_id": session_id,
                 }
-                for k, v in report.text_blocks.items() if len(str(v)) > 20
+                for k, v in report.text_blocks.items()
+                if len(str(v)) > 20
             ]
         except Exception as e:
             error_msg = str(e).lower()
@@ -422,72 +437,70 @@ class JPEDINETEngine:
                     "Narrative unavailable (404/Not Found) for {doc_id}: {error}",
                     doc_id=doc._data.get("docID"),
                     error=str(e),
-                    extra={"doc_id": doc._data.get("docID")}
+                    extra={"doc_id": doc._data.get("docID")},
                 )
             else:
                 logger.error(
                     "Narrative extraction failed for {doc_id}: {error}",
                     doc_id=doc._data.get("docID"),
                     error=str(e),
-                    extra={"doc_id": doc._data.get("docID")}
+                    extra={"doc_id": doc._data.get("docID")},
                 )
             return []
 
     def _extract_facts(self, doc, ticker, session_id):
         try:
             from src.core.csv_parser import get_csv_from_edinet, parse_edinet_csv
+
             data = doc._data
             if data.get("csvFlag") != "1":
                 return []
             content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY)
             if content is None:
                 return None
-            
+
             csv_data = parse_edinet_csv(content)
             filed_date = pd.to_datetime(data.get("submitDateTime")).date()
             results = []
-            
+
             for file_name, df in csv_data.items():
                 if df is None or df.empty:
                     continue
-                
-                # EDINET CSV columns vary. We look for the most likely value column.
-                # Standard format: [0]:Tag, [1]:Name, [2]:Context, ..., [8]:Value
+
                 cols = df.columns.tolist()
-                
-                # Robust detection: The value is usually in one of the last few columns.
-                # We prioritize the 9th column (index 8) but fallback if needed.
                 val_col_idx = 8 if len(cols) >= 9 else len(cols) - 1
                 name_col_idx = 1 if len(cols) >= 2 else 0
                 unit_col_idx = 7 if len(cols) >= 8 else None
-                
+
                 for _, row in df.iterrows():
                     raw_val = str(row[cols[val_col_idx]]).replace(",", "").strip()
                     if not raw_val or raw_val.lower() in ["nan", "", "none"]:
                         continue
-                        
+
                     try:
-                        # Extract only if it looks like a number
                         val = float(raw_val)
-                        results.append({
-                            "doc_id": data.get("docID"),
-                            "item_name": str(row[cols[name_col_idx]]),
-                            "item_value": val,
-                            "unit": str(row[cols[unit_col_idx]]) if unit_col_idx is not None else "pure",
-                            "context_id": str(row[cols[2]]) if len(cols) >= 3 else file_name,
-                            "fiscal_year": filed_date.year,
-                            "fiscal_period": "FY",
-                            "session_id": session_id
-                        })
+                        results.append(
+                            {
+                                "doc_id": data.get("docID"),
+                                "item_name": str(row[cols[name_col_idx]]),
+                                "item_value": val,
+                                "unit": str(row[cols[unit_col_idx]])
+                                if unit_col_idx is not None
+                                else "pure",
+                                "context_id": str(row[cols[2]]) if len(cols) >= 3 else file_name,
+                                "fiscal_year": filed_date.year,
+                                "fiscal_period": "FY",
+                                "session_id": session_id,
+                            }
+                        )
                     except (ValueError, TypeError):
-                        continue # Skip non-numeric rows (titles, etc.)
-            
+                        continue
             return results
         except Exception as e:
             logger.error(
                 "Fact extraction failed for {doc_id}: {error}",
                 doc_id=doc._data.get("docID"),
                 error=str(e),
-                extra={"session_id": session_id}
+                extra={"session_id": session_id},
             )
             return []
