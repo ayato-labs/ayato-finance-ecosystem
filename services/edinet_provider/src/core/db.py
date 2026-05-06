@@ -53,11 +53,15 @@ class DuckDBManager:
                     else:
                         conn = duckdb.connect(master_path, read_only=read_only)
                         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
+                        
                         # ATTACH the tiered architecture
-                        logger.debug("Attaching sub-databases: registry, facts, narratives")
-                        conn.execute(f"ATTACH IF NOT EXISTS '{reg_path}' AS registry_db")
-                        conn.execute(f"ATTACH IF NOT EXISTS '{facts_path}' AS facts_db")
-                        conn.execute(f"ATTACH IF NOT EXISTS '{narr_path}' AS narr_db")
+                        # Use READ_ONLY flag if the master connection is read_only to avoid unnecessary write locks on shards
+                        ro_suffix = " (READ_ONLY)" if read_only else ""
+                        logger.debug(f"Attaching sub-databases{ro_suffix}: registry, facts, narratives")
+                        
+                        conn.execute(f"ATTACH IF NOT EXISTS '{reg_path}' AS registry_db{ro_suffix}")
+                        conn.execute(f"ATTACH IF NOT EXISTS '{facts_path}' AS facts_db{ro_suffix}")
+                        conn.execute(f"ATTACH IF NOT EXISTS '{narr_path}' AS narr_db{ro_suffix}")
                 break
             except (duckdb.IOException, duckdb.ConnectionException, OSError) as e:
                 logger.warning(f"Database contention at {master_path}: {e}. Retrying...")

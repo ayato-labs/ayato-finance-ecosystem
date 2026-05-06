@@ -77,7 +77,8 @@ class JPEDINETEngine:
         if not docs:
             return
 
-        with db_manager.connect_master() as conn:
+        # Step 1: Query existing doc IDs using a READ-ONLY connection
+        with db_manager.connect_master(read_only=True) as conn:
             try:
                 existing_doc_ids = {
                     row[0] for row in conn.execute("SELECT doc_id FROM registry_db.filings").fetchall()
@@ -86,49 +87,56 @@ class JPEDINETEngine:
                 logger.error(f"Failed to query existing filings: {e}", exc_info=True)
                 existing_doc_ids = set()
 
-            docs_to_process = [
-                doc for doc in docs if doc._data.get("docID") not in existing_doc_ids
-            ]
+        docs_to_process = [
+            doc for doc in docs if doc._data.get("docID") not in existing_doc_ids
+        ]
 
-            if not docs_to_process:
-                logger.info("All documents are up-to-date.")
-                return
+        if not docs_to_process:
+            logger.info("All documents are up-to-date.")
+            return
 
-            batch_size = 50
-            results_batch = []
-            processed_count = 0
+        logger.info(f"Processing {len(docs_to_process)} new documents...")
+        batch_size = 50
+        results_batch = []
+        processed_count = 0
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_doc = {
-                    executor.submit(
-                        with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
-                    ): doc
-                    for doc in docs_to_process
-                }
+        # Step 2: Process documents in parallel (Network I/O) without holding DB locks
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_doc = {
+                executor.submit(
+                    with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
+                ): doc
+                for doc in docs_to_process
+            }
 
-                for future in concurrent.futures.as_completed(future_to_doc):
-                    doc = future_to_doc[future]
-                    doc_id = doc._data.get("docID")
-                    try:
-                        result = future.result()
-                        if result:
-                            results_batch.append(result)
-                            processed_count += 1
+            for future in concurrent.futures.as_completed(future_to_doc):
+                doc = future_to_doc[future]
+                doc_id = doc._data.get("docID")
+                try:
+                    result = future.result()
+                    if result:
+                        results_batch.append(result)
+                        processed_count += 1
 
-                        if len(results_batch) >= batch_size:
+                    # Step 3: Flush batches to DB using a short-lived WRITE connection
+                    if len(results_batch) >= batch_size:
+                        with db_manager.connect_master() as conn:
                             self._flush_results_to_db(conn, results_batch)
-                            results_batch = []
-                            logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
-                    except Exception as e:
-                        logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
+                        results_batch = []
+                        logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
+                except Exception as e:
+                    logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
-                if results_batch:
+            # Final flush
+            if results_batch:
+                with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
 
     def backfill_missing_data(self, max_workers: int = 20):
         logger.info("Starting backfill for missing data...")
         
-        with db_manager.connect_master() as conn:
+        # Step 1: Query missing records using a READ-ONLY connection
+        with db_manager.connect_master(read_only=True) as conn:
             query = """
                 SELECT f.doc_id, f.sec_code, f.submit_datetime
                 FROM registry_db.filings f
@@ -142,63 +150,70 @@ class JPEDINETEngine:
                     (c.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%' OR f.form_code = '030001'))
             """
             missing = conn.execute(query).fetchall()
-            if not missing:
-                logger.info("No missing data identified for backfill.")
-                return
 
-            logger.info(f"Identified {len(missing)} documents requiring backfill.")
+        if not missing:
+            logger.info("No missing data identified for backfill.")
+            return
 
-            # Group by date to minimize API calls (edinet_tools.documents(date=...))
-            by_date = {}
-            for did, sc, dt in missing:
-                d = pd.to_datetime(dt).date()
-                if d not in by_date:
-                    by_date[d] = []
-                by_date[d].append((did, sc))
+        logger.info(f"Identified {len(missing)} documents requiring backfill.")
 
-            docs_to_process = []
-            for d, items in by_date.items():
+        # Group by date to minimize API calls (edinet_tools.documents(date=...))
+        by_date = {}
+        for did, sc, dt in missing:
+            d = pd.to_datetime(dt).date()
+            if d not in by_date:
+                by_date[d] = []
+            by_date[d].append((did, sc))
+
+        docs_to_process = []
+        for d, items in by_date.items():
+            try:
+                all_docs_on_date = edinet_tools.documents(date=d)
+                target_ids = {did for did, sc in items}
+                for doc in all_docs_on_date:
+                    if doc._data.get("docID") in target_ids:
+                        # Map sc back
+                        sc = next(sc for did, sc in items if did == doc._data.get("docID"))
+                        docs_to_process.append((doc, sc))
+            except Exception as e:
+                logger.error(f"Failed to fetch documents for backfill on {d}: {e}")
+
+        if not docs_to_process:
+            logger.warning("Could not retrieve any document objects for backfill.")
+            return
+
+        batch_size = 50
+        results_batch = []
+        processed_count = 0
+
+        # Step 2: Process documents in parallel without holding DB locks
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_info = {
+                executor.submit(with_context(self._process_single_doc), d, sc, "backfill"): d
+                for d, sc in docs_to_process
+            }
+            for future in concurrent.futures.as_completed(future_to_info):
                 try:
-                    all_docs_on_date = edinet_tools.documents(date=d)
-                    target_ids = {did for did, sc in items}
-                    for doc in all_docs_on_date:
-                        if doc._data.get("docID") in target_ids:
-                            # Map sc back
-                            sc = next(sc for did, sc in items if did == doc._data.get("docID"))
-                            docs_to_process.append((doc, sc))
-                except Exception as e:
-                    logger.error(f"Failed to fetch documents for backfill on {d}: {e}")
-
-            if not docs_to_process:
-                logger.warning("Could not retrieve any document objects for backfill.")
-                return
-
-            batch_size = 50
-            results_batch = []
-            processed_count = 0
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_info = {
-                    executor.submit(with_context(self._process_single_doc), d, sc, "backfill"): d
-                    for d, sc in docs_to_process
-                }
-                for future in concurrent.futures.as_completed(future_to_info):
-                    try:
-                        result = future.result()
-                        if result:
-                            results_batch.append(result)
-                            processed_count += 1
-                        if len(results_batch) >= batch_size:
+                    result = future.result()
+                    if result:
+                        results_batch.append(result)
+                        processed_count += 1
+                    
+                    # Step 3: Flush batches using a short-lived WRITE connection
+                    if len(results_batch) >= batch_size:
+                        with db_manager.connect_master() as conn:
                             self._flush_results_to_db(conn, results_batch)
-                            results_batch = []
-                            logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)}")
-                    except Exception as e:
-                        logger.error(f"Backfill processing error: {e}")
+                        results_batch = []
+                        logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)}")
+                except Exception as e:
+                    logger.error(f"Backfill processing error: {e}")
 
-                if results_batch:
+            # Final flush
+            if results_batch:
+                with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
             
-            logger.info(f"Backfill completed. Processed {processed_count} documents.")
+        logger.info(f"Backfill completed. Processed {processed_count} documents.")
 
     def _process_single_doc(self, doc, ticker, session_id):
         doc_id = doc._data.get("docID")
