@@ -1,10 +1,11 @@
 import argparse
 import time
-from loguru import logger
+from src.core.logging_config import setup_logging
 from src.engine import JPEDINETEngine
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description="EDINET Provider CLI")
     parser.add_argument("--ticker", type=str, help="Sync specific JP ticker (e.g. 7203)")
     parser.add_argument("--days", type=int, default=30, help="Days to look back")

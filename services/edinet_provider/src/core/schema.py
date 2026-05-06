@@ -46,8 +46,8 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         filer_name VARCHAR,
                         doc_description VARCHAR,
                         submit_datetime TIMESTAMP,
-                        form_code form_code_enum,
-                        doc_type_code doc_type_code_enum,
+                        form_code VARCHAR,
+                        doc_type_code VARCHAR,
                         session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -66,10 +66,10 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         doc_id VARCHAR NOT NULL,
                         item_name VARCHAR NOT NULL,
                         item_value DOUBLE,
-                        unit unit_enum,
+                        unit VARCHAR,
                         context_id VARCHAR NOT NULL,
                         fiscal_year INTEGER,
-                        fiscal_period period_enum,
+                        fiscal_period VARCHAR,
                         session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
