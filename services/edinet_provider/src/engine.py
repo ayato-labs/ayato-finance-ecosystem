@@ -1,6 +1,9 @@
 import concurrent.futures
 import datetime
 import gc
+import json
+import os
+import time
 import pandas as pd
 from loguru import logger
 
@@ -44,19 +47,12 @@ class JPEDINETEngine:
         current_date = start_date
         while current_date <= end_date:
             try:
-                import time
-                time.sleep(0.2)  # Mitigate EDINET API rate limits (HTTP 429)
-                
-                docs = edinet_tools.documents(date=current_date)
+                docs = self._get_documents_with_cache(current_date)
                 if docs:
                     all_docs.extend(docs)
             except Exception as e:
                 logger.error(f"❌ Failed to fetch list for {current_date}: {e}", exc_info=True)
             
-            # Log progress every 30 days
-            if (current_date - start_date).days % 30 == 0:
-                logger.info(f"Fetched up to {current_date}... (Total docs: {len(all_docs)})")
-                
             current_date += datetime.timedelta(days=1)
 
         if not all_docs:
@@ -227,6 +223,38 @@ class JPEDINETEngine:
                 gc.collect()
             
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
+
+    def _get_documents_with_cache(self, target_date: datetime.date):
+        """Fetches document list with local JSON caching (24h validity)."""
+        cache_dir = settings.DATA_DIR / "manifests"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{target_date.isoformat()}.json"
+
+        # Check cache validity (1 day)
+        if cache_file.exists():
+            mtime = os.path.getmtime(cache_file)
+            if (time.time() - mtime) < 86400:  # 24 hours
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cached_data = json.load(f)
+                    from edinet_tools.document import Document
+                    return [Document(data) for data in cached_data]
+                except Exception as e:
+                    logger.warning(f"Failed to load cache {cache_file}: {e}")
+
+        # Fetch from API
+        time.sleep(0.2)  # Rate limit mitigation
+        docs = edinet_tools.documents(date=target_date)
+        
+        # Save to cache
+        if docs is not None:
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump([doc._data for doc in docs], f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning(f"Failed to save cache {cache_file}: {e}")
+        
+        return docs or []
 
     def _process_single_doc(self, doc, ticker, session_id):
         doc_id = doc._data.get("docID")

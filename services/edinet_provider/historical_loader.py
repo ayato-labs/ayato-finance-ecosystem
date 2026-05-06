@@ -9,76 +9,74 @@ def setup_progress_table():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ingestion_progress (
                 target_date DATE PRIMARY KEY,
-                status VARCHAR, -- 'pending', 'completed', 'failed'
+                status VARCHAR, -- 'completed', 'failed'
                 doc_count INTEGER,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-def get_next_pending_month(start_date, end_date):
-    """Returns the start and end of the next 30-day window to process."""
+def get_missing_dates(total_days=1825):
+    """Finds all dates within the lookback period that are not marked as completed."""
+    end_date = datetime.date.today()
+    start_date = end_date - datetime.timedelta(days=total_days - 1)
+    
     with db_manager.connect_master(read_only=True) as conn:
-        # Simple logic: find the latest completed date and go back 30 days
-        # For simplicity in this loader, we will just iterate back from today
-        pass
+        completed_dates = conn.execute("SELECT target_date FROM ingestion_progress WHERE status = 'completed'").fetchall()
+        completed_set = {row[0].date() if isinstance(row[0], datetime.datetime) else row[0] for row in completed_dates}
+
+    missing = []
+    curr = start_date
+    while curr <= end_date:
+        if curr not in completed_set:
+            missing.append(curr)
+        curr += datetime.timedelta(days=1)
+    
+    return missing
 
 def main():
     engine = JPEDINETEngine()
     setup_progress_table()
     
-    total_days = 1825
-    step_days = 30
-    end_date = datetime.date.today()
+    # Configuration
+    LOOKBACK_DAYS = 1825  # 5 years
     
-    logger.info(f"Starting historical load for {total_days} days in {step_days}-day increments.")
+    missing_dates = get_missing_dates(LOOKBACK_DAYS)
     
-    for start_offset in range(0, total_days, step_days):
-        batch_end = end_date - datetime.timedelta(days=start_offset)
-        batch_start = batch_end - datetime.timedelta(days=step_days - 1)
-        
-        # Adjust batch_start to not exceed the total_days limit
-        if (end_date - batch_start).days >= total_days:
-            batch_start = end_date - datetime.timedelta(days=total_days - 1)
+    if not missing_dates:
+        logger.info("All dates within the lookback period are already completed. Nothing to do.")
+        return
 
-        # Check if already completed
-        with db_manager.connect_master(read_only=True) as conn:
-            res = conn.execute("SELECT status FROM ingestion_progress WHERE target_date = ?", [batch_start]).fetchone()
-            if res and res[0] == 'completed':
-                logger.info(f"Skipping period {batch_start} to {batch_end} (Already completed)")
-                continue
-
-        logger.info(f"--- Processing Period: {batch_start} to {batch_end} ---")
+    logger.info(f"Found {len(missing_dates)} missing dates to process.")
+    
+    # Process from newest to oldest for better relevance
+    for target_date in reversed(missing_dates):
+        logger.info(f"--- Processing Date: {target_date} ---")
         
-        session_id = f"hist-{batch_start.isoformat()}"
+        session_id = f"delta-{target_date.isoformat()}"
         try:
-            # Sync this month
-            # We use a custom loop here instead of engine.sync_market to have direct control over the dates
-            engine.sync_market(days=(batch_end - batch_start).days + 1, end_date=batch_end, session_id=session_id)
+            # Sync exactly this day
+            engine.sync_market(days=1, end_date=target_date, session_id=session_id)
             
             # Record success
             with db_manager.connect_master() as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO ingestion_progress (target_date, status, updated_at)
                     VALUES (?, 'completed', CURRENT_TIMESTAMP)
-                """, [batch_start])
+                """, [target_date])
             
-            logger.info(f"Successfully completed period up to {batch_start}")
-            
-            # Cool down between months to respect API limits
-            logger.info("Cooling down for 5 seconds...")
-            time.sleep(5)
+            logger.info(f"✅ Successfully completed {target_date}")
             
         except Exception as e:
-            logger.error(f"Failed to process period {batch_start}: {e}")
+            logger.error(f"❌ Failed to process {target_date}: {e}")
             with db_manager.connect_master() as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO ingestion_progress (target_date, status, updated_at)
                     VALUES (?, 'failed', CURRENT_TIMESTAMP)
-                """, [batch_start])
-            logger.info("Waiting 30 seconds before retrying next batch...")
-            time.sleep(30)
+                """, [target_date])
+            # Brief wait on failure
+            time.sleep(5)
 
-    logger.info("Historical load process finished.")
+    logger.info("Historical / Delta sync process finished.")
 
 if __name__ == "__main__":
     main()
