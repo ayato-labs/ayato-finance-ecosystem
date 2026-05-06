@@ -17,5 +17,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Backfill job failed: {e}")
         sys.exit(1)

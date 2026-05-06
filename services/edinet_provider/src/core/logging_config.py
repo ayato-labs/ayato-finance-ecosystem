@@ -1,30 +1,36 @@
 import sys
+import json
 from loguru import logger
+from pathlib import Path
 
 def setup_logging():
-    # Remove default handler
+    # Clear existing handlers
     logger.remove()
 
-    # App logs: JSON format, keep last 2 files
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+
+    # 1. General log: JSON format, rotation to keep only 2 files
     logger.add(
-        "logs/app.log",
+        log_dir / "app.log",
         format="{message}",
         serialize=True,
-        rotation="100 MB",
+        rotation="10 MB",
         retention=2,
         level="INFO"
     )
 
-    # Error logs: Dedicated file for ERROR and above
+    # 2. Error log: JSON format, only ERROR level, rotation to keep 2 files
     logger.add(
-        "logs/error.log",
-        format="{time} | {level} | {message} | {extra}",
-        level="ERROR",
-        backtrace=True,
-        diagnose=True
+        log_dir / "error.log",
+        format="{message}",
+        serialize=True,
+        rotation="10 MB",
+        retention=2,
+        level="ERROR"
     )
 
-    # Console output for local development
-    logger.add(sys.stderr, level="DEBUG")
+    # 3. Console output for development
+    logger.add(sys.stderr, level="DEBUG", format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
 
-    return logger
+    logger.info("Logging configured with JSON structure and error isolation.")

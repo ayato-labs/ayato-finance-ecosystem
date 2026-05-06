@@ -19,8 +19,8 @@ def debug_raw_zip():
                     print(f"Raw Head (Hex): {raw.hex()[:100]}")
                     try:
                         print(f"Raw Head (cp932): {raw.decode('cp932', errors='replace')[:200]}")
-                    except:
-                        print("Failed to decode as cp932")
+                    except Exception as e:
+                        print(f"Failed to decode as cp932: {e}")
 
 if __name__ == "__main__":
     debug_raw_zip()
