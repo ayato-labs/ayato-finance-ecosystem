@@ -319,9 +319,18 @@ class JPEDINETEngine:
                                 "fiscal_period": "FY",
                                 "session_id": session_id
                             })
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            logger.error(
+                                "Failed to process data record: {error}",
+                                error=str(e),
+                                extra={"session_id": session_id}
+                            )
                             continue
             return results
         except Exception as e:
-            logger.warning(f"Fact failed: {e}")
+            logger.error(
+                "Fact extraction failed: {error}",
+                error=str(e),
+                extra={"session_id": session_id}
+            )
             return []
