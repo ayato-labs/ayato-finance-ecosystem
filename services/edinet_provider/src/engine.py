@@ -33,10 +33,11 @@ class JPEDINETEngine:
         except Exception as e:
             logger.error(f"Failed to execute VACUUM: {e}")
 
-    def sync_market(self, days: int = 30, session_id: str = "market-sync", max_workers: int = 5):
+    def sync_market(self, days: int = 30, end_date: datetime.date = None, session_id: str = "market-sync", max_workers: int = 5):
         logger.info(f"🚀 Launching Ultra-Fast Mode: Syncing market for the last {days} days...")
-        end_date = datetime.date.today()
-        start_date = end_date - datetime.timedelta(days=days)
+        if end_date is None:
+            end_date = datetime.date.today()
+        start_date = end_date - datetime.timedelta(days=days - 1) # -1 to make it inclusive of end_date for the number of days
 
         all_docs = []
         current_date = start_date

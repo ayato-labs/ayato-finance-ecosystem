@@ -53,7 +53,7 @@ def main():
         try:
             # Sync this month
             # We use a custom loop here instead of engine.sync_market to have direct control over the dates
-            engine.sync_market(days=(batch_end - batch_start).days + 1, session_id=session_id)
+            engine.sync_market(days=(batch_end - batch_start).days + 1, end_date=batch_end, session_id=session_id)
             
             # Record success
             with db_manager.connect_master() as conn:
