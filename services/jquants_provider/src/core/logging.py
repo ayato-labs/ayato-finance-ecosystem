@@ -1,7 +1,8 @@
-import sys
 import functools
+import sys
 import time
 from pathlib import Path
+
 from loguru import logger
 
 
@@ -19,17 +20,23 @@ def setup_logging():
 
     # Execution-based rotation (Keep last 2 runs)
     # Move current to .1, previous .1 is deleted.
-    if app_log.exists():
-        backup_log = log_dir / "app.json.log.1"
-        if backup_log.exists():
-            backup_log.unlink()
-        app_log.rename(backup_log)
+    try:
+        if app_log.exists():
+            backup_log = log_dir / "app.json.log.1"
+            if backup_log.exists():
+                backup_log.unlink()
+            app_log.rename(backup_log)
 
-    if error_log.exists():
-        backup_err = log_dir / "error.log.1"
-        if backup_err.exists():
-            backup_err.unlink()
-        error_log.rename(backup_err)
+        if error_log.exists():
+            backup_err = log_dir / "error.log.1"
+            if backup_err.exists():
+                backup_err.unlink()
+            error_log.rename(backup_err)
+    except PermissionError:
+        # On Windows, if the file is in use, we skip rotation rather than crashing.
+        pass
+    except Exception as e:
+        print(f"Warning: Failed to rotate logs: {e}", file=sys.stderr)
 
     # 1. Main JSON Log (All INFO and above)
     logger.add(
@@ -100,5 +107,3 @@ def track_performance(name: str):
     return decorator
 
 
-# Auto-initialize
-setup_logging()

@@ -15,10 +15,10 @@ def test_env(mocker):
     # Patch all shard paths to use temp directory
     mocker.patch("src.core.config.settings.DATA_DIR", base_path)
     # Patch specific shard paths for safety
-    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(base_path / "jquants_master.duckdb"))
-    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", str(base_path / "jquants_master_jp.duckdb"))
-    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", str(base_path / "jquants_prices_jp.duckdb"))
-    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", str(base_path / "jquants_financials_jp.duckdb"))
+    mocker.patch("src.core.config.settings.MASTER_DB_PATH", base_path / "master.duckdb")
+    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", base_path / "jquants_master.duckdb")
+    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", base_path / "jquants_prices.duckdb")
+    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", base_path / "jquants_financials.duckdb")
     
     # Mock API
     mocker.patch("jquantsapi.ClientV2")
@@ -36,6 +36,9 @@ def test_multi_shard_ingestion_flow(test_env, mocker):
     Test that data is correctly routed to different shards and tracked in catalog.
     """
     engine, base_path = test_env
+    from src.core.catalog import CatalogManager
+    cm = CatalogManager(master_db_path=base_path / "master.duckdb")
+    mocker.patch("src.engine.catalog_manager", cm)
     
     # 1. Setup mock data for prices
     mock_prices = pd.DataFrame([
@@ -54,7 +57,7 @@ def test_multi_shard_ingestion_flow(test_env, mocker):
     # 3. Ingest
     session_id = "integration-test"
     engine.ingest_prices(mock_prices, session_id)
-    engine.ingest_financials(mock_facts, session_id)
+    engine.ingest_facts(mock_facts, session_id)
     
     # 4. Verify physical files
     # Prices shard should have data
@@ -68,6 +71,7 @@ def test_multi_shard_ingestion_flow(test_env, mocker):
         assert count == 1
         
     # 5. Verify Catalog
-    status = catalog_manager.get_shard_status("prices", "daily_prices")
-    assert status["last_session_id"] == session_id
-    assert status["record_count"] == 1
+    info = cm.get_shard_info("prices")
+    assert info is not None
+    assert info["last_sync_at"] is not None
+    assert info["records_count"] == 1

@@ -14,26 +14,14 @@ from src.core.db import db_manager
 from src.core.telemetry import trace_step
 from src.core.utils import download_file, get_all_tickers, rate_limiter
 
-# Global ticker map for workers to avoid pickling overhead
-_worker_ticker_map = {}
-_worker_session_id = ""
-
-
-def _init_worker(ticker_map, session_id):
-    global _worker_ticker_map, _worker_session_id
-    _worker_ticker_map = ticker_map
-    _worker_session_id = session_id
-
-
-def parse_company_facts_json(cik, content_str):
+def parse_company_facts_json(filename, content_str, ticker_map, session_id):
     """
-    Worker function to parse a single company facts JSON.
-    Uses global worker state for ticker mapping.
+    Parses a single company facts JSON string.
     """
     try:
         data = json.loads(content_str)
         cik_str = str(data.get("cik", "")).zfill(10)
-        ticker = _worker_ticker_map.get(cik_str)
+        ticker = ticker_map.get(cik_str)
         if not ticker:
             return []
 
@@ -70,14 +58,13 @@ def parse_company_facts_json(cik, content_str):
                                 unit or "pure",
                                 True,
                                 concept,
-                                _worker_session_id,
+                                session_id,
                             )
                         )
         return all_records
-    except Exception:
-        # Minimal logging in worker to avoid IPC overhead
+    except Exception as e:
+        logger.error(f"Error parsing {filename}: {e}")
         return []
-
 
 class USEngine:
     def __init__(self):
@@ -106,76 +93,82 @@ class USEngine:
 
     @trace_step(step_name="ingest_bulk_data")
     def ingest_bulk_data(self, session_id: str):
-        """Processes all company facts from the bulk ZIP file."""
-        bulk_zip_url = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
+        """Processes all company facts from bulk ZIP with extreme diagnostic logging."""
+        import psutil
+        import os
+        
+        process = psutil.Process(os.getpid())
         zip_path = settings.DATA_DIR / "companyfacts.zip"
+        
+        # 1. Resource Check
+        mem_mb = process.memory_info().rss / 1024 / 1024
+        logger.info(f"DIAGNOSTIC: Ingestion starting. Current Memory: {mem_mb:.2f} MB")
 
         if not zip_path.exists():
-            logger.info(f"Downloading bulk data from {bulk_zip_url}...")
-            if not download_file(bulk_zip_url, zip_path):
-                logger.error("Failed to download bulk data.")
-                return
-
+            logger.error(f"ZIP not found at {zip_path}")
+            return
+        
         tickers = get_all_tickers()
         ticker_map = {t["cik"]: t["ticker"] for t in tickers}
-        logger.info(f"Loaded {len(ticker_map)} tickers for mapping.")
-
-        logger.info("Opening bulk ZIP file...")
-        batch_size = 50  # Smaller batch to prevent memory pressure
+        logger.info(f"Loaded {len(ticker_map)} tickers. Starting sequential scan...")
 
         with zipfile.ZipFile(zip_path, "r") as z:
-            file_list = [name for name in z.namelist() if name.endswith(".json")]
-            total_files = len(file_list)
-            logger.info(f"Total files in ZIP: {total_files}")
+            # We use infolist to check file sizes before reading
+            all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
+            total_files = len(all_files)
+            logger.info(f"Total JSON files in ZIP: {total_files}")
 
-            # Using ProcessPoolExecutor
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=settings.DUCKDB_THREADS,
-                initializer=_init_worker,
-                initargs=(ticker_map, session_id),
-            ) as executor:
-                for i in range(0, total_files, batch_size):
-                    chunk = file_list[i : i + batch_size]
-                    futures = {}
+            batch_records = []
+            relevant_count = 0
+            
+            for i, file_info in enumerate(all_files):
+                filename = file_info.filename
+                
+                # Heartbeat and Memory check every 100 files
+                if i % 100 == 0:
+                    curr_mem = process.memory_info().rss / 1024 / 1024
+                    logger.info(f"Progress: {i}/{total_files} | Memory: {curr_mem:.2f} MB | Relevant: {relevant_count}")
 
-                    logger.debug(f"Submitting batch {i // batch_size + 1} ({len(chunk)} files)...")
+                try:
+                    # PRE-READ DIAGNOSTIC
+                    # Check for huge files (> 100MB uncompressed)
+                    if file_info.file_size > 100 * 1024 * 1024:
+                        logger.warning(f"Skipping potentially massive file: {filename} ({file_info.file_size / 1024 / 1024:.2f} MB)")
+                        continue
 
-                    for filename in chunk:
-                        try:
-                            # Read one by one to avoid loading all into memory at once
-                            with z.open(filename) as f:
-                                content = f.read().decode("utf-8")
-                                # Use filename as identifier for potential debugging
-                                fut = executor.submit(parse_company_facts_json, filename, content)
-                                futures[fut] = filename
-                        except Exception as e:
-                            logger.warning(f"Failed to read {filename}: {e}")
+                    # ACT: Read
+                    content_bytes = z.read(filename)
+                    content = content_bytes.decode("utf-8")
+                    
+                    # ACT: Parse
+                    records = parse_company_facts_json(filename, content, ticker_map, session_id)
+                    
+                    if records:
+                        batch_records.extend(records)
+                        relevant_count += 1
+                        
+                        # Large Buffer Check: Save every 5000 facts
+                        if len(batch_records) >= 5000:
+                            logger.info(f"Buffer full ({len(batch_records)}). Triggering DB Save...")
+                            self._save_raw_facts(batch_records)
+                            batch_records = []
+                            
+                except Exception as e:
+                    logger.error(f"Caught handled error in {filename}: {e}")
+                    continue
+                except BaseException as be:
+                    logger.critical(f"UNHANDLED SYSTEM EXIT during {filename}: {type(be).__name__}")
+                    raise
 
-                    # Wait for THIS batch to finish before reading next batch's contents
-                    batch_records = []
-                    for future in concurrent.futures.as_completed(futures):
-                        fname = futures[future]
-                        try:
-                            records = future.result()
-                            if records:
-                                batch_records.extend(records)
-                        except Exception as e:
-                            logger.error(f"Worker failed for {fname}: {e}")
+            # Final Cleanup
+            if batch_records:
+                logger.info(f"Saving final buffer of {len(batch_records)} facts.")
+                self._save_raw_facts(batch_records)
 
-                    if batch_records:
-                        self._save_raw_facts(batch_records)
-                        logger.info(
-                            f"Progress: {min(i + batch_size, total_files)}/{total_files} "
-                            f"files. Saved {len(batch_records)} facts."
-                        )
-                    else:
-                        if i % 500 == 0:
-                            logger.info(f"Progress: {i}/{total_files} files (Scanning...)")
-
-        logger.info("Bulk ingestion completed.")
+        logger.info(f"Bulk ingestion completed. Scanned {total_files}, found {relevant_count} relevant companies.")
 
     def _save_raw_facts(self, records: list[tuple]):
-        """Saves raw record tuples to Facts DB."""
+        """Saves raw record tuples to Facts DB in small sub-batches to prevent C-level crashes."""
         if not records:
             return
 
@@ -186,19 +179,30 @@ class USEngine:
         if not clean_records:
             return
 
+        sub_batch_size = 1000
+        total = len(clean_records)
+        
         with db_manager.connect(self.facts_db) as conn:
             try:
-                conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO company_facts 
-                    (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period, 
-                     label, value, unit, is_standardized, raw_tag, session_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    clean_records,
-                )
+                for start_idx in range(0, total, sub_batch_size):
+                    end_idx = min(start_idx + sub_batch_size, total)
+                    sub_records = clean_records[start_idx:end_idx]
+                    
+                    conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO company_facts 
+                        (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period, 
+                         label, value, unit, is_standardized, raw_tag, session_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        sub_records,
+                    )
+                
+                # Force commit to disk to free up DuckDB's internal memory
+                conn.execute("CHECKPOINT;")
+                
             except Exception as e:
-                logger.error(f"Failed to save batch to Facts DB: {e}")
+                logger.error(f"Failed to save sub-batch to Facts DB: {e}")
                 raise
 
     @trace_step(step_name="ingest_all_companies")

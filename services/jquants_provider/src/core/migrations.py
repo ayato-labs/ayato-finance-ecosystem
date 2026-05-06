@@ -1,6 +1,33 @@
 from loguru import logger
+
 from src.core.db import db_manager
-from src.core.schema import TABLE_SCHEMAS, INDEX_SCHEMAS, MIGRATION_HISTORY_SCHEMA
+from src.core.schema import INDEX_SCHEMAS, MIGRATION_HISTORY_SCHEMA, TABLE_SCHEMAS
+
+
+# Specific migration scripts for each version bump
+MIGRATIONS = {
+    ("daily_prices", 5): [
+        "DROP INDEX IF EXISTS idx_jp_prices_date",
+        "ALTER TABLE daily_prices ALTER Open TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER High TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER Low TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER Close TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER AdjustmentOpen TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER AdjustmentHigh TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER AdjustmentLow TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER AdjustmentClose TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_prices ALTER TurnoverValue TYPE DECIMAL(18,1)",
+    ],
+    ("daily_indices", 2): [
+        "ALTER TABLE daily_indices ALTER Open TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_indices ALTER High TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_indices ALTER Low TYPE DECIMAL(18,1)",
+        "ALTER TABLE daily_indices ALTER Close TYPE DECIMAL(18,1)",
+    ],
+    ("dividends", 2): [
+        "ALTER TABLE dividends ALTER DividendValue TYPE DECIMAL(18,1)",
+    ],
+}
 
 
 class MigrationManager:
@@ -49,17 +76,30 @@ class MigrationManager:
                             f"Upgrading {table_name}: v{current_version} -> v{target_version}"
                         )
 
-                        # Execute the creation/upgrade SQL
-                        try:
-                            conn.execute(schema_info["sql"])
-                        except Exception as e:
-                            logger.warning(
-                                f"Could not automatically apply schema for {table_name}: {e}"
-                            )
+                        # Step-by-step migration from current_version to target_version
+                        for v in range(current_version + 1, target_version + 1):
+                            # Try to find a specific migration script
+                            migration_steps = MIGRATIONS.get((table_name, v))
+
+                            if migration_steps:
+                                for step_sql in migration_steps:
+                                    try:
+                                        conn.execute(step_sql)
+                                    except Exception as e:
+                                        logger.warning(f"Migration step failed: {step_sql} - {e}")
+                            else:
+                                # Default: Just run the creation SQL (idempotent)
+                                try:
+                                    conn.execute(schema_info["sql"])
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Default migration (CREATE) for {table_name} failed: {e}"
+                                    )
 
                         # 3. Update history
                         conn.execute(
-                            "INSERT OR REPLACE INTO __migrations_history (table_name, version) VALUES (?, ?)",
+                            "INSERT OR REPLACE INTO __migrations_history (table_name, version) "
+                            "VALUES (?, ?)",
                             (table_name, target_version),
                         )
                     else:

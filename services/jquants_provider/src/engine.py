@@ -1,14 +1,15 @@
-import pandas as pd
 import datetime
 from pathlib import Path
+
+import pandas as pd
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from src.core.catalog import catalog_manager
 from src.core.config import settings
 from src.core.db import db_manager
 from src.core.logging import track_performance
 from src.core.rate_limit import rate_limit
-from src.core.catalog import catalog_manager
 
 try:
     import jquantsapi
@@ -56,6 +57,25 @@ class JPEngine:
         from src.core.migrations import MigrationManager
 
         MigrationManager.apply_migrations()
+
+    def _update_catalog(self, table_name: str, records_count: int):
+        """Helper to update catalog after ingestion."""
+        from src.core.schema import TABLE_SCHEMAS
+
+        schema = TABLE_SCHEMAS.get(table_name)
+        if not schema:
+            return
+
+        shard_name = schema.get("shard", "master")
+        db_path = self._get_shard_path(table_name)
+        version = schema.get("version", 1)
+
+        catalog_manager.update_shard_status(
+            shard_name=shard_name,
+            file_path=db_path,
+            version=version,
+            records_count=records_count,
+        )
 
     def get_latest_price_date(self) -> str | None:
         """Get the latest price date in YYYYMMDD format."""
@@ -186,9 +206,7 @@ class JPEngine:
                 """
             )
 
-        catalog_manager.update_shard_status(
-            self.shard_name, self.db_path, 2, records_count=len(valid_df)
-        )
+        self._update_catalog("tickers", len(valid_df))
         return len(valid_df)
 
     @rate_limit
@@ -228,7 +246,7 @@ class JPEngine:
         """Fetch daily bars for a specific date."""
         try:
             if hasattr(self.cli, "get_eq_bars_daily"):
-                return self.cli.get_eq_bars_daily(date=date_str)
+                return self.cli.get_eq_bars_daily(date_yyyymmdd=date_str)
             return self.cli.get_prices_daily(date=date_str)
         except Exception as e:
             # Try to extract detailed message from J-Quants response if available
@@ -253,7 +271,7 @@ class JPEngine:
         """Fetch financial summaries for a specific date."""
         try:
             if hasattr(self.cli, "get_fin_summary"):
-                return self.cli.get_fin_summary(date=date_str)
+                return self.cli.get_fin_summary(date_yyyymmdd=date_str)
             return pd.DataFrame()
         except Exception as e:
             error_msg = str(e)
@@ -398,15 +416,14 @@ class JPEngine:
                 val_list = ", ".join([f"source.{c}" for c in columns])
                 conn.register("source_df", valid_df)
                 conn.execute(
-                    f"INSERT OR IGNORE INTO company_facts ({col_list}) SELECT {val_list} FROM source_df AS source"
+                    f"INSERT OR IGNORE INTO company_facts ({col_list}) "
+                    f"SELECT {val_list} FROM source_df AS source"
                 )
                 logger.info(
                     f"Successfully ingested {len(valid_df)} financial records into company_facts."
                 )
 
-                catalog_manager.update_shard_status(
-                    self.shard_name, self.db_path, 2, records_count=len(valid_df)
-                )
+                self._update_catalog("company_facts", len(valid_df))
         except Exception as e:
             logger.error(f"Database ingestion failed for financials: {e}")
             raise
@@ -482,14 +499,13 @@ class JPEngine:
                 val_list = ", ".join([f"source.{c}" for c in columns])
                 conn.register("source_df", valid_df)
                 conn.execute(
-                    f"INSERT OR IGNORE INTO daily_prices ({col_list}) SELECT {val_list} FROM source_df AS source"
+                    f"INSERT OR IGNORE INTO daily_prices ({col_list}) "
+                    f"SELECT {val_list} FROM source_df AS source"
                 )
                 logger.info(
                     f"Successfully ingested {len(valid_df)} price records into daily_prices."
                 )
-                catalog_manager.update_shard_status(
-                    "prices", db_path, 3, records_count=len(valid_df)
-                )
+                self._update_catalog("daily_prices", len(valid_df))
         except Exception as e:
             logger.error(f"Database ingestion failed for prices: {e}")
             raise
@@ -522,10 +538,11 @@ class JPEngine:
             val_list = ", ".join([f"source.{c}" for c in columns])
             conn.register("source_df", valid_df)
             conn.execute(
-                f"INSERT OR IGNORE INTO daily_indices ({col_list}) SELECT {val_list} FROM source_df AS source"
+                f"INSERT OR IGNORE INTO daily_indices ({col_list}) "
+                f"SELECT {val_list} FROM source_df AS source"
             )
             logger.info(f"Successfully ingested {len(valid_df)} index records.")
-            catalog_manager.update_shard_status("master", db_path, 1, records_count=len(valid_df))
+            self._update_catalog("daily_indices", len(valid_df))
 
     @track_performance("ingest_dividends_jp")
     def ingest_dividends(self, df: pd.DataFrame, session_id: str):
@@ -562,9 +579,8 @@ class JPEngine:
             val_list = ", ".join([f"source.{c}" for c in columns])
             conn.register("source_df", valid_df)
             conn.execute(
-                f"INSERT OR IGNORE INTO dividends ({col_list}) SELECT {val_list} FROM source_df AS source"
+                f"INSERT OR IGNORE INTO dividends ({col_list}) "
+                f"SELECT {val_list} FROM source_df AS source"
             )
             logger.info(f"Successfully ingested {len(valid_df)} dividend records.")
-            catalog_manager.update_shard_status(
-                "financials", db_path, 1, records_count=len(valid_df)
-            )
+            self._update_catalog("dividends", len(valid_df))

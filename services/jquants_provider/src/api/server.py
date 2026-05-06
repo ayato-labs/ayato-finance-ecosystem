@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
 from src.core.config import settings
 from src.core.db import db_manager
 

@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS company_facts (
 
 **Shard:** `prices`
 
-**Version:** 3
+**Version:** 5
 
 ### Columns
 | Column | Description |
@@ -169,17 +169,17 @@ CREATE TABLE IF NOT EXISTS daily_prices (
 
 **Shard:** `master`
 
-**Version:** 1
+**Version:** 2
 
 ### SQL Definition
 ```sql
 CREATE TABLE IF NOT EXISTS daily_indices (
                 Date DATE,
                 Code VARCHAR,
-                Open DECIMAL(12, 1),
-                High DECIMAL(12, 1),
-                Low DECIMAL(12, 1),
-                Close DECIMAL(12, 1),
+                Open DECIMAL(18, 1),
+                High DECIMAL(18, 1),
+                Low DECIMAL(18, 1),
+                Close DECIMAL(18, 1),
                 session_id VARCHAR,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (Code, Date)
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS daily_indices (
 
 **Shard:** `financials`
 
-**Version:** 1
+**Version:** 2
 
 ### SQL Definition
 ```sql
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS dividends (
                 AnnouncementDate DATE,
                 Code VARCHAR,
                 RecordDate DATE,
-                DividendValue DECIMAL(12, 1),
+                DividendValue DECIMAL(18, 1),
                 session_id VARCHAR,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (Code, RecordDate, AnnouncementDate)

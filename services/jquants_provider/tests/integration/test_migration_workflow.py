@@ -11,10 +11,10 @@ def migration_env(mocker):
     tmpdir = tempfile.TemporaryDirectory()
     base_path = Path(tmpdir.name)
     mocker.patch("src.core.config.settings.DATA_DIR", base_path)
-    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(base_path / "master.duckdb"))
-    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", str(base_path / "jquants_master.duckdb"))
-    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", str(base_path / "jquants_prices.duckdb"))
-    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", str(base_path / "jquants_financials.duckdb"))
+    mocker.patch("src.core.config.settings.MASTER_DB_PATH", base_path / "master.duckdb")
+    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", base_path / "jquants_master.duckdb")
+    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", base_path / "jquants_prices.duckdb")
+    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", base_path / "jquants_financials.duckdb")
     
     yield base_path
     tmpdir.cleanup()
@@ -24,8 +24,8 @@ def test_migration_version_tracking(migration_env):
     # 1. First run: apply everything
     MigrationManager.apply_migrations()
     
-    # 2. Check history table in master
-    with db_manager.connect(migration_env / "master.duckdb") as conn:
+    # 2. Check history table in jquants_master.duckdb (where tickers reside)
+    with db_manager.connect(migration_env / "jquants_master.duckdb") as conn:
         res = conn.execute("SELECT version FROM __migrations_history WHERE table_name = 'tickers'").fetchone()
         assert res is not None
         assert res[0] == TABLE_SCHEMAS["tickers"]["version"]

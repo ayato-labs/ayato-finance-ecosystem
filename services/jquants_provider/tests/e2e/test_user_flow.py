@@ -13,10 +13,18 @@ def test_full_sync_cli_flow(mocker):
     
     # Mock settings
     mocker.patch("src.core.config.settings.DATA_DIR", base_path)
-    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(base_path / "master.duckdb"))
+    mocker.patch("src.core.config.settings.MASTER_DB_PATH", base_path / "master.duckdb")
+    mocker.patch("src.core.config.settings.JP_MASTER_DB_PATH", base_path / "jquants_master.duckdb")
+    mocker.patch("src.core.config.settings.JP_PRICES_DB_PATH", base_path / "jquants_prices.duckdb")
+    mocker.patch("src.core.config.settings.JP_FACTS_DB_PATH", base_path / "jquants_financials.duckdb")
     
     # Mock engine to avoid real heavy sync
     mocker.patch("src.engine.JPEngine.sync_tickers", return_value=10)
+    
+    # Force catalog manager to use the temp path as well
+    from src.core.catalog import catalog_manager
+    catalog_manager.master_db_path = base_path / "master.duckdb"
+    catalog_manager._init_catalog()
     
     # Simulate CLI args
     sys.argv = ["main.py", "--sync-tickers"]

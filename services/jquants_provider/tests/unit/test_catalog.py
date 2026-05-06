@@ -14,27 +14,25 @@ def temp_catalog_db():
         # Since CatalogManager uses settings.DB_MASTER_PATH, we'll patch it
         yield db_path
 
-def test_catalog_update_and_get_status(mocker, temp_catalog_db):
+def test_catalog_update_and_get_status(temp_catalog_db):
     """Test updating and retrieving shard status from catalog."""
-    mocker.patch("src.core.config.settings.MASTER_DB_PATH", str(temp_catalog_db))
-    
-    from src.core.catalog import catalog_manager
+    # Create a fresh manager for this test
+    cm = CatalogManager(master_db_path=temp_catalog_db)
     
     # Update status
-    catalog_manager.update_shard_status(
+    cm.update_shard_status(
         shard_name="prices",
-        table_name="daily_prices",
-        last_session_id="session-123",
-        last_date="20260505",
-        record_count=100
+        file_path="data/prices.duckdb",
+        version=1,
+        status="active",
+        records_count=100
     )
     
     # Verify
-    status = catalog_manager.get_shard_status("prices", "daily_prices")
-    assert status is not None
-    assert status["last_session_id"] == "session-123"
-    assert status["record_count"] == 100
+    info = cm.get_shard_info("prices")
+    assert info is not None
+    assert info["records_count"] == 100
     
     # Check non-existent
-    none_status = catalog_manager.get_shard_status("unknown", "unknown")
+    none_status = cm.get_shard_info("unknown")
     assert none_status is None

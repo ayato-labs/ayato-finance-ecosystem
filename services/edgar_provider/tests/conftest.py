@@ -26,8 +26,11 @@ def clean_db_paths(test_data_dir):
 
 @pytest.fixture(autouse=True)
 def mock_settings_paths(monkeypatch, clean_db_paths):
-    """Overwrites production paths with test paths."""
-    monkeypatch.setattr(settings, "MASTER_DB_PATH", clean_db_paths["master"])
-    monkeypatch.setattr(settings, "FACTS_DB_PATH", clean_db_paths["facts"])
-    monkeypatch.setattr(settings, "NARRATIVES_DB_PATH", clean_db_paths["narratives"])
-    monkeypatch.setattr(settings, "DB_PATH", clean_db_paths["facts"])
+    """Overwrites production paths with test paths as Path objects."""
+    from pathlib import Path
+    monkeypatch.setattr(settings, "MASTER_DB_PATH", Path(clean_db_paths["master"]))
+    monkeypatch.setattr(settings, "FACTS_DB_PATH", Path(clean_db_paths["facts"]))
+    monkeypatch.setattr(settings, "NARRATIVES_DB_PATH", Path(clean_db_paths["narratives"]))
+    monkeypatch.setattr(settings, "DB_PATH", Path(clean_db_paths["facts"]))
+    # Also ensure DATA_DIR points to our temp dir
+    monkeypatch.setattr(settings, "DATA_DIR", Path(clean_db_paths["facts"]).parent)

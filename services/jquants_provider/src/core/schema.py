@@ -83,7 +83,7 @@ TABLE_SCHEMAS = {
     },
     "daily_prices": {
         "description": "Daily OHLCV data with high-precision storage.",
-        "version": 3,
+        "version": 5,
         "shard": "prices",
         "columns": {
             "Date": "Trading date",
@@ -116,16 +116,16 @@ TABLE_SCHEMAS = {
     },
     "daily_indices": {
         "description": "Daily market index quotes.",
-        "version": 1,
+        "version": 2,
         "shard": "master",
         "sql": """
             CREATE TABLE IF NOT EXISTS daily_indices (
                 Date DATE,
                 Code VARCHAR,
-                Open DECIMAL(12, 1),
-                High DECIMAL(12, 1),
-                Low DECIMAL(12, 1),
-                Close DECIMAL(12, 1),
+                Open DECIMAL(18, 1),
+                High DECIMAL(18, 1),
+                Low DECIMAL(18, 1),
+                Close DECIMAL(18, 1),
                 session_id VARCHAR,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (Code, Date)
@@ -134,14 +134,14 @@ TABLE_SCHEMAS = {
     },
     "dividends": {
         "description": "Dividend payment records.",
-        "version": 1,
+        "version": 2,
         "shard": "financials",
         "sql": """
             CREATE TABLE IF NOT EXISTS dividends (
                 AnnouncementDate DATE,
                 Code VARCHAR,
                 RecordDate DATE,
-                DividendValue DECIMAL(12, 1),
+                DividendValue DECIMAL(18, 1),
                 session_id VARCHAR,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (Code, RecordDate, AnnouncementDate)

@@ -11,6 +11,10 @@ class MasterDBManager:
     def __init__(self):
         self.master_db_path = settings.MASTER_DB_PATH
         self.master_db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure physical file exists first
+        if not self.master_db_path.exists():
+            import duckdb
+            duckdb.connect(str(self.master_db_path)).close()
         self._init_master_schema()
 
     def _init_master_schema(self):

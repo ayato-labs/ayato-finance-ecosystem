@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
-from typing import Optional
 from decimal import Decimal
+from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class JPTickerContract(BaseModel):
@@ -36,6 +37,35 @@ class JPFactContract(BaseModel):
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
 
+    @field_validator(
+        "NetSales",
+        "OperatingProfit",
+        "OrdinaryProfit",
+        "Profit",
+        "EarningsPerShare",
+        "TotalAssets",
+        "NetAssets",
+        "EquityToAssetRatio",
+        "BookValuePerShare",
+        "CashFlowsFromOperatingActivities",
+        "CashFlowsFromInvestingActivities",
+        "CashFlowsFromFinancingActivities",
+        "CashAndCashEquivalents",
+        mode="before",
+    )
+    @classmethod
+    def clean_decimal(cls, v):
+        if v is None or v == "" or (isinstance(v, float) and (v != v or abs(v) == float("inf"))):
+            return None
+        return v
+
+    @field_validator("FiscalYear", "FiscalPeriod", "DisclosedTime", mode="before")
+    @classmethod
+    def clean_string(cls, v):
+        if v is None or (isinstance(v, float) and v != v):
+            return ""
+        return str(v)
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -57,10 +87,28 @@ class JPPriceContract(BaseModel):
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
 
+    @field_validator(
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "AdjustmentOpen",
+        "AdjustmentHigh",
+        "AdjustmentLow",
+        "AdjustmentClose",
+        "TurnoverValue",
+        mode="before",
+    )
+    @classmethod
+    def clean_decimal(cls, v):
+        if v is None or v == "" or (isinstance(v, float) and (v != v or abs(v) == float("inf"))):
+            return None
+        return v
+
     @field_validator("Volume", "AdjustmentVolume", mode="before")
     @classmethod
     def cast_to_int(cls, v):
-        if v is None or (isinstance(v, float) and v != v):  # Handle NaN
+        if v is None or v == "" or (isinstance(v, float) and (v != v or abs(v) == float("inf"))):
             return None
         return int(float(v))
 
@@ -74,6 +122,13 @@ class JPIndexContract(BaseModel):
     Close: Optional[Decimal] = None
     session_id: str
     ingested_at: datetime = Field(default_factory=datetime.now)
+
+    @field_validator("Open", "High", "Low", "Close", mode="before")
+    @classmethod
+    def clean_decimal(cls, v):
+        if v is None or v == "" or (isinstance(v, float) and (v != v or abs(v) == float("inf"))):
+            return None
+        return v
 
 
 class JPDividendContract(BaseModel):
