@@ -7,6 +7,7 @@ import edinet_tools
 from src.core.config import settings
 from src.core.db import db_manager
 from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock
+from src.core.tracing import trace_execution, with_context
 
 
 class JPEDINETEngine:
@@ -104,7 +105,7 @@ class JPEDINETEngine:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_doc = {
                     executor.submit(
-                        self._process_single_doc, doc, doc._data.get("secCode", "0000"), session_id
+                        with_context(self._process_single_doc), doc, doc._data.get("secCode", "0000"), session_id
                     ): doc
                     for doc in docs_to_process
                 }
@@ -160,7 +161,7 @@ class JPEDINETEngine:
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_info = {
-                    executor.submit(self._process_single_doc, d, sc, "backfill"): d
+                    executor.submit(with_context(self._process_single_doc), d, sc, "backfill"): d
                     for d, sc in docs_to_process
                 }
                 for future in concurrent.futures.as_completed(future_to_info):
@@ -208,55 +209,65 @@ class JPEDINETEngine:
         narr_prefix = "" if is_memory else "narr_db."
         facts_prefix = "" if is_memory else "facts_db."
 
-        try:
-            # 1. Metadata (registry_db)
-            metadata_batch = [
-                (
-                    r["metadata"]["doc_id"], r["metadata"]["edinet_code"], r["metadata"]["sec_code"],
-                    r["metadata"]["filer_name"], r["metadata"]["doc_description"],
-                    r["metadata"]["submit_datetime"], r["metadata"]["form_code"],
-                    r["metadata"]["doc_type_code"], r["metadata"]["session_id"]
-                ) for r in results
-            ]
-            conn.executemany(
-                f"""
-                INSERT OR IGNORE INTO {reg_prefix}filings 
-                (doc_id, edinet_code, sec_code, filer_name, doc_description, 
-                 submit_datetime, form_code, doc_type_code, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                metadata_batch,
+        # 1. Metadata (registry_db)
+        metadata_batch = [
+            (
+                r["metadata"]["doc_id"], r["metadata"]["edinet_code"], r["metadata"]["sec_code"],
+                r["metadata"]["filer_name"], r["metadata"]["doc_description"],
+                r["metadata"]["submit_datetime"], r["metadata"]["form_code"],
+                r["metadata"]["doc_type_code"], r["metadata"]["session_id"]
+            ) for r in results
+        ]
+        self._batch_insert_resilient(
+            conn, 
+            f"INSERT OR IGNORE INTO {reg_prefix}filings (doc_id, edinet_code, sec_code, filer_name, doc_description, submit_datetime, form_code, doc_type_code, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            metadata_batch
+        )
+
+        # 2. Narratives (narr_db)
+        narrative_batch = []
+        for r in results:
+            for n in r["narratives"]:
+                narrative_batch.append((n["doc_id"], n["section_name"], n["content_md"], n["session_id"]))
+        
+        if narrative_batch:
+            self._batch_insert_resilient(
+                conn,
+                f"INSERT OR REPLACE INTO {narr_prefix}narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
+                narrative_batch
             )
 
-            # 2. Narratives (narr_db)
-            narrative_batch = []
-            for r in results:
-                for n in r["narratives"]:
-                    narrative_batch.append((n["doc_id"], n["section_name"], n["content_md"], n["session_id"]))
-            
-            if narrative_batch:
-                conn.executemany(
-                    f"INSERT OR REPLACE INTO {narr_prefix}narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
-                    narrative_batch,
-                )
+        # 3. Facts (facts_db)
+        fact_batch = []
+        for r in results:
+            for f in r["facts"]:
+                fact_batch.append((
+                    f["doc_id"], f["item_name"], f["item_value"], f["unit"],
+                    f["context_id"], f["fiscal_year"], f["fiscal_period"], f["session_id"]
+                ))
+        
+        if fact_batch:
+            self._batch_insert_resilient(
+                conn,
+                f"INSERT OR REPLACE INTO {facts_prefix}company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                fact_batch
+            )
 
-            # 3. Facts (facts_db)
-            fact_batch = []
-            for r in results:
-                for f in r["facts"]:
-                    fact_batch.append((
-                        f["doc_id"], f["item_name"], f["item_value"], f["unit"],
-                        f["context_id"], f["fiscal_year"], f["fiscal_period"], f["session_id"]
-                    ))
-            
-            if fact_batch:
-                conn.executemany(
-                    f"INSERT OR REPLACE INTO {facts_prefix}company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    fact_batch,
-                )
-        except Exception as e:
-            logger.error(f"Database batch insert failed: {e}", exc_info=True)
-            raise 
+    def _batch_insert_resilient(self, conn, sql, batch):
+        """
+        Attempts a batch insert. If it fails, falls back to individual inserts 
+        to isolate and log the specific problematic record.
+        """
+        try:
+            conn.executemany(sql, batch)
+        except Exception as batch_err:
+            logger.warning(f"Batch insert failed, falling back to individual inserts: {batch_err}")
+            for record in batch:
+                try:
+                    conn.execute(sql, record)
+                except Exception as rec_err:
+                    logger.error(f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}")
+                    # We do NOT raise here to allow other records in the batch to be saved.
 
     def _extract_metadata(self, doc, ticker, session_id):
         data = doc._data

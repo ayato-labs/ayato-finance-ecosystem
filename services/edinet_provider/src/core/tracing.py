@@ -14,10 +14,11 @@ def trace_execution(func):
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Generate or inherit TraceID
-        trace_id = str(uuid.uuid4())
-        token = current_trace_id.set(trace_id)
+        # Generate TraceID if not present (root call) or inherit if already set
+        existing_id = current_trace_id.get()
+        trace_id = existing_id if existing_id != "root" else str(uuid.uuid4())
         
+        token = current_trace_id.set(trace_id)
         func_name = func.__name__
         
         # Inject TraceID into logger context
@@ -47,4 +48,17 @@ def trace_execution(func):
             finally:
                 current_trace_id.reset(token)
             
+    return wrapper
+
+def with_context(func):
+    """
+    A wrapper for functions being passed to ThreadPoolExecutor to ensure
+    ContextVars (like trace_id) are propagated to the worker thread.
+    """
+    ctx = contextvars.copy_context()
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return ctx.run(func, *args, **kwargs)
+    
     return wrapper
