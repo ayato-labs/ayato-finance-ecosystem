@@ -23,7 +23,7 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS ingestion_log (
                         doc_id VARCHAR PRIMARY KEY,
-                        status VARCHAR NOT NULL, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
+                        status ingestion_status_t NOT NULL, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
                         last_attempt TIMESTAMP NOT NULL,
                         retry_count INTEGER DEFAULT 0,
                         error_message TEXT
@@ -46,8 +46,8 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         filer_name VARCHAR NOT NULL,
                         doc_description VARCHAR,
                         submit_datetime TIMESTAMP NOT NULL,
-                        form_code VARCHAR,
-                        doc_type_code VARCHAR,
+                        form_code form_code_enum,
+                        doc_type_code doc_type_code_enum,
                         session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -66,10 +66,10 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         doc_id VARCHAR NOT NULL,
                         item_name VARCHAR NOT NULL,
                         item_value DOUBLE,
-                        unit VARCHAR,
+                        unit unit_enum,
                         context_id VARCHAR NOT NULL,
                         fiscal_year INTEGER,
-                        fiscal_period VARCHAR,
+                        fiscal_period period_enum,
                         session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
@@ -87,8 +87,8 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS narratives (
                         doc_id VARCHAR NOT NULL,
-                        section_name VARCHAR NOT NULL,
-                        content_md VARCHAR NOT NULL,
+                        section_name section_name_t NOT NULL,
+                        content_md VARCHAR NOT NULL USING COMPRESSION ZSTD,
                         session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, section_name)

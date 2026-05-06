@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -6,6 +7,21 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class DataContract(BaseModel):
     """Base class for all data contracts in the EDINET Provider."""
     model_config = ConfigDict(strict=True, extra="ignore")
+
+
+class IngestionStatus(str, Enum):
+    PENDING = "PENDING"
+    SUCCESS = "SUCCESS"
+    PARTIAL_FAIL = "PARTIAL_FAIL"
+
+
+class FiscalPeriod(str, Enum):
+    FY = "FY"
+    Q1 = "Q1"
+    Q2 = "Q2"
+    Q3 = "Q3"
+    Q4 = "Q4"
+    UNKNOWN = "UNKNOWN"
 
 
 class FilingMetadata(DataContract):
@@ -57,7 +73,7 @@ class CompanyFact(DataContract):
     unit: str | None = None
     context_id: str
     fiscal_year: int | None = None
-    fiscal_period: str | None = None
+    fiscal_period: FiscalPeriod | str | None = None
     session_id: str  # Traceability
 
 
