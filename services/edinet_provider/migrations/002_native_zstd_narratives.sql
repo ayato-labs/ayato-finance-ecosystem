@@ -15,4 +15,4 @@ CREATE TABLE IF NOT EXISTS narr_db.narratives_new(
 DROP TABLE IF EXISTS narr_db.narratives;
 ALTER TABLE narr_db.narratives_new RENAME TO narratives;
 
-INSERT INTO schema_version (version) VALUES (2);
+INSERT OR IGNORE INTO schema_version (version) VALUES (2);

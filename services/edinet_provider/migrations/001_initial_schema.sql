@@ -42,4 +42,4 @@ CREATE TABLE IF NOT EXISTS narr_db.narratives(
     PRIMARY KEY(doc_id, section_name)
 );
 
-INSERT INTO schema_version (version) VALUES (1);
+INSERT OR IGNORE INTO schema_version (version) VALUES (1);
