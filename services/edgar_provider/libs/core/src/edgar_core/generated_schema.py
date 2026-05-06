@@ -100,5 +100,6 @@ TABLE_SCHEMAS = {
 
 INDEX_SCHEMAS = [
     "CREATE INDEX IF NOT EXISTS idx_filings_ticker ON filings (ticker);",
-    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (accession_number, fiscal_year, fiscal_period);",
+    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+    "ON company_facts (accession_number, fiscal_year, fiscal_period);",
 ]

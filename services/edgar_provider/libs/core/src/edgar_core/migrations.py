@@ -25,7 +25,8 @@ def apply_initial_schema(conn, role: str = None):
     is_narratives_db = role == "narratives"
 
     logger.debug(
-        f"Applying initial schema for role: {role} (facts: {is_facts_db}, narratives: {is_narratives_db})"
+        f"Applying initial schema for role: {role} "
+        f"(facts: {is_facts_db}, narratives: {is_narratives_db})"
     )
 
     for table_name, versions in TABLE_SCHEMAS.items():

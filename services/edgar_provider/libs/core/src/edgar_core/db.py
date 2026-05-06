@@ -49,7 +49,8 @@ class DuckDBManager:
                     temp_dir.mkdir(exist_ok=True)
                     conn.execute(f"SET temp_directory='{str(temp_dir)}';")
 
-                    # Disable insertion order preservation to drastically save memory during bulk loads
+                    # Disable insertion order preservation to drastically save memory
+                    # during bulk loads
                     conn.execute("SET preserve_insertion_order=false;")
                 break
             except (duckdb.IOException, OSError) as e:

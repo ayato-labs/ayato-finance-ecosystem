@@ -129,148 +129,173 @@ class USEngine:
     @trace_step(step_name="ingest_bulk_data")
     def ingest_bulk_data(self, session_id: str):
         """Processes all company facts from bulk ZIP with extreme stability and speed."""
-        process = psutil.Process(os.getpid())
-        zip_path = settings.DATA_DIR / "companyfacts.zip"
-
-        logger.info(f"INGEST START | Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB")
-
-        tickers = get_all_tickers()
-        ticker_map = {t["cik"]: t["ticker"] for t in tickers}
-
-        # Producer-Consumer Setup
-        write_queue = queue.Queue(maxsize=20)  # Backpressure: limit pending batches
-        stop_event = threading.Event()
-
-        def db_writer_worker():
-            """Dedicated thread for serial database writing."""
-            with db_manager.connect(self.facts_db) as conn:
-                # DuckDB specific bulk optimizations
-                conn.execute("SET threads=1;")
-                conn.execute(f"SET memory_limit='{settings.db_memory_limit}';")
-                conn.execute("SET preserve_insertion_order=false;")
-
-                # Drop secondary index during bulk ingestion
-                logger.info("Dropping secondary index for bulk ingestion stability...")
-                conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
-                conn.execute("DROP INDEX IF EXISTS idx_filings_ticker;")
-
-                batch_count = 0
-                while not stop_event.is_set() or not write_queue.empty():
-                    try:
-                        batch = write_queue.get(timeout=1)
-                        if batch is None:
-                            break
-
-                        filings, facts = batch
-                        if filings or facts:
-                            logger.info(
-                                f"Writing batch: {len(filings)} filings, {len(facts)} facts"
-                            )
-                            self._save_optimized(conn, filings, facts)
-                            batch_count += 1
-
-                            # Periodic checkpoint to flush WAL and stabilize memory
-                            if batch_count % 5 == 0:
-                                logger.info("Periodic checkpoint...")
-                                conn.execute("CHECKPOINT;")
-
-                            gc.collect()
-
-                        write_queue.task_done()
-                    except queue.Empty:
-                        continue
-                    except Exception as e:
-                        logger.error(f"Writer error: {e}")
-
-                # Recreate index after bulk ingestion
-                logger.info("Recreating secondary index...")
-                conn.execute("CHECKPOINT;")
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
-                    "ON company_facts (accession_number, fiscal_year, fiscal_period);"
-                )
-                conn.execute("CHECKPOINT;")
-                logger.info("Writer thread finished.")
-
-        # Start writer thread
-        writer_thread = threading.Thread(target=db_writer_worker)
-        writer_thread.start()
+        from edgar_core.telemetry import TraceContext, trace_block
 
         try:
-            with zipfile.ZipFile(zip_path, "r") as z:
-                all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
-                total_files = len(all_files)
+            process = psutil.Process(os.getpid())
+            zip_path = settings.DATA_DIR / "companyfacts.zip"
 
-                batch_filings = []
-                batch_facts = []
+            logger.info(f"INGEST START | Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB")
 
-                # Use ThreadPool for parallel parsing with a conservative worker count
-                num_workers = min(os.cpu_count() or 4, 4)
-                chunk_size = 1000  # Process files in chunks to avoid massive Future lists
+            with trace_block("prepare_metadata"):
+                tickers = get_all_tickers()
+                ticker_map = {t["cik"]: t["ticker"] for t in tickers}
 
-                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Producer-Consumer Setup
+            write_queue = queue.Queue(maxsize=20)  # Backpressure: limit pending batches
+            stop_event = threading.Event()
 
-                    def process_file(file_info_name):
-                        try:
-                            with zipfile.ZipFile(zip_path, "r") as z_inner:
-                                with z_inner.open(file_info_name) as f:
-                                    content = f.read().decode("utf-8")
-                            return parse_company_facts_json(
-                                file_info_name, content, ticker_map, session_id
-                            )
-                        except Exception as e:
-                            logger.error(f"Parse error {file_info_name}: {e}")
-                            return [], []
+            def db_writer_worker():
+                """Dedicated thread for serial database writing."""
+                # Propagate context to the new thread
+                with TraceContext(run_id=session_id, step="ingest_bulk_data.writer"):
+                    try:
+                        with db_manager.connect(self.facts_db) as conn:
+                            # DuckDB specific bulk optimizations
+                            conn.execute("SET threads=1;")
+                            conn.execute(f"SET memory_limit='{settings.db_memory_limit}';")
+                            conn.execute("SET preserve_insertion_order=false;")
 
-                    for chunk_idx in range(0, total_files, chunk_size):
-                        chunk = all_files[chunk_idx : chunk_idx + chunk_size]
-                        futures = [executor.submit(process_file, info.filename) for info in chunk]
+                            # Drop secondary index during bulk ingestion
+                            logger.info("Dropping secondary index for bulk ingestion stability...")
+                            conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
+                            conn.execute("DROP INDEX IF EXISTS idx_filings_ticker;")
 
-                        for i, future in enumerate(concurrent.futures.as_completed(futures)):
-                            current_total = chunk_idx + i
-                            if current_total % 500 == 0:
-                                mem = process.memory_info().rss / 1024 / 1024
-                                logger.info(
-                                    f"Progress: {current_total}/{total_files} | Mem: {mem:.2f}MB"
+                            batch_count = 0
+                            while not stop_event.is_set() or not write_queue.empty():
+                                try:
+                                    batch = write_queue.get(timeout=1)
+                                    if batch is None:
+                                        break
+
+                                    filings, facts = batch
+                                    if filings or facts:
+                                        with trace_block("write_batch"):
+                                            logger.info(
+                                                f"Writing batch: {len(filings)} filings, {len(facts)} facts"
+                                            )
+                                            self._save_optimized(conn, filings, facts)
+                                            batch_count += 1
+
+                                        # Periodic checkpoint to flush WAL and stabilize memory
+                                        if batch_count % 5 == 0:
+                                            with trace_block("checkpoint"):
+                                                logger.info("Periodic checkpoint...")
+                                                conn.execute("CHECKPOINT;")
+
+                                        gc.collect()
+
+                                    write_queue.task_done()
+                                except queue.Empty:
+                                    continue
+                                except Exception as e:
+                                    logger.error(f"Writer thread error during batch processing: {e}")
+
+                            # Recreate index after bulk ingestion
+                            with trace_block("recreate_indexes"):
+                                logger.info("Recreating secondary index...")
+                                conn.execute("CHECKPOINT;")
+                                conn.execute(
+                                    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+                                    "ON company_facts (accession_number, fiscal_year, fiscal_period);"
                                 )
+                                conn.execute("CHECKPOINT;")
+                            logger.info("Writer thread finished.")
+                    except Exception as e:
+                        logger.critical(f"FATAL: DB Writer thread crashed: {e}")
+                        raise
 
-                            filing_recs, fact_recs = future.result()
+            # Start writer thread
+            writer_thread = threading.Thread(target=db_writer_worker)
+            writer_thread.start()
 
-                            if filing_recs:
-                                batch_filings.extend(filing_recs)
-                                batch_facts.extend(fact_recs)
+            try:
+                with trace_block("parse_zip"):
+                    with zipfile.ZipFile(zip_path, "r") as z:
+                        all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
+                        total_files = len(all_files)
 
-                                # Reduced batch size for RAM stability (100k -> 50k)
-                                if len(batch_facts) >= 50000:
-                                    write_queue.put((batch_filings, batch_facts))
-                                    batch_filings = []
-                                    batch_facts = []
-
-                        # Explicitly clear futures and trigger GC after each chunk
-                        del futures
-                        gc.collect()
-
-                    # Final batch
-                    if batch_filings or batch_facts:
-                        write_queue.put((batch_filings, batch_facts))
                         batch_filings = []
                         batch_facts = []
 
-        finally:
-            # Signal writer to stop
-            stop_event.set()
-            write_queue.put(None)
-            writer_thread.join()
+                        # Use ThreadPool for parallel parsing with a conservative worker count
+                        num_workers = min(os.cpu_count() or 4, 4)
+                        chunk_size = 1000  # Process files in chunks to avoid massive Future lists
 
-            # Re-create secondary indexes after bulk operation completes
-            logger.info("Re-creating secondary indexes...")
-            with db_manager.connect(self.facts_db) as conn:
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_filings_ticker ON filings (ticker);")
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (accession_number, fiscal_year, fiscal_period);"
-                )
+                        with ThreadPoolExecutor(max_workers=num_workers) as executor:
 
-        logger.info("Bulk ingestion completed successfully.")
+                            def process_file(file_info_name):
+                                try:
+                                    with zipfile.ZipFile(zip_path, "r") as z_inner:
+                                        with z_inner.open(file_info_name) as f:
+                                            content = f.read().decode("utf-8")
+                                    return parse_company_facts_json(
+                                        file_info_name, content, ticker_map, session_id
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Parse error {file_info_name}: {e}")
+                                    return [], []
+
+                            for chunk_idx in range(0, total_files, chunk_size):
+                                with trace_block(f"process_chunk_{chunk_idx // chunk_size}"):
+                                    chunk = all_files[chunk_idx : chunk_idx + chunk_size]
+                                    futures = [
+                                        executor.submit(process_file, info.filename) for info in chunk
+                                    ]
+
+                                    for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                                        current_total = chunk_idx + i
+                                        if current_total % 500 == 0:
+                                            mem = process.memory_info().rss / 1024 / 1024
+                                            logger.info(
+                                                f"Progress: {current_total}/{total_files} | "
+                                                f"Mem: {mem:.2f}MB"
+                                            )
+
+                                        filing_recs, fact_recs = future.result()
+
+                                        if filing_recs:
+                                            batch_filings.extend(filing_recs)
+                                            batch_facts.extend(fact_recs)
+
+                                            # Reduced batch size for RAM stability (100k -> 50k)
+                                            if len(batch_facts) >= 50000:
+                                                write_queue.put((batch_filings, batch_facts))
+                                                batch_filings = []
+                                                batch_facts = []
+
+                                    # Explicitly clear futures and trigger GC after each chunk
+                                    del futures
+                                    gc.collect()
+
+                            # Final batch
+                            if batch_filings or batch_facts:
+                                write_queue.put((batch_filings, batch_facts))
+                                batch_filings = []
+                                batch_facts = []
+
+            finally:
+                # Signal writer to stop
+                stop_event.set()
+                write_queue.put(None)
+                writer_thread.join()
+
+                # Re-create secondary indexes after bulk operation completes
+                with trace_block("final_indexes"):
+                    logger.info("Re-creating secondary indexes...")
+                    with db_manager.connect(self.facts_db) as conn:
+                        conn.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_filings_ticker ON filings (ticker);"
+                        )
+                        conn.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+                            "ON company_facts (accession_number, fiscal_year, fiscal_period);"
+                        )
+
+            logger.info("Bulk ingestion completed successfully.")
+        except Exception as e:
+            logger.exception(f"Bulk ingestion failed: {e}")
+            raise
 
     def _save_optimized(self, conn, batch_filings_list, batch_facts_list):
         """Saves normalized records using the most stable Arrow-based approach."""
@@ -345,7 +370,8 @@ class USEngine:
 
                     conn.execute(f"""
                         INSERT OR REPLACE INTO company_facts
-                        (accession_number, fiscal_year, fiscal_period, label, value, unit, is_standardized, raw_tag)
+                        (accession_number, fiscal_year, fiscal_period, label, value, unit,
+                         is_standardized, raw_tag)
                         SELECT * FROM read_parquet('{str(temp_parquet_path)}')
                     """)
 

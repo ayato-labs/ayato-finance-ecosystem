@@ -1,10 +1,24 @@
-import functools
 import json
 import sys
 import time
 from pathlib import Path
 
 from loguru import logger
+
+
+def patch_record(record):
+    """
+    Patches the log record with traceability context from ContextVars.
+    Done lazily to avoid circular imports.
+    """
+    try:
+        from edgar_core.telemetry import run_id_var, step_var, ticker_var
+
+        record["extra"]["run_id"] = run_id_var.get()
+        record["extra"]["ticker"] = ticker_var.get()
+        record["extra"]["step"] = step_var.get()
+    except ImportError:
+        pass
 
 
 def setup_logging():
@@ -14,8 +28,10 @@ def setup_logging():
     # Remove default handler
     logger.remove()
 
-    # Find project root (data and logs should be at root)
-    # We navigate up relative to this file
+    # Apply traceability patcher
+    logger.configure(patcher=patch_record)
+
+    # Find project root
     project_root = Path(__file__).parent.parent.parent.parent.parent
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True)
@@ -31,14 +47,12 @@ def setup_logging():
                 backup_log.unlink()
             app_log.rename(backup_log)
 
-        # For the error log, we keep the previous run as well
         if error_log.exists():
             backup_err = log_dir / "error.log.1"
             if backup_err.exists():
                 backup_err.unlink()
             error_log.rename(backup_err)
     except PermissionError:
-        # On Windows, if file is locked, rotation might fail
         pass
     except Exception as e:
         print(f"Warning: Failed to rotate logs: {e}", file=sys.stderr)
@@ -52,7 +66,10 @@ def setup_logging():
             "name": record["name"],
             "function": record["function"],
             "line": record["line"],
-            "extra": record["extra"],
+            "run_id": record["extra"].get("run_id"),
+            "ticker": record["extra"].get("ticker"),
+            "step": record["extra"].get("step"),
+            "extra": {k: v for k, v in record["extra"].items() if k not in ["run_id", "ticker", "step"]},
         }
         if record["exception"]:
             subset["exception"] = str(record["exception"])
@@ -60,7 +77,8 @@ def setup_logging():
 
     def json_sink(message):
         serialized = serialize_json(message.record)
-        print(serialized, file=open(app_log, "a", encoding="utf-8"))
+        with open(app_log, "a", encoding="utf-8") as f:
+            f.write(serialized + "\n")
 
     # 1. Main JSON Log (Full traceability)
     logger.add(
@@ -70,10 +88,11 @@ def setup_logging():
         diagnose=True,
     )
 
-    # 2. Isolated Error Log (Human readable, separate preservation)
+    # 2. Isolated Error Log (Human readable)
     logger.add(
         str(error_log),
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | "
+               "run_id={extra[run_id]} step={extra[step]} - {message}",
         level="ERROR",
         backtrace=True,
         diagnose=True,
@@ -83,48 +102,9 @@ def setup_logging():
     logger.add(
         sys.stderr,
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<level>{message}</level>",
+               "<cyan>{name}</cyan>:<level>{message}</level>",
         level="INFO",
         colorize=True,
     )
 
-    logger.debug("Logging initialized with JSON and Error isolation.")
-
-
-def track_performance(name: str):
-    """Decorator to track performance and ensure exceptions are logged before re-raising."""
-
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            context = {"function": func.__name__, "step": name}
-            logger.debug(f"Starting {name}", extra={"context": context, "event": "start"})
-            start = time.perf_counter()
-
-            try:
-                result = func(*args, **kwargs)
-                elapsed = time.perf_counter() - start
-                logger.info(
-                    f"Completed {name} in {elapsed:.4f}s",
-                    extra={
-                        "context": context,
-                        "metrics": {"elapsed": round(elapsed, 4)},
-                        "event": "end",
-                    },
-                )
-                return result
-            except Exception as e:
-                logger.error(
-                    f"CRITICAL FAILURE in {name}: {type(e).__name__} - {str(e)}",
-                    extra={
-                        "context": context,
-                        "error_type": type(e).__name__,
-                        "event": "failure",
-                    },
-                )
-                # Ensure the error is never silenced
-                raise
-
-        return wrapper
-
-    return decorator
+    logger.debug("Logging initialized with JSON, Error isolation, and Traceability.")

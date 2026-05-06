@@ -30,14 +30,14 @@ class MasterDBManager:
         self._initialized = True
 
     def _init_master_schema(self):
-        """Initializes the schema for the master DB (databases and data_catalog)."""
+        """Initializes the schema for the master DB (databases, data_catalog, and metrics)."""
         logger.info(f"Initializing Master DB at {self.master_db_path}")
         with db_manager.connect(self.master_db_path) as conn:
-            # We use the DDL generated from contracts for 'databases' and 'data_catalog'
-            for table in ["databases", "data_catalog"]:
+            # We use the DDL generated from contracts
+            for table in ["databases", "data_catalog", "metrics"]:
                 if table in TABLE_SCHEMAS:
                     sql = TABLE_SCHEMAS[table]
-                    # Handle legacy nested structure if it somehow persists
+                    # Handle legacy nested structure
                     if isinstance(sql, dict):
                         sql = sql.get("v1")
                     conn.execute(sql)
