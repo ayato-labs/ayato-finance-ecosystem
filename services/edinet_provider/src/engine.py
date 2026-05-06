@@ -42,11 +42,19 @@ class JPEDINETEngine:
         current_date = start_date
         while current_date <= end_date:
             try:
+                import time
+                time.sleep(0.2)  # Mitigate EDINET API rate limits (HTTP 429)
+                
                 docs = edinet_tools.documents(date=current_date)
                 if docs:
                     all_docs.extend(docs)
             except Exception as e:
                 logger.error(f"❌ Failed to fetch list for {current_date}: {e}", exc_info=True)
+            
+            # Log progress every 30 days
+            if (current_date - start_date).days % 30 == 0:
+                logger.info(f"Fetched up to {current_date}... (Total docs: {len(all_docs)})")
+                
             current_date += datetime.timedelta(days=1)
 
         if not all_docs:
@@ -325,12 +333,21 @@ class JPEDINETEngine:
                 for k, v in report.text_blocks.items() if len(str(v)) > 20
             ]
         except Exception as e:
-            logger.error(
-                "Narrative extraction failed for {doc_id}: {error}",
-                doc_id=doc._data.get("docID"),
-                error=str(e),
-                extra={"doc_id": doc._data.get("docID")}
-            )
+            error_msg = str(e).lower()
+            if "not found" in error_msg or "404" in error_msg:
+                logger.warning(
+                    "Narrative unavailable (404/Not Found) for {doc_id}: {error}",
+                    doc_id=doc._data.get("docID"),
+                    error=str(e),
+                    extra={"doc_id": doc._data.get("docID")}
+                )
+            else:
+                logger.error(
+                    "Narrative extraction failed for {doc_id}: {error}",
+                    doc_id=doc._data.get("docID"),
+                    error=str(e),
+                    extra={"doc_id": doc._data.get("docID")}
+                )
             return []
 
     def _extract_facts(self, doc, ticker, session_id):
