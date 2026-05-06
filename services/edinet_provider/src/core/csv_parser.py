@@ -8,39 +8,38 @@ from loguru import logger
 
 
 def get_csv_from_edinet(doc_id, api_key, max_retries=5):
-    import requests
+    import urllib.request
+    import urllib.error
+    import time
 
-    url = f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
-    params = {"type": 5, "Subscription-Key": api_key}
+    url = f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}?type=5&Subscription-Key={api_key}"
 
     for attempt in range(max_retries):
         try:
             logger.debug(f"Downloading CSV for {doc_id} (Attempt {attempt+1}/{max_retries})...")
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code == 200:
-                content = response.content
+            
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=30) as response:
+                content = response.read()
+                
                 if b"message" in content or b"statusCode" in content:
-                    # Check for 429 inside 200-OK body (some APIs do this)
                     if b"429" in content or b"Rate limit" in content:
-                        raise requests.exceptions.HTTPError("429 Rate Limit Exceeded (in body)")
-                    logger.warning(f"API returned logical error in body for {doc_id}: {response.text}")
+                        raise Exception("429 Rate Limit Exceeded")
+                    logger.warning(f"API returned logical error in body for {doc_id}")
                     return None
                 return content
 
-            if response.status_code == 429:
-                # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
                 wait_time = 2**attempt
                 logger.warning(f"⚠️ 429 Rate Limit for {doc_id}. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
-
-            logger.warning(
-                f"API request failed for {doc_id} with status {response.status_code}: {response.text}"
-            )
+            
+            logger.warning(f"API request failed for {doc_id} with status {e.code}")
             return None
-
-        except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as e:
+            
+        except Exception as e:
             if attempt == max_retries - 1:
                 logger.error(f"❌ Max retries reached for {doc_id}: {e}")
                 return None
