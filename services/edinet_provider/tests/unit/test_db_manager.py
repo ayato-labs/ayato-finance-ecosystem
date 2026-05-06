@@ -6,6 +6,8 @@ def test_db_manager_memory_connection():
     """
     Unit Test: Verify DuckDBManager handles in-memory connections correctly.
     """
+    from src.core.migrations import MigrationManager
+    MigrationManager.apply_migrations()
     with db_manager.connect_master() as conn:
         assert conn is not None
         # Check if master tables exist

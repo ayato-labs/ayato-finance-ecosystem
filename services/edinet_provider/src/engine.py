@@ -6,7 +6,7 @@ from loguru import logger
 import edinet_tools
 from src.core.config import settings
 from src.core.db import db_manager
-from src.core.contracts import JPFilingMetadata, JPFactContract, JPNarrativeContract
+from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock
 
 
 class JPEDINETEngine:
@@ -189,9 +189,9 @@ class JPEDINETEngine:
             narratives = self._extract_narratives(doc, ticker, session_id)
             
             # Validate through contracts
-            valid_meta = JPFilingMetadata(**metadata)
-            valid_facts = [JPFactContract(**f) for f in facts or []]
-            valid_narrs = [JPNarrativeContract(**n) for n in narratives or []]
+            valid_meta = FilingMetadata(**metadata)
+            valid_facts = [CompanyFact(**f) for f in facts or []]
+            valid_narrs = [NarrativeBlock(**n) for n in narratives or []]
             
             return {
                 "metadata": valid_meta.model_dump(),

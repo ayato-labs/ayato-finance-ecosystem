@@ -2,13 +2,15 @@
 Schema-as-Code: The authoritative definition of the EDINET Provider database.
 This file serves as the Single Source of Truth (SSoT) for DDL and documentation.
 """
+from typing import Dict, Any, Type
+from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock, DataContract
 
-TABLE_DEFINITIONS = {
+TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     "master": {
         "description": "Master Control Database - State Management & Governance",
         "tables": {
             "schema_version": {
-                "description": "Migration tracking",
+                "description": "Migration tracking for all database shards",
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS schema_version (
                         version INTEGER PRIMARY KEY,
@@ -21,8 +23,8 @@ TABLE_DEFINITIONS = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS ingestion_log (
                         doc_id VARCHAR PRIMARY KEY,
-                        status VARCHAR, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
-                        last_attempt TIMESTAMP,
+                        status VARCHAR NOT NULL, -- 'PENDING', 'SUCCESS', 'PARTIAL_FAIL'
+                        last_attempt TIMESTAMP NOT NULL,
                         retry_count INTEGER DEFAULT 0,
                         error_message TEXT
                     )
@@ -35,17 +37,18 @@ TABLE_DEFINITIONS = {
         "tables": {
             "filings": {
                 "description": "Metadata for every filed document",
+                "model": FilingMetadata,
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS filings (
                         doc_id VARCHAR PRIMARY KEY,
-                        edinet_code VARCHAR,
-                        sec_code VARCHAR,
-                        filer_name VARCHAR,
+                        edinet_code VARCHAR NOT NULL,
+                        sec_code VARCHAR, -- Normalized 4-digit code
+                        filer_name VARCHAR NOT NULL,
                         doc_description VARCHAR,
-                        submit_datetime TIMESTAMP,
+                        submit_datetime TIMESTAMP NOT NULL,
                         form_code VARCHAR,
                         doc_type_code VARCHAR,
-                        session_id VARCHAR,
+                        session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """
@@ -56,17 +59,18 @@ TABLE_DEFINITIONS = {
         "description": "Facts Database - Numerical Financial Data",
         "tables": {
             "company_facts": {
-                "description": "Parsed CSV data (Type 5) mapped to standard items",
+                "description": "Parsed numerical facts (Type 5 CSV) mapped to standard items",
+                "model": CompanyFact,
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS company_facts (
-                        doc_id VARCHAR,
-                        item_name VARCHAR,
+                        doc_id VARCHAR NOT NULL,
+                        item_name VARCHAR NOT NULL,
                         item_value DOUBLE,
                         unit VARCHAR,
-                        context_id VARCHAR,
+                        context_id VARCHAR NOT NULL,
                         fiscal_year INTEGER,
                         fiscal_period VARCHAR,
-                        session_id VARCHAR,
+                        session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
                     )
@@ -78,13 +82,14 @@ TABLE_DEFINITIONS = {
         "description": "Narratives Database - Unstructured Text Storage",
         "tables": {
             "narratives": {
-                "description": "Extracted text blocks (Business Risks, etc.)",
+                "description": "Extracted text blocks (Business Risks, etc.) using ZSTD compression",
+                "model": NarrativeBlock,
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS narratives (
-                        doc_id VARCHAR,
-                        section_name VARCHAR,
-                        content_md VARCHAR,
-                        session_id VARCHAR,
+                        doc_id VARCHAR NOT NULL,
+                        section_name VARCHAR NOT NULL,
+                        content_md VARCHAR NOT NULL,
+                        session_id VARCHAR NOT NULL,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, section_name)
                     )
@@ -93,3 +98,8 @@ TABLE_DEFINITIONS = {
         }
     }
 }
+
+
+def get_model_for_table(db_name: str, table_name: str) -> Type[DataContract] | None:
+    """Helper to retrieve the Pydantic model associated with a table."""
+    return TABLE_DEFINITIONS.get(db_name, {}).get("tables", {}).get(table_name, {}).get("model")
