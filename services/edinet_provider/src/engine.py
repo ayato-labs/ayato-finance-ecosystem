@@ -101,6 +101,7 @@ class JPEDINETEngine:
         logger.info(f"Processing {len(docs_to_process)} new documents...")
         batch_size = 20  # Reduced for better RAM efficiency with large text
         results_batch = []
+        log_batch = []
         processed_count = 0
 
         # Step 2: Process documents in parallel (Network I/O) without holding DB locks
@@ -116,27 +117,56 @@ class JPEDINETEngine:
                 doc = future_to_doc[future]
                 doc_id = doc._data.get("docID")
                 try:
-                    result = future.result()
+                    result, status_info = future.result()
                     if result:
                         results_batch.append(result)
-                        processed_count += 1
+                    
+                    log_batch.append((
+                        doc_id, 
+                        status_info["status"], 
+                        datetime.datetime.now(), 
+                        status_info.get("error")
+                    ))
+                    processed_count += 1
 
                     # Step 3: Flush batches to DB using a short-lived WRITE connection
-                    if len(results_batch) >= batch_size:
+                    if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
                         with db_manager.connect_master() as conn:
-                            self._flush_results_to_db(conn, results_batch)
-                        results_batch.clear()  # Aid memory cleanup
+                            if results_batch:
+                                self._flush_results_to_db(conn, results_batch)
+                                results_batch.clear()
+                            if log_batch:
+                                self._update_ingestion_logs(conn, log_batch)
+                                log_batch.clear()
                         gc.collect()
                         logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
                 except Exception as e:
                     logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
             # Final flush
-            if results_batch:
+            if results_batch or log_batch:
                 with db_manager.connect_master() as conn:
-                    self._flush_results_to_db(conn, results_batch)
+                    if results_batch:
+                        self._flush_results_to_db(conn, results_batch)
+                    if log_batch:
+                        self._update_ingestion_logs(conn, log_batch)
                 results_batch.clear()
+                log_batch.clear()
                 gc.collect()
+
+    def _update_ingestion_logs(self, conn, logs):
+        """Batch update ingestion_log table."""
+        # logs is list of (doc_id, status, last_attempt, error_message)
+        sql = """
+            INSERT INTO ingestion_log (doc_id, status, last_attempt, error_message, retry_count)
+            VALUES (?, ?, ?, ?, 0)
+            ON CONFLICT (doc_id) DO UPDATE SET
+                status = excluded.status,
+                last_attempt = excluded.last_attempt,
+                error_message = excluded.error_message,
+                retry_count = retry_count + 1
+        """
+        conn.executemany(sql, logs)
 
     def backfill_missing_data(self, max_workers: int = 5):
         logger.info("Starting backfill for missing data...")
@@ -258,27 +288,38 @@ class JPEDINETEngine:
 
     def _process_single_doc(self, doc, ticker, session_id):
         doc_id = doc._data.get("docID")
+        status_info = {"status": "SUCCESS", "error": None}
         try:
             facts = self._extract_facts(doc, ticker, session_id)
             if facts is None and doc._data.get("csvFlag") == "1":
-                return None
+                status_info = {"status": "PARTIAL_FAIL", "error": "CSV content returned None"}
+                return None, status_info
             
             metadata = self._extract_metadata(doc, ticker, session_id)
             narratives = self._extract_narratives(doc, ticker, session_id)
             
+            # Check for potential 404 or extraction gaps
+            # Note: _extract_narratives already handles 404 warnings internally
+            if not narratives and (doc._data.get("formCode") or "").startswith(("030000", "043000")):
+                # This might be a 404 or just a document without the expected sections
+                status_info["status"] = "PARTIAL_FAIL"
+                status_info["error"] = "No narrative blocks extracted (possible 404 or empty sections)"
+
             # Validate through contracts
             valid_meta = FilingMetadata(**metadata)
             valid_facts = [CompanyFact(**f) for f in facts or []]
             valid_narrs = [NarrativeBlock(**n) for n in narratives or []]
             
-            return {
+            result = {
                 "metadata": valid_meta.model_dump(),
                 "narratives": [n.model_dump() for n in valid_narrs],
                 "facts": [f.model_dump() for f in valid_facts]
             }
+            return result, status_info
         except Exception as e:
             logger.error(f"Contract validation failed for {doc_id}: {e}")
-            return None
+            status_info = {"status": "PARTIAL_FAIL", "error": str(e)}
+            return None, status_info
 
     def _flush_results_to_db(self, conn, results):
         # 1. Metadata (registry_db)
