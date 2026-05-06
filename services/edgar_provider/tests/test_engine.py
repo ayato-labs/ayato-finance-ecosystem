@@ -4,13 +4,14 @@ from src.engine import USEngine
 
 def test_settings_load():
     assert "FinancialAppAdmin" in settings.SEC_IDENTITY
-    assert str(settings.DB_PATH).endswith("edgar.duckdb")
+    assert str(settings.FACTS_DB_PATH).endswith("facts.duckdb")
 
 
 def test_engine_init():
     # This might fail in CI if no network, but let's test the class creation
     engine = USEngine()
-    assert engine.db_path == settings.DB_PATH
+    assert engine.facts_db == settings.FACTS_DB_PATH
+    assert engine.narratives_db == settings.NARRATIVES_DB_PATH
     assert engine.compressor is not None
 
 

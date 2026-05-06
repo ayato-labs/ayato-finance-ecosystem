@@ -9,13 +9,24 @@ class MasterDBManager:
     """Manages the control plane database for routing and metadata."""
 
     def __init__(self):
-        self.master_db_path = settings.MASTER_DB_PATH
+        self._initialized = False
+
+    @property
+    def master_db_path(self):
+        return settings.MASTER_DB_PATH
+
+    def _ensure_initialized(self):
+        if self._initialized:
+            return
+        
         self.master_db_path.parent.mkdir(parents=True, exist_ok=True)
         # Ensure physical file exists first
         if not self.master_db_path.exists():
             import duckdb
             duckdb.connect(str(self.master_db_path)).close()
+        
         self._init_master_schema()
+        self._initialized = True
 
     def _init_master_schema(self):
         """Initializes the schema for the master DB (databases and data_catalog)."""
@@ -41,6 +52,7 @@ class MasterDBManager:
 
     def register_shard(self, db_id: str, file_path: str, role: str, schema_version: str):
         """Registers a new database shard in the master DB."""
+        self._ensure_initialized()
         with db_manager.connect(self.master_db_path) as conn:
             conn.execute(
                 """
@@ -54,6 +66,7 @@ class MasterDBManager:
 
     def register_partition(self, partition_key: str, db_id: str, description: str = None):
         """Maps a partition (e.g. 'AAPL_2024') to a database shard."""
+        self._ensure_initialized()
         with db_manager.connect(self.master_db_path) as conn:
             conn.execute(
                 """
@@ -66,6 +79,7 @@ class MasterDBManager:
 
     def get_shard_path(self, db_id: str) -> str | None:
         """Retrieves the file path for a given shard ID."""
+        self._ensure_initialized()
         with db_manager.connect(self.master_db_path) as conn:
             res = conn.execute(
                 "SELECT file_path FROM databases WHERE db_id = ?", [db_id]
@@ -74,6 +88,7 @@ class MasterDBManager:
 
     def get_connection_with_attachments(self, read_only: bool = False):
         """Returns a DuckDB connection with all registered shards ATTACHED."""
+        self._ensure_initialized()
         conn = None
         # Use direct connect for master first
         import duckdb

@@ -33,6 +33,8 @@ class DuckDBManager:
                     # Apply basic PRAGMAs for performance bounds
                     conn.execute(f"PRAGMA memory_limit='{settings.DUCKDB_MEMORY_LIMIT}'")
                     conn.execute(f"PRAGMA threads={settings.DUCKDB_THREADS}")
+                    # Disable insertion order preservation to drastically save memory during bulk loads
+                    conn.execute("SET preserve_insertion_order=false;")
                 break
             except (duckdb.IOException, OSError) as e:
                 logger.warning(f"Database {db_path_str} is locked, retrying in 1s... (Error: {e})")

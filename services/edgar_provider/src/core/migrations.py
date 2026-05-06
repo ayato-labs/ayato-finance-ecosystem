@@ -13,7 +13,7 @@ def apply_initial_schema(conn, role: str = None):
         db_file = ""
         for row in db_info:
             if row[1] == "main":
-                db_file = row[2].lower()
+                db_file = (row[2] or "").lower()
                 break
 
         if "facts" in db_file:
@@ -23,6 +23,8 @@ def apply_initial_schema(conn, role: str = None):
 
     is_facts_db = role == "facts"
     is_narratives_db = role == "narratives"
+
+    logger.debug(f"Applying initial schema for role: {role} (facts: {is_facts_db}, narratives: {is_narratives_db})")
 
     for table_name, versions in TABLE_SCHEMAS.items():
         # Routing logic:
@@ -38,15 +40,18 @@ def apply_initial_schema(conn, role: str = None):
             > 0
         )
         if not exists:
+            logger.info(f"Creating table: {table_name}")
             sql = versions if isinstance(versions, str) else versions.get("v1")
             conn.execute(sql)
 
     # Apply relevant indexes
     for index_sql in INDEX_SCHEMAS:
-        if is_facts_db and "narratives" in index_sql.lower():
+        index_sql_lower = index_sql.lower()
+        if is_facts_db and "narratives" in index_sql_lower:
             continue
-        if is_narratives_db and "company_facts" in index_sql.lower():
+        if is_narratives_db and ("company_facts" in index_sql_lower or "filings" in index_sql_lower):
             continue
+        logger.debug(f"Applying index: {index_sql[:50]}...")
         conn.execute(index_sql)
 
 
@@ -57,7 +62,7 @@ def optimize_data_types_v1_0_1(conn, role: str = None):
         db_file = ""
         for row in db_info:
             if row[1] == "main":
-                db_file = row[2].lower()
+                db_file = (row[2] or "").lower()
                 break
         if "facts" in db_file:
             role = "facts"
@@ -70,6 +75,7 @@ def optimize_data_types_v1_0_1(conn, role: str = None):
     # Drop indexes to avoid Dependency Error in DuckDB
     if is_facts_db:
         conn.execute("DROP INDEX IF EXISTS idx_us_facts_lookup;")
+        conn.execute("DROP INDEX IF EXISTS idx_filings_ticker;")
     if is_narratives_db:
         conn.execute("DROP INDEX IF EXISTS idx_us_narratives_lookup;")
 
@@ -78,16 +84,20 @@ def optimize_data_types_v1_0_1(conn, role: str = None):
     ]
 
     if is_facts_db and "company_facts" in tables:
-        conn.execute("ALTER TABLE company_facts ALTER filed_date SET DATA TYPE DATE;")
         conn.execute("ALTER TABLE company_facts ALTER fiscal_year SET DATA TYPE SMALLINT;")
+    
+    if is_facts_db and "filings" in tables:
+        conn.execute("ALTER TABLE filings ALTER filed_date SET DATA TYPE DATE;")
+
     if is_narratives_db and "narratives" in tables:
         conn.execute("ALTER TABLE narratives ALTER filed_date SET DATA TYPE DATE;")
 
     # Recreate relevant indexes
     for index_sql in INDEX_SCHEMAS:
-        if is_facts_db and "company_facts" in index_sql.lower():
+        index_sql_lower = index_sql.lower()
+        if is_facts_db and ("company_facts" in index_sql_lower or "filings" in index_sql_lower):
             conn.execute(index_sql)
-        if is_narratives_db and "narratives" in index_sql.lower():
+        if is_narratives_db and "narratives" in index_sql_lower:
             conn.execute(index_sql)
 
 
@@ -129,23 +139,28 @@ class MigrationManager:
             return set()
 
     @staticmethod
-    def apply_migrations(db_path):
-        logger.info(f"Checking migrations for {db_path}...")
+    def apply_migrations(db_path, role: str = None):
+        logger.info(f"Checking migrations for {db_path} (role: {role})...")
         with db_manager.connect(db_path) as conn:
             # 1. Ensure the tracking table exists
             MigrationManager._ensure_migrations_table(conn)
 
-            # 2. Get already applied versions
+            # 2. Always ensure base schema is applied (Idempotent)
+            # This handles cases where new tables were added to generated_schema.py
+            # but v1.0.0 was already marked as applied.
+            apply_initial_schema(conn, role=role)
+
+            # 3. Get already applied versions
             applied = MigrationManager._get_applied_versions(conn)
 
-            # 3. Apply missing migrations in order
+            # 4. Apply missing migrations in order
             for migration in MIGRATIONS:
                 version = migration["version"]
                 if version not in applied:
                     logger.info(f"Applying migration {version}: {migration['description']}")
                     try:
                         # Execute the migration logic
-                        migration["apply"](conn)
+                        migration["apply"](conn, role=role)
 
                         # Record the migration
                         conn.execute(
@@ -157,4 +172,5 @@ class MigrationManager:
                         logger.error(f"Migration {version} failed: {e}")
                         raise e
 
-        logger.info("Database is up to date.")
+        logger.info(f"Database {db_path} is up to date.")
+

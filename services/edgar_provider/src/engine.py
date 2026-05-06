@@ -117,8 +117,8 @@ class USEngine:
         from src.core.migrations import MigrationManager
 
         # 1. Migrate all databases independently
-        MigrationManager.apply_migrations(self.facts_db)
-        MigrationManager.apply_migrations(self.narratives_db)
+        MigrationManager.apply_migrations(self.facts_db, role="facts")
+        MigrationManager.apply_migrations(self.narratives_db, role="narratives")
 
         # 2. Register shards in Master DB
         master_db.register_shard("facts_db", str(self.facts_db), "facts", "v1.1.0")
@@ -195,14 +195,15 @@ class USEngine:
                     self._save_optimized(conn, batch_filings, batch_facts)
                     logger.info("Final batch saved.")
 
+            # Flush all memory to disk before taking on memory-intensive index building
+            conn.execute("CHECKPOINT;")
+
             # Recreate index after bulk ingestion
             logger.info("Recreating secondary index...")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
                 "ON company_facts (accession_number, fiscal_year, fiscal_period);"
             )
-
-            conn.execute("CHECKPOINT;")
 
         logger.info("Bulk ingestion completed successfully.")
 

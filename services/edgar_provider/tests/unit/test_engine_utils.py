@@ -50,13 +50,19 @@ def test_parse_company_facts_json_logic():
         }
     }
 
-    records = parse_company_facts_json(
+    filings, facts = parse_company_facts_json(
         "dummy.json", json.dumps(sample_json), ticker_map, "test-session"
     )
-    assert len(records) == 1
-    assert records[0][0] == "AAPL"
-    assert records[0][7] == "Net Income"
-    assert records[0][8] == 1000000.0
+    assert len(filings) == 1
+    assert len(facts) == 1
+    
+    # Verify filings record
+    assert filings[0][1] == "AAPL"
+    
+    # Verify facts record
+    assert facts[0][0] == "0001-test"
+    assert facts[0][3] == "Net Income"
+    assert facts[0][4] == 1000000.0
 
 def test_engine_init_creates_files(clean_db_paths):
     """Unit test: USEngine initialization should trigger migration and create DB files."""
