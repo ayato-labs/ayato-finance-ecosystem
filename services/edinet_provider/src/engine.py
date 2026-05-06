@@ -130,7 +130,7 @@ class JPEDINETEngine:
         
         with db_manager.connect_master() as conn:
             query = """
-                SELECT f.doc_id, f.sec_code
+                SELECT f.doc_id, f.sec_code, f.submit_datetime
                 FROM registry_db.filings f
                 LEFT JOIN narr_db.narratives n ON f.doc_id = n.doc_id
                 LEFT JOIN (
@@ -143,9 +143,35 @@ class JPEDINETEngine:
             """
             missing = conn.execute(query).fetchall()
             if not missing:
+                logger.info("No missing data identified for backfill.")
                 return
 
-            docs_to_process = [(edinet_tools.document(did), sc) for did, sc in missing]
+            logger.info(f"Identified {len(missing)} documents requiring backfill.")
+
+            # Group by date to minimize API calls (edinet_tools.documents(date=...))
+            by_date = {}
+            for did, sc, dt in missing:
+                d = pd.to_datetime(dt).date()
+                if d not in by_date:
+                    by_date[d] = []
+                by_date[d].append((did, sc))
+
+            docs_to_process = []
+            for d, items in by_date.items():
+                try:
+                    all_docs_on_date = edinet_tools.documents(date=d)
+                    target_ids = {did for did, sc in items}
+                    for doc in all_docs_on_date:
+                        if doc._data.get("docID") in target_ids:
+                            # Map sc back
+                            sc = next(sc for did, sc in items if did == doc._data.get("docID"))
+                            docs_to_process.append((doc, sc))
+                except Exception as e:
+                    logger.error(f"Failed to fetch documents for backfill on {d}: {e}")
+
+            if not docs_to_process:
+                logger.warning("Could not retrieve any document objects for backfill.")
+                return
 
             batch_size = 50
             results_batch = []
@@ -165,11 +191,14 @@ class JPEDINETEngine:
                         if len(results_batch) >= batch_size:
                             self._flush_results_to_db(conn, results_batch)
                             results_batch = []
+                            logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)}")
                     except Exception as e:
-                        logger.error(f"Backfill error: {e}")
+                        logger.error(f"Backfill processing error: {e}")
 
                 if results_batch:
                     self._flush_results_to_db(conn, results_batch)
+            
+            logger.info(f"Backfill completed. Processed {processed_count} documents.")
 
     def _process_single_doc(self, doc, ticker, session_id):
         doc_id = doc._data.get("docID")
