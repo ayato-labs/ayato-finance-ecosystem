@@ -11,7 +11,7 @@ from edgar import Company, set_identity
 from loguru import logger
 
 from src.core.config import settings
-from src.core.contracts import USFactContract, USNarrativeContract
+from src.core.contracts import USFactContract, USNarrativeContract, USFilingContract
 from src.core.db import db_manager
 from src.core.logging import track_performance
 from src.core.telemetry import trace_step
@@ -21,20 +21,23 @@ from src.core.utils import get_all_tickers, rate_limiter
 def parse_company_facts_json(filename, content_str, ticker_map, session_id):
     """
     Parses a single company facts JSON with strict range validation for DB safety.
+    Returns (filings_records, fact_records).
     """
     try:
         data = json.loads(content_str)
         cik_str = str(data.get("cik", "")).zfill(10)
         ticker = ticker_map.get(cik_str)
         if not ticker:
-            return []
+            return [], []
 
-        facts = data.get("facts", {})
-        if not facts:
-            return []
+        facts_data = data.get("facts", {})
+        if not facts_data:
+            return [], []
 
-        all_records = []
-        for taxonomy, concepts in facts.items():
+        filings_batch = {}  # accn -> filing_tuple
+        fact_records = []
+
+        for taxonomy, concepts in facts_data.items():
             for concept, concept_data in concepts.items():
                 label = concept_data.get("label") or concept
                 if not label:
@@ -48,11 +51,21 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
                         if not accn or not filed_date:
                             continue
 
-                        # HARDENING: Clamp fiscal year to SMALLINT range (-32768 to 32767)
-                        # SEC data sometimes contains typos like 20222
+                        # Register filing metadata if not seen in this file
+                        if accn not in filings_batch:
+                            filings_batch[accn] = (
+                                accn,
+                                ticker,
+                                int(cik_str),
+                                entry.get("form") or "UNKNOWN",
+                                filed_date,
+                                session_id,
+                            )
+
+                        # HARDENING: Clamp fiscal year to SMALLINT range
                         try:
                             fy = int(entry.get("fy", 0))
-                            if not (1900 < fy < 2100):  # Business-logic valid range
+                            if not (1900 < fy < 2100):
                                 fy = 0
                         except (ValueError, TypeError):
                             fy = 0
@@ -63,19 +76,14 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
                                 if entry.get("val") is not None
                                 else 0.0
                             )
-                            # Protect against Infinity/NaN which can crash some DB drivers
                             if pd.isna(val) or val == float("inf") or val == float("-inf"):
                                 val = 0.0
                         except (ValueError, TypeError):
                             val = 0.0
 
-                        all_records.append(
+                        fact_records.append(
                             (
-                                ticker,
-                                cik_str,
                                 accn,
-                                entry.get("form") or "UNKNOWN",
-                                filed_date,
                                 fy,
                                 entry.get("fp") or "FY",
                                 label,
@@ -83,13 +91,12 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
                                 unit or "pure",
                                 True,
                                 concept,
-                                session_id,
                             )
                         )
-        return all_records
+        return list(filings_batch.values()), fact_records
     except Exception as e:
         logger.error(f"Error parsing {filename}: {e}")
-        return []
+        return [], []
 
 
 class USEngine:
@@ -114,8 +121,8 @@ class USEngine:
         MigrationManager.apply_migrations(self.narratives_db)
 
         # 2. Register shards in Master DB
-        master_db.register_shard("facts_db", str(self.facts_db), "facts", "v1.0.1")
-        master_db.register_shard("narratives_db", str(self.narratives_db), "narratives", "v1.0.1")
+        master_db.register_shard("facts_db", str(self.facts_db), "facts", "v1.1.0")
+        master_db.register_shard("narratives_db", str(self.narratives_db), "narratives", "v1.1.0")
 
     @track_performance("ingest_bulk_data")
     @trace_step(step_name="ingest_bulk_data")
@@ -141,7 +148,8 @@ class USEngine:
                 all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
                 total_files = len(all_files)
 
-                batch_records = []
+                batch_filings = []
+                batch_facts = []
                 relevant_count = 0
 
                 for i, file_info in enumerate(all_files):
@@ -156,61 +164,84 @@ class USEngine:
                         with z.open(file_info.filename) as f:
                             content = f.read().decode("utf-8")
 
-                        records = parse_company_facts_json(
+                        filing_recs, fact_recs = parse_company_facts_json(
                             file_info.filename, content, ticker_map, session_id
                         )
 
-                        if records:
-                            batch_records.extend(records)
+                        if filing_recs:
+                            batch_filings.extend(filing_recs)
+                            batch_facts.extend(fact_recs)
                             relevant_count += 1
 
                             # Larger buffer for fewer, faster transactions
-                            if len(batch_records) >= 50000:
-                                logger.info(f"Saving transaction ({len(batch_records)} rows)...")
-                                self._save_optimized(conn, batch_records)
-                                logger.info(f"Saved {len(batch_records)} rows successfully.")
-                                batch_records = []
+                            if len(batch_facts) >= 50000:
+                                logger.info(
+                                    f"Saving transaction ({len(batch_filings)} filings, "
+                                    f"{len(batch_facts)} facts)..."
+                                )
+                                self._save_optimized(conn, batch_filings, batch_facts)
+                                logger.info("Batch saved successfully.")
+                                batch_filings = []
+                                batch_facts = []
                     except Exception as e:
                         logger.error(f"Error at {file_info.filename}: {e}")
 
-                if batch_records:
-                    logger.info(f"Saving final batch ({len(batch_records)} rows)...")
-                    self._save_optimized(conn, batch_records)
+                if batch_facts:
+                    logger.info(f"Saving final batch ({len(batch_facts)} facts)...")
+                    self._save_optimized(conn, batch_filings, batch_facts)
                     logger.info("Final batch saved.")
 
             # Recreate index after bulk ingestion
             logger.info("Recreating secondary index...")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
-                "ON company_facts (ticker, fiscal_year, fiscal_period);"
+                "ON company_facts (accession_number, fiscal_year, fiscal_period);"
             )
 
             conn.execute("CHECKPOINT;")
 
         logger.info("Bulk ingestion completed successfully.")
 
-    def _save_optimized(self, conn, records):
-        """Saves records in small chunks for extreme stability."""
-        if not records:
+    def _save_optimized(self, conn, filings, facts):
+        """Saves normalized records in sub-batches for extreme stability."""
+        if not filings and not facts:
             return
 
-        # Sub-batching to 5000 to prevent crash in DuckDB C++ layer
-        sub_batch_size = 5000
-        total = len(records)
-
         try:
-            for i in range(0, total, sub_batch_size):
-                chunk = records[i : i + sub_batch_size]
-
-                # Use Pandas with explicit type cleaning
-                df = pd.DataFrame(  # noqa: F841
-                    chunk,
+            # 1. Save filings metadata (deduplicated)
+            if filings:
+                f_df = pd.DataFrame(
+                    filings,
                     columns=[
+                        "accession_number",
                         "ticker",
                         "cik",
-                        "accession_number",
                         "form",
                         "filed_date",
+                        "session_id",
+                    ],
+                )
+                f_df.drop_duplicates(subset=["accession_number"], keep="last", inplace=True)
+                f_df["filed_date"] = pd.to_datetime(f_df["filed_date"]).dt.date
+
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO filings
+                    (accession_number, ticker, cik, form, filed_date, session_id, ingested_at)
+                    SELECT *, CURRENT_TIMESTAMP FROM f_df
+                """
+                )
+
+            # 2. Save facts in sub-batches
+            sub_batch_size = 5000
+            total = len(facts)
+
+            for i in range(0, total, sub_batch_size):
+                chunk = facts[i : i + sub_batch_size]
+                df = pd.DataFrame(
+                    chunk,
+                    columns=[
+                        "accession_number",
                         "fiscal_year",
                         "fiscal_period",
                         "label",
@@ -218,30 +249,21 @@ class USEngine:
                         "unit",
                         "is_standardized",
                         "raw_tag",
-                        "session_id",
                     ],
                 )
 
-                # Drop duplicate PKs within the same chunk to prevent DuckDB ON CONFLICT crash
-                df.drop_duplicates(
-                    subset=["ticker", "accession_number", "label"], keep="last", inplace=True
-                )
-
-                # Defensive cleaning
-                df["filed_date"] = pd.to_datetime(df["filed_date"]).dt.date
+                df.drop_duplicates(subset=["accession_number", "label"], keep="last", inplace=True)
                 df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
 
-                # Atomic insert per chunk (zero-copy from Pandas)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO company_facts
-                    (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
-                     label, value, unit, is_standardized, raw_tag, session_id, ingested_at)
+                    (accession_number, fiscal_year, fiscal_period, label, value, unit,
+                     is_standardized, raw_tag, ingested_at)
                     SELECT *, CURRENT_TIMESTAMP FROM df
                 """
                 )
 
-            # Final checkpoint to flush to disk
             conn.execute("CHECKPOINT;")
         except Exception as e:
             logger.error(f"Save failed during sub-batching: {e}")
@@ -390,7 +412,21 @@ class USEngine:
                     except (ValueError, TypeError):
                         continue
 
+                filings_to_save = []
                 contracts_to_save = []
+                
+                # We only need one filing record per filing
+                filings_to_save.append(
+                    USFilingContract(
+                        accession_number=filing.accession_no,
+                        ticker=ticker,
+                        cik=str(filing.cik),
+                        form=filing.form,
+                        filed_date=filing.filing_date,
+                        session_id=session_id,
+                    )
+                )
+
                 for period_col in date_cols:
                     try:
                         period_date = pd.to_datetime(period_col).date()
@@ -408,11 +444,7 @@ class USEngine:
                         raw_tag = row.get("concept")
 
                         contract = USFactContract(
-                            ticker=ticker,
-                            cik=str(filing.cik),
                             accession_number=filing.accession_no,
-                            form=filing.form,
-                            filed_date=filing.filing_date,
                             fiscal_year=period_date.year,
                             fiscal_period=f"Q{(period_date.month - 1) // 3 + 1}",
                             label=str(fact_label),
@@ -420,12 +452,11 @@ class USEngine:
                             unit="USD",
                             is_standardized=True,
                             raw_tag=str(raw_tag),
-                            session_id=session_id,
                         )
                         contracts_to_save.append(contract)
 
                 if contracts_to_save:
-                    self._save_facts(contracts_to_save)
+                    self._save_facts(filings_to_save, contracts_to_save)
 
                 logger.info(
                     f"Ingested statement for {ticker} ({filing.filing_date}) "
@@ -435,17 +466,26 @@ class USEngine:
                 logger.error(f"Failed to ingest a statement for {ticker}: {e}")
 
     @trace_step(step_name="save_facts")
-    def _save_facts(self, contracts: list[USFactContract]):
-        if not contracts:
+    def _save_facts(self, filings: list[USFilingContract], facts: list[USFactContract]):
+        """Saves facts and their associated filings to the normalized database."""
+        if not facts:
             return
 
-        values = [
+        filing_values = [
             (
-                c.ticker,
-                c.cik,
+                f.accession_number,
+                f.ticker,
+                int(f.cik),
+                f.form,
+                f.filed_date,
+                f.session_id,
+            )
+            for f in filings
+        ]
+        
+        fact_values = [
+            (
                 c.accession_number,
-                c.form,
-                c.filed_date,
                 c.fiscal_year,
                 c.fiscal_period,
                 c.label,
@@ -453,20 +493,33 @@ class USEngine:
                 c.unit,
                 c.is_standardized,
                 c.raw_tag,
-                c.session_id,
             )
-            for c in contracts
+            for c in facts
         ]
+
         with db_manager.connect(self.facts_db) as conn:
+            # 1. Save filings
+            if filing_values:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO filings
+                    (accession_number, ticker, cik, form, filed_date, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    filing_values,
+                )
+            
+            # 2. Save facts
             conn.executemany(
                 """
                 INSERT OR REPLACE INTO company_facts
-                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
-                 label, value, unit, is_standardized, raw_tag, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (accession_number, fiscal_year, fiscal_period, label, value, unit,
+                 is_standardized, raw_tag)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                values,
+                fact_values,
             )
+            conn.execute("CHECKPOINT;")
 
     @trace_step(step_name="ingest_narratives")
     def _ingest_narratives(self, ticker, filing, session_id):

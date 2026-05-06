@@ -48,14 +48,24 @@ class USTickerContract(DataContract):
     )
 
 
+class USFilingContract(DataContract):
+    """Metadata for a specific SEC filing."""
+
+    accession_number: str = Field(..., description="Unique SEC accession number")
+    ticker: str = Field(..., description="Stock ticker symbol")
+    cik: str = Field(..., description="Central Index Key")
+    form: str = Field(..., description="Filing form type (e.g., 10-K, 10-Q)")
+    filed_date: date = Field(..., description="Date the filing was submitted")
+    session_id: str = Field(..., description="Session ID that ingested this record")
+    ingested_at: datetime | None = Field(
+        default_factory=datetime.now, description="Timestamp of ingestion"
+    )
+
+
 class USFactContract(DataContract):
     """Standardized financial facts (XBRL)."""
 
-    ticker: str = Field(..., description="Stock ticker symbol")
-    cik: str = Field(..., description="Central Index Key")
-    accession_number: str = Field(..., description="Filing accession number")
-    form: str = Field(..., description="Filing form type (e.g., 10-K, 10-Q)")
-    filed_date: date = Field(..., description="Date the filing was submitted")
+    accession_number: str = Field(..., description="Filing accession number (FK)")
     fiscal_year: int = Field(..., description="Fiscal year of the statement")
     fiscal_period: str = Field(..., description="Fiscal period (e.g., Q1, FY)")
     label: str = Field(..., description="Standardized fact label (e.g., NetIncome)")
@@ -63,7 +73,6 @@ class USFactContract(DataContract):
     unit: str | None = Field(None, description="Unit of measurement (e.g., USD)")
     is_standardized: bool = Field(True, description="Whether the label is normalized")
     raw_tag: str | None = Field(None, description="Original XBRL tag for traceability")
-    session_id: str = Field(..., description="Session ID that ingested this record")
     ingested_at: datetime | None = Field(
         default_factory=datetime.now, description="Timestamp of ingestion"
     )

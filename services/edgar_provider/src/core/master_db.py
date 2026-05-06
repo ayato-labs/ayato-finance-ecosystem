@@ -24,7 +24,11 @@ class MasterDBManager:
             # We use the DDL generated from contracts for 'databases' and 'data_catalog'
             for table in ["databases", "data_catalog"]:
                 if table in TABLE_SCHEMAS:
-                    conn.execute(TABLE_SCHEMAS[table]["v1"])
+                    sql = TABLE_SCHEMAS[table]
+                    # Handle legacy nested structure if it somehow persists
+                    if isinstance(sql, dict):
+                        sql = sql.get("v1")
+                    conn.execute(sql)
             # Ensure WAL is merged or file is properly created
             conn.execute("CHECKPOINT;")
 

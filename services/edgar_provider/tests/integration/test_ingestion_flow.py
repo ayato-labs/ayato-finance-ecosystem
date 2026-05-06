@@ -13,32 +13,53 @@ def test_full_routing_integration():
     session_id = "test-integration-123"
 
     # 1. Manually trigger a small ingestion or mock specific parts
-    # For integration, we allowed mocking. Let's simulate a 'AAPL' landing.
-    from src.core.contracts import USFactContract, USNarrativeContract
+    from src.core.contracts import USFactContract, USNarrativeContract, USFilingContract
+
+    filing = USFilingContract(
+        accession_number="TEST-ACCN-1",
+        ticker="AAPL",
+        cik="0000320193",
+        form="10-K",
+        filed_date="2024-01-01",
+        session_id=session_id,
+    )
 
     fact = USFactContract(
-        ticker="AAPL", cik="0000320193", accession_number="TEST-ACCN-1",
-        form="10-K", filed_date="2024-01-01", fiscal_year=2023, fiscal_period="FY",
-        label="Revenue", value=394000000.0, unit="USD", is_standardized=True,
-        session_id=session_id
+        accession_number="TEST-ACCN-1",
+        fiscal_year=2023,
+        fiscal_period="FY",
+        label="Revenue",
+        value=394000000.0,
+        unit="USD",
+        is_standardized=True,
     )
 
     narrative = USNarrativeContract(
-        ticker="AAPL", cik="0000320193", accession_number="TEST-ACCN-1",
-        form="10-K", filed_date="2024-01-01", section_name="Risk Factors",
-        content_md_zstd=b"compressed-content", session_id=session_id
+        ticker="AAPL",
+        cik="0000320193",
+        accession_number="TEST-ACCN-1",
+        form="10-K",
+        filed_date="2024-01-01",
+        section_name="Risk Factors",
+        content_md_zstd=b"compressed-content",
+        session_id=session_id,
     )
 
     # Act
-    engine._save_facts([fact])
+    engine._save_facts([filing], [fact])
     engine._save_narrative(narrative)
 
-    # Assert: Facts DB has the fact
+    # Assert: Facts DB has the filing and the fact
     with db_manager.connect(engine.facts_db) as conn:
-        count = conn.execute(
-            "SELECT count(*) FROM company_facts WHERE ticker = 'AAPL'"
+        f_count = conn.execute(
+            "SELECT count(*) FROM filings WHERE ticker = 'AAPL'"
         ).fetchone()[0]
-        assert count == 1
+        assert f_count == 1
+        
+        c_count = conn.execute(
+            "SELECT count(*) FROM company_facts WHERE accession_number = 'TEST-ACCN-1'"
+        ).fetchone()[0]
+        assert c_count == 1
 
     # Assert: Narratives DB has the narrative
     with db_manager.connect(engine.narratives_db) as conn:
@@ -46,13 +67,14 @@ def test_full_routing_integration():
             "SELECT count(*) FROM narratives WHERE ticker = 'AAPL'"
         ).fetchone()[0]
         assert count == 1
-    # Assert: Master DB connection can see both via ATTACH
+
+    # Assert: Master DB connection can see both via ATTACH and Star JOIN
     with master_db.get_connection_with_attachments(read_only=True) as conn:
-        # Cross-db query simulation
         res = conn.execute("""
-            SELECT f.label, n.section_name
+            SELECT f.label, n.section_name, fl.ticker
             FROM facts_db.company_facts f
+            JOIN facts_db.filings fl ON f.accession_number = fl.accession_number
             JOIN narratives_db.narratives n ON f.accession_number = n.accession_number
-            WHERE f.ticker = 'AAPL'
+            WHERE fl.ticker = 'AAPL'
         """).fetchone()
-        assert res == ("Revenue", "Risk Factors")
+        assert res == ("Revenue", "Risk Factors", "AAPL")

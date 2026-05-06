@@ -28,7 +28,7 @@ def apply_initial_schema(conn, role: str = None):
         # Routing logic:
         if is_facts_db and table_name == "narratives":
             continue
-        if is_narratives_db and table_name != "narratives":
+        if is_narratives_db and table_name in ["company_facts", "filings", "tickers"]:
             continue
 
         exists = (
@@ -38,7 +38,8 @@ def apply_initial_schema(conn, role: str = None):
             > 0
         )
         if not exists:
-            conn.execute(versions["v1"])
+            sql = versions if isinstance(versions, str) else versions.get("v1")
+            conn.execute(sql)
 
     # Apply relevant indexes
     for index_sql in INDEX_SCHEMAS:
