@@ -325,7 +325,12 @@ class JPEDINETEngine:
                 for k, v in report.text_blocks.items() if len(str(v)) > 20
             ]
         except Exception as e:
-            logger.warning(f"Narrative failed: {e}")
+            logger.error(
+                "Narrative extraction failed for {doc_id}: {error}",
+                doc_id=doc._data.get("docID"),
+                error=str(e),
+                extra={"doc_id": doc._data.get("docID")}
+            )
             return []
 
     def _extract_facts(self, doc, ticker, session_id):

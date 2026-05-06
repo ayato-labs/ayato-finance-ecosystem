@@ -60,7 +60,12 @@ def parse_edinet_csv(content: bytes):
                             df = pd.read_csv(f, encoding="cp932", skiprows=1, on_bad_lines='warn', encoding_errors="replace")
                             results[file_name] = df
                     except Exception as e:
-                        logger.warning(f"Failed to parse CSV {file_name}: {e}")
+                        logger.error(
+                            "Failed to parse CSV {filename}: {error}",
+                            filename=file_name,
+                            error=str(e),
+                            extra={"file_name": file_name}
+                        )
         return results
     except zipfile.BadZipFile:
         logger.error("Failed to unzip: Not a valid ZIP file.")
