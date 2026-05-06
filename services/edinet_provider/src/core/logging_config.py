@@ -3,39 +3,33 @@ import os
 from pathlib import Path
 from loguru import logger
 
-# Project root logs directory
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
-# Remove default handler
 logger.remove()
 
-# 1. Console Handler - Always active
+# Console output for visibility during development
 logger.add(
     sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    "<cyan>{name}:{function}:{line}</cyan> - <level>{message}</level>",
     level="INFO",
-    backtrace=True,
-    diagnose=True,
 )
 
-# 2. File Handlers - Skip in testing to avoid PermissionError/Contention on Win32
 if os.getenv("TESTING") != "true":
-    # Sequential Log Files
+    # 1. Main JSON log: rotate to keep only last 2 files
     logger.add(
         LOG_DIR / "app.log",
-        rotation="10 MB",
+        rotation="100 MB",
         retention=2,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         serialize=True,
         level="DEBUG",
     )
 
-    # Isolated Error Logs
+    # 2. Isolated Error JSON log: Keep errors specifically
     logger.add(
         LOG_DIR / "error.log",
         level="ERROR",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         serialize=True,
         backtrace=True,
         diagnose=True,

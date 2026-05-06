@@ -59,7 +59,8 @@ class MigrationManager:
                 try:
                     conn.execute(ddl)
                 except Exception as e:
-                    logger.error(f"Failed to sync SSoT schema for {db_alias}.{t_name}: {e}")
+                    logger.error("Failed to sync SSoT schema for {alias}.{table}: {error}", 
+                                 alias=db_alias, table=t_name, error=e)
                     raise
 
     @staticmethod
@@ -67,7 +68,8 @@ class MigrationManager:
         """Runs incremental SQL files from the migrations/ directory."""
         migration_dir = Path("migrations")
         if not migration_dir.exists():
-            logger.warning(f"Migration directory {migration_dir} not found. Skipping SQL migrations.")
+            logger.warning("Migration directory {dir} not found. Skipping SQL migrations.", 
+                           dir=migration_dir)
             return
 
         # Get applied versions
@@ -81,23 +83,27 @@ class MigrationManager:
             try:
                 version = int(sql_file.name.split("_")[0])
             except (ValueError, IndexError):
-                logger.warning(f"Invalid migration filename format: {sql_file.name}. Expected 'NNN_name.sql'")
+                logger.error("Invalid migration filename format: {name}. Expected 'NNN_name.sql'", 
+                             name=sql_file.name)
                 continue
 
             if version not in applied_versions:
-                logger.info(f"Applying migration {sql_file.name} (v{version})...")
+                logger.info("Applying migration {file} (v{version})...", 
+                            file=sql_file.name, version=version)
                 sql_content = sql_file.read_text(encoding="utf-8")
                 
                 try:
                     # Execute as a batch
                     conn.execute(sql_content)
                     # Record success if not already done by the script itself
-                    check_res = conn.execute("SELECT 1 FROM schema_version WHERE version = ?", (version,)).fetchone()
+                    check_res = conn.execute("SELECT 1 FROM schema_version WHERE version = ?", 
+                                             (version,)).fetchone()
                     if not check_res:
                         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
-                    logger.info(f"Migration v{version} successful.")
+                    logger.info("Migration v{version} successful.", version=version)
                 except Exception as e:
-                    logger.error(f"❌ Failed to apply migration {sql_file.name}: {e}")
+                    logger.error("❌ Failed to apply migration {file}: {error}", 
+                                 file=sql_file.name, error=e)
                     raise
             else:
                 logger.debug(f"Migration v{version} already applied.")

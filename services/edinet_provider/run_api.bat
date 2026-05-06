@@ -1,4 +1,6 @@
 @echo off
-echo Starting EDINET API Server...
-uv run uvicorn main:app --reload --port 5009
+REM API Server Launcher
+echo Starting EDINET Provider API Server...
+call .venv\Scripts\activate
+python -m uvicorn main:app --reload
 pause
