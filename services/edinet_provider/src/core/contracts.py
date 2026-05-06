@@ -11,13 +11,13 @@ class DataContract(BaseModel):
 class FilingMetadata(DataContract):
     """Metadata for every filed document (Registry Layer)."""
     doc_id: str
-    edinet_code: str
+    edinet_code: str | None = None
     sec_code: str | None = None
-    filer_name: str
-    doc_description: str
-    submit_datetime: datetime
-    form_code: str
-    doc_type_code: str
+    filer_name: str | None = None
+    doc_description: str | None = None
+    submit_datetime: datetime | None = None
+    form_code: str | None = None
+    doc_type_code: str | None = None
     session_id: str
 
     @field_validator("sec_code", mode="before")
@@ -35,7 +35,9 @@ class FilingMetadata(DataContract):
 
     @field_validator("submit_datetime", mode="before")
     @classmethod
-    def parse_datetime(cls, v: Any) -> datetime:
+    def parse_datetime(cls, v: Any) -> datetime | None:
+        if v is None:
+            return None
         if isinstance(v, datetime):
             return v
         if isinstance(v, str):
