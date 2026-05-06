@@ -15,9 +15,12 @@ def reset_db_each_test():
         db_manager._reset_memory_db()
     yield
 
-@pytest.fixture(scope="session")
-def engine():
-    """Shared engine instance for testing."""
+@pytest.fixture(scope="function")
+def engine(reset_db_each_test):
+    """
+    Returns a fresh engine instance for each test.
+    Depends on reset_db_each_test to ensure migrations run on a clean DB.
+    """
     from src.engine import JPEDINETEngine
     return JPEDINETEngine()
 

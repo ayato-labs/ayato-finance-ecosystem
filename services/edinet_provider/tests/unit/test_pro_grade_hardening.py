@@ -1,8 +1,6 @@
 import concurrent.futures
-import pytest
 from src.core.tracing import trace_execution, current_trace_id, with_context
 from src.engine import JPEDINETEngine
-from unittest.mock import MagicMock
 
 def test_trace_id_propagation_to_threads():
     """
@@ -67,8 +65,8 @@ def test_engine_batch_partial_success(tmp_path, monkeypatch):
         # or just DuckDB error). In our resilient implementation, it should fall back.
         engine._flush_results_to_db(conn, results)
         
-        # Verify GOOD_1 and GOOD_2 are there
-        ids = [r[0] for r in conn.execute("SELECT doc_id FROM filings ORDER BY doc_id").fetchall()]
+        # Verify GOOD_1 and GOOD_2 are there (fresh DB due to reset fixture)
+        ids = [r[0] for r in conn.execute("SELECT doc_id FROM registry_db.filings ORDER BY doc_id").fetchall()]
         assert "GOOD_1" in ids
         assert "GOOD_2" in ids
         assert len(ids) == 2
