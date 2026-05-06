@@ -137,12 +137,14 @@ def write_files():
         f.write("}\n\n")
         f.write("INDEX_SCHEMAS = [\n")
         f.write('    "CREATE INDEX IF NOT EXISTS idx_us_tickers_cik ON tickers (cik)",\n')
-        f.write(
-            '    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (ticker, fiscal_year, fiscal_period)",\n'
-        )
-        f.write(
-            '    "CREATE INDEX IF NOT EXISTS idx_us_narratives_lookup ON narratives (ticker, form, section_name)",\n'
-        )
+        f.write("    (\n")
+        f.write('        "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "\n')
+        f.write('        "ON company_facts (ticker, fiscal_year, fiscal_period)"\n')
+        f.write("    ),\n")
+        f.write("    (\n")
+        f.write('        "CREATE INDEX IF NOT EXISTS idx_us_narratives_lookup "\n')
+        f.write('        "ON narratives (ticker, form, section_name)"\n')
+        f.write("    ),\n")
         f.write("]\n")
 
     print(f"Generated {schema_gen_path}")

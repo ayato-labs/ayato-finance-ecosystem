@@ -27,7 +27,7 @@ class MasterDBManager:
                     conn.execute(TABLE_SCHEMAS[table]["v1"])
             # Ensure WAL is merged or file is properly created
             conn.execute("CHECKPOINT;")
-        
+
         # Double check file creation (sometimes OS lag or WAL mode hides it)
         if not self.master_db_path.exists():
             import duckdb
@@ -40,7 +40,8 @@ class MasterDBManager:
         with db_manager.connect(self.master_db_path) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO databases (db_id, file_path, role, schema_version, created_at)
+                INSERT OR REPLACE INTO databases
+                (db_id, file_path, role, schema_version, created_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
                 [db_id, file_path, role, schema_version],

@@ -1,7 +1,7 @@
-import pytest
 from pathlib import Path
-import shutil
-import os
+
+import pytest
+
 from src.core.config import settings
 
 @pytest.fixture(scope="session")
@@ -27,7 +27,6 @@ def clean_db_paths(test_data_dir):
 @pytest.fixture(autouse=True)
 def mock_settings_paths(monkeypatch, clean_db_paths):
     """Overwrites production paths with test paths as Path objects."""
-    from pathlib import Path
     monkeypatch.setattr(settings, "MASTER_DB_PATH", Path(clean_db_paths["master"]))
     monkeypatch.setattr(settings, "FACTS_DB_PATH", Path(clean_db_paths["facts"]))
     monkeypatch.setattr(settings, "NARRATIVES_DB_PATH", Path(clean_db_paths["narratives"]))

@@ -1,15 +1,24 @@
 import argparse
 import sys
 import time
+
 from loguru import logger
+
+from src.core.logging import setup_logging
 from src.engine import USEngine
 
+
 def main():
+    setup_logging()
     try:
         parser = argparse.ArgumentParser(description="EDGAR Provider CLI")
         parser.add_argument("--ticker", type=str, help="Sync specific ticker")
-        parser.add_argument("--all", action="store_true", help="Sync all companies (sequential)")
-        parser.add_argument("--bulk", action="store_true", help="Sync all companies using bulk ZIP (fast)")
+        parser.add_argument(
+            "--all", action="store_true", help="Sync all companies (sequential)"
+        )
+        parser.add_argument(
+            "--bulk", action="store_true", help="Sync all companies using bulk ZIP (fast)"
+        )
         parser.add_argument("--limit", type=int, default=5, help="Limit number of filings to sync")
         parser.add_argument("--api", action="store_true", help="Start API server")
         parser.add_argument("--port", type=int, default=5008)
@@ -19,7 +28,9 @@ def main():
 
         if args.api:
             import uvicorn
+
             from src.api.server import app
+
             logger.info(f"Starting EDGAR Provider API on port {args.port}")
             uvicorn.run(app, host="0.0.0.0", port=args.port)
             return

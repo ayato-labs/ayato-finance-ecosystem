@@ -26,7 +26,7 @@ CONSOLE_FORMAT = (
 logger.add(sys.stderr, format=CONSOLE_FORMAT, level="INFO")
 
 # 2. JSON File Handler (Structured for traceability)
-# Retention: Keep last 2 files. 
+# Retention: Keep last 2 files.
 # Rotation: New file per execution (simulated via 10MB or manual start)
 logger.add(
     LOG_DIR / "execution.jsonl",
@@ -132,8 +132,9 @@ def trace_step(step_name=None):
                     with db_manager.connect(settings.DB_PATH) as conn:
                         conn.execute(
                             """
-                            INSERT INTO metrics 
-                            (run_id, step_name, ticker, latency_ms, status, error_log, inputs, outputs)
+                            INSERT INTO metrics
+                            (run_id, step_name, ticker, latency_ms,
+                             status, error_log, inputs, outputs)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                             [

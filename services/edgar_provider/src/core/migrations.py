@@ -99,7 +99,10 @@ MIGRATIONS = [
     },
     {
         "version": "v1.0.1",
-        "description": "Optimize data types for storage efficiency (filed_date to DATE, fiscal_year to SMALLINT)",
+        "description": (
+            "Optimize data types for storage efficiency "
+            "(filed_date to DATE, fiscal_year to SMALLINT)"
+        ),
         "apply": optimize_data_types_v1_0_1,
     },
 ]

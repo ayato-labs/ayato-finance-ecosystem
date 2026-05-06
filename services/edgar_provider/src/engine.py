@@ -1,9 +1,11 @@
 import concurrent.futures
 import json
+import os
 import re
 import zipfile
 
 import pandas as pd
+import psutil
 import zstandard as zstd
 from edgar import Company, set_identity
 from loguru import logger
@@ -11,12 +13,14 @@ from loguru import logger
 from src.core.config import settings
 from src.core.contracts import USFactContract, USNarrativeContract
 from src.core.db import db_manager
+from src.core.logging import track_performance
 from src.core.telemetry import trace_step
-from src.core.utils import download_file, get_all_tickers, rate_limiter
+from src.core.utils import get_all_tickers, rate_limiter
+
 
 def parse_company_facts_json(filename, content_str, ticker_map, session_id):
     """
-    Parses a single company facts JSON string.
+    Parses a single company facts JSON with strict range validation for DB safety.
     """
     try:
         data = json.loads(content_str)
@@ -44,6 +48,27 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
                         if not accn or not filed_date:
                             continue
 
+                        # HARDENING: Clamp fiscal year to SMALLINT range (-32768 to 32767)
+                        # SEC data sometimes contains typos like 20222
+                        try:
+                            fy = int(entry.get("fy", 0))
+                            if not (1900 < fy < 2100):  # Business-logic valid range
+                                fy = 0
+                        except (ValueError, TypeError):
+                            fy = 0
+
+                        try:
+                            val = (
+                                float(entry.get("val", 0))
+                                if entry.get("val") is not None
+                                else 0.0
+                            )
+                            # Protect against Infinity/NaN which can crash some DB drivers
+                            if pd.isna(val) or val == float("inf") or val == float("-inf"):
+                                val = 0.0
+                        except (ValueError, TypeError):
+                            val = 0.0
+
                         all_records.append(
                             (
                                 ticker,
@@ -51,10 +76,10 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
                                 accn,
                                 entry.get("form") or "UNKNOWN",
                                 filed_date,
-                                entry.get("fy"),
+                                fy,
                                 entry.get("fp") or "FY",
                                 label,
-                                float(entry.get("val", 0)) if entry.get("val") is not None else 0.0,
+                                val,
                                 unit or "pure",
                                 True,
                                 concept,
@@ -65,6 +90,7 @@ def parse_company_facts_json(filename, content_str, ticker_map, session_id):
     except Exception as e:
         logger.error(f"Error parsing {filename}: {e}")
         return []
+
 
 class USEngine:
     def __init__(self):
@@ -91,101 +117,87 @@ class USEngine:
         master_db.register_shard("facts_db", str(self.facts_db), "facts", "v1.0.1")
         master_db.register_shard("narratives_db", str(self.narratives_db), "narratives", "v1.0.1")
 
+    @track_performance("ingest_bulk_data")
     @trace_step(step_name="ingest_bulk_data")
     def ingest_bulk_data(self, session_id: str):
-        """Processes all company facts from bulk ZIP with extreme stability and persistent connection."""
-        import psutil
-        import os
-        
+        """Processes all company facts from bulk ZIP with extreme stability and speed."""
         process = psutil.Process(os.getpid())
         zip_path = settings.DATA_DIR / "companyfacts.zip"
-        
-        logger.info(f"DIAGNOSTIC: Starting Bulk Ingest (Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB)")
+
+        logger.info(f"INGEST START | Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB")
 
         tickers = get_all_tickers()
         ticker_map = {t["cik"]: t["ticker"] for t in tickers}
-        logger.info(f"Ticker Map: {len(ticker_map)} entries.")
 
-        # Use a single persistent connection for the entire bulk process to reduce OS overhead
         with db_manager.connect(self.facts_db) as conn:
-            logger.info("Persistent DB connection established.")
-            
+            # DuckDB specific bulk optimizations
+            conn.execute("SET preserve_insertion_order=false;")
+            conn.execute(f"SET threads TO {settings.DUCKDB_THREADS};")
+
             with zipfile.ZipFile(zip_path, "r") as z:
                 all_files = [info for info in z.infolist() if info.filename.endswith(".json")]
                 total_files = len(all_files)
-                logger.info(f"Found {total_files} files in ZIP.")
 
                 batch_records = []
                 relevant_count = 0
-                
+
                 for i, file_info in enumerate(all_files):
-                    filename = file_info.filename
-                    
-                    if i % 100 == 0:
-                        curr_mem = process.memory_info().rss / 1024 / 1024
-                        logger.info(f"Progress: {i}/{total_files} | Memory: {curr_mem:.2f} MB | Relevant: {relevant_count}")
+                    if i % 500 == 0:
+                        mem = process.memory_info().rss / 1024 / 1024
+                        logger.info(
+                            f"Progress: {i}/{total_files} | Mem: {mem:.2f}MB | "
+                            f"Rel: {relevant_count}"
+                        )
 
                     try:
-                        # Skip massive files
-                        if file_info.file_size > 100 * 1024 * 1024:
-                            logger.warning(f"SKIP MASSIVE: {filename}")
-                            continue
-
-                        # Memory-safe read: use z.open and decode in chunks or fully
-                        with z.open(filename) as f:
+                        with z.open(file_info.filename) as f:
                             content = f.read().decode("utf-8")
-                        
-                        records = parse_company_facts_json(filename, content, ticker_map, session_id)
-                        
+
+                        records = parse_company_facts_json(
+                            file_info.filename, content, ticker_map, session_id
+                        )
+
                         if records:
                             batch_records.extend(records)
                             relevant_count += 1
-                            
-                            # Threshold check
-                            if len(batch_records) >= 5000:
-                                current_buffer_size = len(batch_records)
-                                logger.info(f"Buffer {current_buffer_size} facts. Saving...")
-                                
-                                # Inlined save for maximum visibility
-                                self._save_with_conn(conn, batch_records)
-                                
-                                logger.info(f"Save Success. Buffer cleared. Progress: {i}/{total_files}")
-                                batch_records = []
-                                
-                    except Exception as e:
-                        logger.error(f"Handled error at {filename}: {e}")
-                    except BaseException as be:
-                        logger.critical(f"OS/RUNTIME LEVEL CRASH during {filename}: {type(be).__name__}")
-                        raise
 
-                # Final flush
+                            # Larger buffer for fewer, faster transactions
+                            if len(batch_records) >= 50000:
+                                logger.info(f"Saving transaction ({len(batch_records)} rows)...")
+                                self._save_optimized(conn, batch_records)
+                                batch_records = []
+                    except Exception as e:
+                        logger.error(f"Error at {file_info.filename}: {e}")
+
                 if batch_records:
-                    logger.info(f"Final flush: {len(batch_records)} facts.")
-                    self._save_with_conn(conn, batch_records)
+                    self._save_optimized(conn, batch_records)
+
+            conn.execute("CHECKPOINT;")
 
         logger.info("Bulk ingestion completed successfully.")
 
-    def _save_with_conn(self, conn, records):
-        """Internal save method using an existing connection."""
-        clean_records = [
-            r for r in records if r[0] is not None and r[2] is not None and r[7] is not None
-        ]
-        if not clean_records:
+    def _save_optimized(self, conn, records):
+        """Saves records in a single high-speed transaction."""
+        if not records:
             return
 
-        sub_batch = 1000
-        for s in range(0, len(clean_records), sub_batch):
-            chunk = clean_records[s : s + sub_batch]
+        try:
+            # Explicit transaction block
+            conn.execute("BEGIN TRANSACTION;")
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO company_facts 
-                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period, 
+                INSERT OR REPLACE INTO company_facts
+                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
                  label, value, unit, is_standardized, raw_tag, session_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                chunk,
+                records,
             )
-        conn.execute("CHECKPOINT;")
+            conn.execute("COMMIT;")
+        except Exception as e:
+            conn.execute("ROLLBACK;")
+            logger.error(f"Transaction failed: {e}")
+            raise
 
     def _save_raw_facts(self, records: list[tuple]):
         """Saves raw record tuples to Facts DB in small sub-batches to prevent C-level crashes."""
@@ -201,30 +213,31 @@ class USEngine:
 
         sub_batch_size = 1000
         total = len(clean_records)
-        
+
         with db_manager.connect(self.facts_db) as conn:
             try:
                 for start_idx in range(0, total, sub_batch_size):
                     end_idx = min(start_idx + sub_batch_size, total)
                     sub_records = clean_records[start_idx:end_idx]
-                    
+
                     conn.executemany(
                         """
-                        INSERT OR REPLACE INTO company_facts 
-                        (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period, 
+                        INSERT OR REPLACE INTO company_facts
+                        (ticker, cik, accession_number, form, filed_date,
+                         fiscal_year, fiscal_period,
                          label, value, unit, is_standardized, raw_tag, session_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         sub_records,
                     )
-                
+
                 # Force commit to disk to free up DuckDB's internal memory
                 conn.execute("CHECKPOINT;")
-                
             except Exception as e:
                 logger.error(f"Failed to save sub-batch to Facts DB: {e}")
                 raise
 
+    @track_performance("ingest_all_companies")
     @trace_step(step_name="ingest_all_companies")
     def ingest_all_companies(self, session_id: str):
         """Processes all companies with resume logic and rate limiting in parallel."""
@@ -264,13 +277,14 @@ class USEngine:
         with db_manager.connect(self.facts_db) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO processed_companies 
+                INSERT OR REPLACE INTO processed_companies
                 (ticker, cik, status, last_processed_at, error_log)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
             """,
                 [ticker, cik, status, error_log],
             )
 
+    @track_performance("fetch_and_ingest_company")
     @trace_step(step_name="fetch_and_ingest_company")
     def fetch_and_ingest_company(
         self, ticker: str, session_id: str, forms=["10-K", "10-Q"], limit=5
@@ -366,7 +380,8 @@ class USEngine:
                     self._save_facts(contracts_to_save)
 
                 logger.info(
-                    f"Ingested statement for {ticker} ({filing.filing_date}) - {len(contracts_to_save)} facts"
+                    f"Ingested statement for {ticker} ({filing.filing_date}) "
+                    f"- {len(contracts_to_save)} facts"
                 )
             except Exception as e:
                 logger.error(f"Failed to ingest a statement for {ticker}: {e}")
@@ -397,8 +412,8 @@ class USEngine:
         with db_manager.connect(self.facts_db) as conn:
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO company_facts 
-                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period, 
+                INSERT OR REPLACE INTO company_facts
+                (ticker, cik, accession_number, form, filed_date, fiscal_year, fiscal_period,
                  label, value, unit, is_standardized, raw_tag, session_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -463,8 +478,9 @@ class USEngine:
         with db_manager.connect(self.narratives_db) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO narratives 
-                (ticker, cik, accession_number, form, filed_date, section_name, content_md_zstd, session_id)
+                INSERT OR REPLACE INTO narratives
+                (ticker, cik, accession_number, form, filed_date,
+                 section_name, content_md_zstd, session_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 [

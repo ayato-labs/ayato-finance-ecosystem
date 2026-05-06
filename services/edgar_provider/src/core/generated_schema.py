@@ -108,6 +108,12 @@ CREATE TABLE IF NOT EXISTS data_catalog (
 
 INDEX_SCHEMAS = [
     "CREATE INDEX IF NOT EXISTS idx_us_tickers_cik ON tickers (cik)",
-    "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup ON company_facts (ticker, fiscal_year, fiscal_period)",
-    "CREATE INDEX IF NOT EXISTS idx_us_narratives_lookup ON narratives (ticker, form, section_name)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_us_facts_lookup "
+        "ON company_facts (ticker, fiscal_year, fiscal_period)"
+    ),
+    (
+        "CREATE INDEX IF NOT EXISTS idx_us_narratives_lookup "
+        "ON narratives (ticker, form, section_name)"
+    ),
 ]

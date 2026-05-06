@@ -25,7 +25,8 @@ class DuckDBManager:
                         conn = duckdb.connect(db_path_str, read_only=read_only)
                     except duckdb.ConnectionException as ce:
                         logger.debug(
-                            f"Read-only connection failed, attempting read-write for {db_path_str}: {ce}"
+                            "Read-only connection failed, attempting read-write "
+                            f"for {db_path_str}: {ce}"
                         )
                         conn = duckdb.connect(db_path_str, read_only=False)
 

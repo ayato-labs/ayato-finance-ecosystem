@@ -29,7 +29,7 @@ def get_financials(ticker: str):
         res = conn.execute(
             """
             SELECT label, value, fiscal_year, fiscal_period, filed_date, form
-            FROM company_facts 
+            FROM company_facts
             WHERE ticker = ?
             ORDER BY filed_date DESC, label
         """,
