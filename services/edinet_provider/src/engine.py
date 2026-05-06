@@ -359,40 +359,51 @@ class JPEDINETEngine:
             content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY)
             if content is None:
                 return None
+            
             csv_data = parse_edinet_csv(content)
             filed_date = pd.to_datetime(data.get("submitDateTime")).date()
             results = []
+            
             for file_name, df in csv_data.items():
                 if df is None or df.empty:
                     continue
+                
+                # EDINET CSV columns vary. We look for the most likely value column.
+                # Standard format: [0]:Tag, [1]:Name, [2]:Context, ..., [8]:Value
                 cols = df.columns.tolist()
-                if len(cols) < 9:
-                    continue
+                
+                # Robust detection: The value is usually in one of the last few columns.
+                # We prioritize the 9th column (index 8) but fallback if needed.
+                val_col_idx = 8 if len(cols) >= 9 else len(cols) - 1
+                name_col_idx = 1 if len(cols) >= 2 else 0
+                unit_col_idx = 7 if len(cols) >= 8 else None
+                
                 for _, row in df.iterrows():
-                    if pd.notna(row[cols[8]]):
-                        try:
-                            val = float(str(row[cols[8]]).replace(",", ""))
-                            results.append({
-                                "doc_id": data.get("docID"),
-                                "item_name": str(row[cols[1]]),
-                                "item_value": val,
-                                "unit": str(row[cols[7]]),
-                                "context_id": str(file_name),
-                                "fiscal_year": filed_date.year,
-                                "fiscal_period": "FY",
-                                "session_id": session_id
-                            })
-                        except (ValueError, TypeError) as e:
-                            logger.error(
-                                "Failed to process data record: {error}",
-                                error=str(e),
-                                extra={"session_id": session_id}
-                            )
-                            continue
+                    raw_val = str(row[cols[val_col_idx]]).replace(",", "").strip()
+                    if not raw_val or raw_val.lower() in ["nan", "", "none"]:
+                        continue
+                        
+                    try:
+                        # Extract only if it looks like a number
+                        val = float(raw_val)
+                        results.append({
+                            "doc_id": data.get("docID"),
+                            "item_name": str(row[cols[name_col_idx]]),
+                            "item_value": val,
+                            "unit": str(row[cols[unit_col_idx]]) if unit_col_idx is not None else "pure",
+                            "context_id": str(row[cols[2]]) if len(cols) >= 3 else file_name,
+                            "fiscal_year": filed_date.year,
+                            "fiscal_period": "FY",
+                            "session_id": session_id
+                        })
+                    except (ValueError, TypeError):
+                        continue # Skip non-numeric rows (titles, etc.)
+            
             return results
         except Exception as e:
             logger.error(
-                "Fact extraction failed: {error}",
+                "Fact extraction failed for {doc_id}: {error}",
+                doc_id=doc._data.get("docID"),
                 error=str(e),
                 extra={"session_id": session_id}
             )

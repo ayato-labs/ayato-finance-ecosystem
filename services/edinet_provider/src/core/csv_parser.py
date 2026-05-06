@@ -51,13 +51,28 @@ def parse_edinet_csv(content: bytes):
                         # Use cp932 (Windows-31J) which is a superset of shift_jis
                         # Add errors="replace" to skip over stray illegal bytes
                         with z.open(file_name) as f:
-                            # Read first few bytes to check for BOM or empty file
-                            sample = f.read(10)
-                            if not sample:
+                            raw_data = f.read()
+                            if not raw_data:
                                 continue
-                            f.seek(0)
                             
-                            df = pd.read_csv(f, encoding="cp932", skiprows=1, on_bad_lines='skip', encoding_errors="replace")
+                            # Detect encoding by BOM
+                            encoding = "cp932"
+                            sep = ","
+                            if raw_data.startswith(b"\xff\xfe"):
+                                encoding = "utf-16"
+                                sep = "\t"
+                            elif raw_data.startswith(b"\xef\xbb\xbf"):
+                                encoding = "utf-8-sig"
+                            
+                            # Use io.BytesIO to feed back to pandas
+                            df = pd.read_csv(
+                                io.BytesIO(raw_data), 
+                                encoding=encoding, 
+                                sep=sep,
+                                skiprows=1, 
+                                on_bad_lines='skip', 
+                                encoding_errors="replace"
+                            )
                             results[file_name] = df
                     except Exception as e:
                         logger.error(
