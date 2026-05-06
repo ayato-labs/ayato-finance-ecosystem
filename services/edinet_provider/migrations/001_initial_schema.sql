@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS filings(
+CREATE TABLE IF NOT EXISTS registry_db.filings(
     doc_id VARCHAR PRIMARY KEY, 
     edinet_code VARCHAR, 
     sec_code VARCHAR, 
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS filings(
     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS company_facts(
+CREATE TABLE IF NOT EXISTS facts_db.company_facts(
     doc_id VARCHAR, 
     ticker VARCHAR, 
     item_name VARCHAR, 
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS company_facts(
     PRIMARY KEY(doc_id, item_name, context_id)
 );
 
-CREATE TABLE IF NOT EXISTS narratives(
+CREATE TABLE IF NOT EXISTS narr_db.narratives(
     doc_id VARCHAR, 
     ticker VARCHAR, 
     section_name VARCHAR, 

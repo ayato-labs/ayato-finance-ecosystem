@@ -7,7 +7,7 @@ import edinet_tools
 from src.core.config import settings
 from src.core.db import db_manager
 from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock
-from src.core.tracing import trace_execution, with_context
+from src.core.tracing import with_context
 
 
 class JPEDINETEngine:
@@ -27,13 +27,11 @@ class JPEDINETEngine:
         """Run VACUUM to reclaim disk space and defragment."""
         logger.info("Running DB VACUUM to reclaim storage space...")
         try:
-            is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
             with db_manager.connect_master() as conn:
                 conn.execute("VACUUM;") # Master
-                if not is_memory:
-                    conn.execute("VACUUM registry_db;")
-                    conn.execute("VACUUM facts_db;")
-                    conn.execute("VACUUM narr_db;")
+                conn.execute("VACUUM registry_db;")
+                conn.execute("VACUUM facts_db;")
+                conn.execute("VACUUM narr_db;")
             logger.info("VACUUM completed successfully.")
         except Exception as e:
             logger.error(f"Failed to execute VACUUM: {e}", exc_info=True)
@@ -76,15 +74,13 @@ class JPEDINETEngine:
         self._vacuum_db()
 
     def _process_docs_concurrently(self, docs, session_id, max_workers):
-        if not docs: return
-
-        is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
-        reg_prefix = "" if is_memory else "registry_db."
+        if not docs:
+            return
 
         with db_manager.connect_master() as conn:
             try:
                 existing_doc_ids = {
-                    row[0] for row in conn.execute(f"SELECT doc_id FROM {reg_prefix}filings").fetchall()
+                    row[0] for row in conn.execute("SELECT doc_id FROM registry_db.filings").fetchall()
                 }
             except Exception as e:
                 logger.error(f"Failed to query existing filings: {e}", exc_info=True)
@@ -132,18 +128,13 @@ class JPEDINETEngine:
     def backfill_missing_data(self, max_workers: int = 20):
         logger.info("Starting backfill for missing data...")
         
-        is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
-        reg_prefix = "" if is_memory else "registry_db."
-        narr_prefix = "" if is_memory else "narr_db."
-        facts_prefix = "" if is_memory else "facts_db."
-
         with db_manager.connect_master() as conn:
-            query = f"""
+            query = """
                 SELECT f.doc_id, f.sec_code
-                FROM {reg_prefix}filings f
-                LEFT JOIN {narr_prefix}narratives n ON f.doc_id = n.doc_id
+                FROM registry_db.filings f
+                LEFT JOIN narr_db.narratives n ON f.doc_id = n.doc_id
                 LEFT JOIN (
-                    SELECT doc_id FROM {facts_prefix}company_facts GROUP BY doc_id
+                    SELECT doc_id FROM facts_db.company_facts GROUP BY doc_id
                 ) c ON f.doc_id = c.doc_id
                 WHERE 
                     (n.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%'))
@@ -151,7 +142,8 @@ class JPEDINETEngine:
                     (c.doc_id IS NULL AND (f.form_code LIKE '030000%' OR f.form_code LIKE '043000%' OR f.form_code = '030001'))
             """
             missing = conn.execute(query).fetchall()
-            if not missing: return
+            if not missing:
+                return
 
             docs_to_process = [(edinet_tools.document(did), sc) for did, sc in missing]
 
@@ -204,11 +196,6 @@ class JPEDINETEngine:
             return None
 
     def _flush_results_to_db(self, conn, results):
-        is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
-        reg_prefix = "" if is_memory else "registry_db."
-        narr_prefix = "" if is_memory else "narr_db."
-        facts_prefix = "" if is_memory else "facts_db."
-
         # 1. Metadata (registry_db)
         metadata_batch = [
             (
@@ -220,7 +207,7 @@ class JPEDINETEngine:
         ]
         self._batch_insert_resilient(
             conn, 
-            f"INSERT OR IGNORE INTO {reg_prefix}filings (doc_id, edinet_code, sec_code, filer_name, doc_description, submit_datetime, form_code, doc_type_code, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO registry_db.filings (doc_id, edinet_code, sec_code, filer_name, doc_description, submit_datetime, form_code, doc_type_code, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             metadata_batch
         )
 
@@ -233,7 +220,7 @@ class JPEDINETEngine:
         if narrative_batch:
             self._batch_insert_resilient(
                 conn,
-                f"INSERT OR REPLACE INTO {narr_prefix}narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, session_id) VALUES (?, ?, ?, ?)",
                 narrative_batch
             )
 
@@ -249,7 +236,7 @@ class JPEDINETEngine:
         if fact_batch:
             self._batch_insert_resilient(
                 conn,
-                f"INSERT OR REPLACE INTO {facts_prefix}company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO facts_db.company_facts (doc_id, item_name, item_value, unit, context_id, fiscal_year, fiscal_period, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 fact_batch
             )
 
@@ -267,7 +254,6 @@ class JPEDINETEngine:
                     conn.execute(sql, record)
                 except Exception as rec_err:
                     logger.error(f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}")
-                    # We do NOT raise here to allow other records in the batch to be saved.
 
     def _extract_metadata(self, doc, ticker, session_id):
         data = doc._data
@@ -286,7 +272,8 @@ class JPEDINETEngine:
     def _extract_narratives(self, doc, ticker, session_id):
         try:
             report = doc.parse()
-            if not report or not hasattr(report, "text_blocks"): return []
+            if not report or not hasattr(report, "text_blocks"):
+                return []
             return [
                 {
                     "doc_id": doc._data.get("docID"),
@@ -304,16 +291,20 @@ class JPEDINETEngine:
         try:
             from src.core.csv_parser import get_csv_from_edinet, parse_edinet_csv
             data = doc._data
-            if data.get("csvFlag") != "1": return []
+            if data.get("csvFlag") != "1":
+                return []
             content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY)
-            if content is None: return None
+            if content is None:
+                return None
             csv_data = parse_edinet_csv(content)
             filed_date = pd.to_datetime(data.get("submitDateTime")).date()
             results = []
             for file_name, df in csv_data.items():
-                if df is None or df.empty: continue
+                if df is None or df.empty:
+                    continue
                 cols = df.columns.tolist()
-                if len(cols) < 9: continue
+                if len(cols) < 9:
+                    continue
                 for _, row in df.iterrows():
                     if pd.notna(row[cols[8]]):
                         try:
@@ -328,7 +319,8 @@ class JPEDINETEngine:
                                 "fiscal_period": "FY",
                                 "session_id": session_id
                             })
-                        except: continue
+                        except (ValueError, TypeError):
+                            continue
             return results
         except Exception as e:
             logger.warning(f"Fact failed: {e}")

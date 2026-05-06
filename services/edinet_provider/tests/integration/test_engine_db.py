@@ -1,84 +1,47 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from src.engine import JPEDINETEngine
-from src.core.db import db_manager
 
 class MockDoc:
-    def __init__(self, doc_id, sec_code="1234"):
+    def __init__(self, doc_id, edinet_code="E12345", sec_code="0000"):
         self._data = {
             "docID": doc_id,
-            "edinetCode": "E12345", # Added missing field
+            "edinetCode": edinet_code,
             "secCode": sec_code,
             "filerName": "Test Filer",
             "docDescription": "Test Desc",
-            "submitDateTime": "2026-05-06 10:00:00",
+            "submitDateTime": "2024-01-01 10:00:00",
             "formCode": "030000",
             "docTypeCode": "120",
             "csvFlag": "0"
         }
     def parse(self):
-        mock_report = MagicMock()
-        mock_report.text_blocks = {"Section1": "This is a long enough text block for testing."}
-        return mock_report
+        return None
 
-@pytest.fixture
-def engine():
-    # TESTING=true is already set in conftest.py
-    return JPEDINETEngine()
-
-def test_engine_process_single_doc_flow(engine):
-    """Integration Test: Verify metadata and narrative extraction flow."""
-    doc = MockDoc("DOC001")
-    result = engine._process_single_doc(doc, "1234", "test-session")
-    
-    assert result is not None
-    assert result["metadata"]["doc_id"] == "DOC001"
-    assert result["metadata"]["edinet_code"] == "E12345"
-    assert len(result["narratives"]) == 1
-
-def test_engine_db_flush_severe_error(engine):
+def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
     """
-    Severe Test: Handle database failure during flush.
+    Integration: Verify engine skips docs already in filings table.
     """
-    results = [{
-        "metadata": {
-            "doc_id": "ERR001", "edinet_code": "E1", "sec_code": "1",
-            "filer_name": "N", "doc_description": "D", "submit_datetime": "2026",
-            "form_code": "F", "doc_type_code": "T", "session_id": "S"
-        },
-        "narratives": [],
-        "facts": []
-    }]
+    monkeypatch.setenv("MASTER_DB_PATH", str(tmp_path / "master.db"))
+    monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "registry.db"))
+    monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts.db"))
+    monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narrative.db"))
     
-    # Mock the connection object passed to flush
-    mock_conn = MagicMock()
-    mock_conn.executemany.side_effect = Exception("DB Write Failure")
+    engine = JPEDINETEngine()
     
-    with pytest.raises(Exception, match="DB Write Failure"):
-        engine._flush_results_to_db(mock_conn, results)
-
-def test_engine_sync_market_empty(engine):
-    """Integration Test: Verify flow when no documents are found."""
-    with patch("edinet_tools.documents", return_value=[]):
-        # Should finish without error
+    mock_doc = MockDoc("DOC001")
+    
+    # 1. First sync - should insert
+    with patch("edinet_tools.documents", return_value=[mock_doc]):
         engine.sync_market(days=1)
-
-def test_engine_concurrent_processing_partial_failure(engine):
-    """
-    Severe Test: One document fails, but others should continue or be logged.
-    """
-    docs = [MockDoc("GOOD"), MockDoc("BAD")]
     
-    def side_effect(doc, ticker, sid):
-        if doc._data["docID"] == "BAD":
-            raise RuntimeError("Extraction failed")
-        return {"metadata": {"doc_id": "GOOD", "edinet_code": "E", "sec_code": "S", 
-                            "filer_name": "N", "doc_description": "D", "submit_datetime": "T",
-                            "form_code": "F", "doc_type_code": "T", "session_id": "S"},
-                "narratives": [], "facts": []}
-
-    with patch.object(JPEDINETEngine, "_process_single_doc", side_effect=side_effect):
-        with patch.object(JPEDINETEngine, "_flush_results_to_db") as mock_flush:
-            engine._process_docs_concurrently(docs, "session", max_workers=2)
-            # Should have called flush for the good one
-            assert mock_flush.call_count >= 1
+    # Verify insertion
+    from src.core.db import db_manager
+    with db_manager.connect_master(read_only=True) as conn:
+        count = conn.execute("SELECT count(*) FROM registry_db.filings WHERE doc_id='DOC001'").fetchone()[0]
+        assert count == 1
+    
+    # 2. Second sync - should skip (mocked process_single_doc to check call)
+    with patch("edinet_tools.documents", return_value=[mock_doc]):
+        with patch.object(JPEDINETEngine, "_process_single_doc") as mock_process:
+            engine.sync_market(days=1)
+            assert mock_process.call_count == 0

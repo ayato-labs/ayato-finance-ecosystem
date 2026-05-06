@@ -1,5 +1,4 @@
 import sys
-import os
 from loguru import logger
 from pathlib import Path
 

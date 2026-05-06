@@ -1,113 +1,42 @@
-import os
 import re
 from pathlib import Path
-from typing import List
 from loguru import logger
 from src.core.db import db_manager
-from src.core.schema import TABLE_DEFINITIONS
-from src.core.config import settings
-
 
 class MigrationManager:
-    """
-    Manages the lifecycle of the Quad-Split database architecture.
-    Ensures SSoT schema synchronization and incremental SQL migrations.
-    """
-
     @staticmethod
-    def apply_migrations() -> None:
-        """Entry point for all database setup and upgrades."""
-        logger.info("🚀 Starting Master-led Database Governance migrations...")
-        
-        with db_manager.connect_master() as conn:
-            # 1. Initialize Master Schema (Essential for tracking)
-            MigrationManager._init_master_schema(conn)
-            
-            # 2. Sync Schema-as-Code (SSoT)
-            # This ensures tables exist before SQL migrations run
-            MigrationManager._sync_ssot_schema(conn)
-            
-            # 3. Apply Incremental SQL Migrations from directory
-            MigrationManager._apply_sql_migrations(conn)
-
-        logger.info("✅ Database Governance and Schema synchronization completed.")
-
-    @staticmethod
-    def _init_master_schema(conn) -> None:
-        """Ensures the master control tables exist."""
-        logger.debug("Initializing Master schema...")
-        for t_name, config in TABLE_DEFINITIONS["master"]["tables"].items():
-            conn.execute(config["ddl"])
-
-    @staticmethod
-    def _sync_ssot_schema(conn) -> None:
-        """Synchronizes all shards with the definitions in schema.py."""
-        is_memory = str(settings.MASTER_DB_PATH) == ":memory:"
-        
-        for db_alias in ["registry_db", "facts_db", "narr_db"]:
-            logger.debug(f"Synchronizing schema for {db_alias}...")
-            for t_name, config in TABLE_DEFINITIONS[db_alias]["tables"].items():
-                ddl = config["ddl"]
-                # In DuckDB, if attached, we prefix table names with the alias
-                if not is_memory:
-                    # Basic regex to inject db_alias. before table name if not present
-                    # Matches 'CREATE TABLE IF NOT EXISTS table_name'
-                    pattern = rf"CREATE TABLE IF NOT EXISTS\s+{t_name}"
-                    replacement = f"CREATE TABLE IF NOT EXISTS {db_alias}.{t_name}"
-                    ddl = re.sub(pattern, replacement, ddl, flags=re.IGNORECASE)
-                
-                try:
-                    conn.execute(ddl)
-                except Exception as e:
-                    logger.error("Failed to sync SSoT schema for {alias}.{table}: {error}", 
-                                 alias=db_alias, table=t_name, error=e)
-                    raise
-
-    @staticmethod
-    def _apply_sql_migrations(conn) -> None:
-        """Runs incremental SQL files from the migrations/ directory."""
+    def get_migration_files():
         migration_dir = Path("migrations")
         if not migration_dir.exists():
-            logger.warning("Migration directory {dir} not found. Skipping SQL migrations.", 
-                           dir=migration_dir)
-            return
+            return []
+        return sorted(list(migration_dir.glob("*.sql")))
 
-        # Get applied versions
-        res = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-        applied_versions = {r[0] for r in res}
-
-        # Find migration files (001_..., 002_...)
-        sql_files = sorted(list(migration_dir.glob("*.sql")))
+    @staticmethod
+    def apply_migrations():
+        logger.info("Checking for database migrations...")
+        files = MigrationManager.get_migration_files()
         
-        for sql_file in sql_files:
-            try:
-                version = int(sql_file.name.split("_")[0])
-            except (ValueError, IndexError):
-                logger.error("Invalid migration filename format: {name}. Expected 'NNN_name.sql'", 
-                             name=sql_file.name)
-                continue
-
-            if version not in applied_versions:
-                logger.info("Applying migration {file} (v{version})...", 
-                            file=sql_file.name, version=version)
-                sql_content = sql_file.read_text(encoding="utf-8")
-                
-                try:
-                    # Execute as a batch
-                    conn.execute(sql_content)
-                    # Record success if not already done by the script itself
-                    check_res = conn.execute("SELECT 1 FROM schema_version WHERE version = ?", 
-                                             (version,)).fetchone()
-                    if not check_res:
-                        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
-                    logger.info("Migration v{version} successful.", version=version)
-                except Exception as e:
-                    logger.error("❌ Failed to apply migration {file}: {error}", 
-                                 file=sql_file.name, error=e)
-                    raise
-            else:
-                logger.debug(f"Migration v{version} already applied.")
-
-if __name__ == "__main__":
-    # For testing purposes
-    MigrationManager.apply_migrations()
+        with db_manager.connect_master() as conn:
+            # Create migrations table if not exists
+            conn.execute("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            
+            applied = {row[0] for row in conn.execute("SELECT name FROM migrations").fetchall()}
+            
+            for f in files:
+                if f.name not in applied:
+                    logger.info(f"Applying migration: {f.name}")
+                    try:
+                        sql = f.read_text(encoding="utf-8")
+                        # DuckDB executemany/execute doesn't support multiple statements in one call easily for some versions
+                        # but execute(sql) with multiple ; usually works if they are DDL.
+                        # However, to be safe and traceable, we split by ';'
+                        statements = [s.strip() for s in re.split(r';\s*', sql) if s.strip()]
+                        for stmt in statements:
+                            conn.execute(stmt)
+                        
+                        conn.execute("INSERT INTO migrations (name) VALUES (?)", (f.name,))
+                        logger.info(f"✅ Migration {f.name} applied successfully.")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to apply migration {f.name}: {e}")
+                        raise
+        logger.info("Database is up to date.")

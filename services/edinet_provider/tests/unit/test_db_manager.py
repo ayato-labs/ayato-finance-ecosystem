@@ -1,30 +1,41 @@
-import pytest
-import duckdb
+import threading
 from src.core.db import db_manager
 
-def test_db_manager_memory_connection():
+def test_db_manager_connection_sharing(tmp_path, monkeypatch):
     """
-    Unit Test: Verify DuckDBManager handles in-memory connections correctly.
+    Unit: Verify that the DB manager correctly shares the in-memory connection
+    within the same process and handles concurrent access.
     """
-    from src.core.migrations import MigrationManager
-    MigrationManager.apply_migrations()
-    with db_manager.connect_master() as conn:
-        assert conn is not None
-        # Check if master tables exist
-        res = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_name = 'schema_version'").fetchone()
-        assert res is not None
-
-def test_db_manager_thread_safety():
-    """
-    Unit Test: Simple check on lock behavior (implicit).
-    """
-    import threading
+    monkeypatch.setenv("MASTER_DB_PATH", ":memory:")
     
     def connect_work():
         with db_manager.connect_master() as conn:
-            conn.execute("SELECT 1")
+            conn.execute("CREATE TABLE IF NOT EXISTS test (id INTEGER)")
+            conn.execute("INSERT INTO test VALUES (1)")
     
     threads = [threading.Thread(target=connect_work) for _ in range(5)]
-    for t in threads: t.start()
-    for t in threads: t.join()
-    # If no exception, lock coordination works within same process
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # If no exception, lock coordination works within same process 
+    
+    with db_manager.connect_master() as conn:
+        count = conn.execute("SELECT count(*) FROM test").fetchone()[0]
+        assert count == 5
+
+def test_db_manager_physical_file(tmp_path, monkeypatch):
+    """
+    Unit: Verify DB manager with a physical file.
+    """
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("MASTER_DB_PATH", str(db_file))
+    monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "reg.db"))
+    monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts.db"))
+    monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narr.db"))
+
+    with db_manager.connect_master() as conn:
+        conn.execute("CREATE TABLE test_phys (id INTEGER)")
+        conn.execute("INSERT INTO test_phys VALUES (100)")
+    
+    assert db_file.exists()

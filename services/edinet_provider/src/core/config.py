@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     @property
     def MASTER_DB_PATH(self) -> str | Path:
         """Single Source of Truth entry point."""
+        env_val = os.getenv("MASTER_DB_PATH")
+        if env_val:
+            return env_val
         if os.getenv("TESTING") == "true":
             return ":memory:"
         return self.DATA_DIR / "edinet_master.duckdb"
@@ -26,6 +29,9 @@ class Settings(BaseSettings):
     @property
     def REGISTRY_DB_PATH(self) -> str | Path:
         """Metadata and Document Catalog storage."""
+        env_val = os.getenv("REGISTRY_DB_PATH")
+        if env_val:
+            return env_val
         if os.getenv("TESTING") == "true":
             return ":memory:"
         return self.DATA_DIR / "edinet_registry.duckdb"
@@ -33,6 +39,9 @@ class Settings(BaseSettings):
     @property
     def FACTS_DB_PATH(self) -> str | Path:
         """Numerical financial data storage."""
+        env_val = os.getenv("FACTS_DB_PATH")
+        if env_val:
+            return env_val
         if os.getenv("TESTING") == "true":
             return ":memory:"
         return self.DATA_DIR / "edinet_facts.duckdb"
@@ -40,6 +49,9 @@ class Settings(BaseSettings):
     @property
     def NARRATIVE_DB_PATH(self) -> str | Path:
         """Unstructured text data storage."""
+        env_val = os.getenv("NARRATIVE_DB_PATH")
+        if env_val:
+            return env_val
         if os.getenv("TESTING") == "true":
             return ":memory:"
         return self.DATA_DIR / "edinet_narratives.duckdb"
