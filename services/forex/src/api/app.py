@@ -1,9 +1,11 @@
-from loguru import logger
-from fastapi import FastAPI, HTTPException
-from ..engine import ForexEngine
-from ..fetchers.forex_fetcher import ForexFetcher
+from datetime import datetime
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..engine import ForexEngine
+from ..fetchers.forex_fetcher import ForexFetcher
 
 app = FastAPI(title="Forex API")
 
@@ -19,8 +21,13 @@ app.add_middleware(
 engine = ForexEngine()
 fetcher = ForexFetcher()
 
+
+def get_engine():
+    return ForexEngine()
+
+
 @app.get("/rates/{symbol}")
-async def get_rates(symbol: str):
+async def get_rates(symbol: str, engine: Annotated[ForexEngine, Depends(get_engine)]):
     """
     指定された通貨の対米ドルレート(1 Unit = X USD)の履歴を取得する。
     """
@@ -28,17 +35,15 @@ async def get_rates(symbol: str):
     data = engine.get_rates(symbol)
     if not data and symbol != "USD":
         raise HTTPException(status_code=404, detail=f"No data found for {symbol}")
-    
+
+    # ... (rest of logic)
     if symbol == "USD":
-        # Dynamic response for USD
-        import pandas as pd
-        from datetime import datetime
         return [{"Date": datetime.now().strftime("%Y-%m-%d"), "Symbol": "USD", "Rate": 1.0}]
-        
     return data
 
+
 @app.get("/latest/{symbol}")
-async def get_latest_rate(symbol: str):
+async def get_latest_rate(symbol: str, engine: Annotated[ForexEngine, Depends(get_engine)]):
     """
     最新の為替レートを取得する。
     """
@@ -48,20 +53,22 @@ async def get_latest_rate(symbol: str):
         raise HTTPException(status_code=404, detail=f"No rate found for {symbol}")
     return {"symbol": symbol, "rate": rate}
 
+
 @app.post("/sync/{symbol}")
-async def sync_forex(symbol: str):
+async def sync_forex(symbol: str, engine: Annotated[ForexEngine, Depends(get_engine)]):
     """
     為替データを同期する。
     """
     symbol = symbol.upper()
     last_date = engine.get_latest_date(symbol)
     df = fetcher.fetch(symbol, last_date)
-    
+
     if df.empty:
         return {"status": "skipped", "message": "No new data to sync"}
-        
+
     engine.save_data(symbol, df)
     return {"status": "success", "rows_added": len(df)}
+
 
 @app.get("/health")
 async def health():

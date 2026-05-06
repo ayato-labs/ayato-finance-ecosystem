@@ -42,8 +42,9 @@ def test_settings_invalid_type():
     """
     不正な型の環境変数が与えられた場合にエラーになるか確認する。
     """
-    with mock.patch.dict(os.environ, {"BACKEND_PORT": "not-a-number"}), pytest.raises(
-        ValidationError
+    with (
+        mock.patch.dict(os.environ, {"BACKEND_PORT": "not-a-number"}),
+        pytest.raises(ValidationError),
     ):
         Settings(_env_file=None)
 

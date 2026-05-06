@@ -1,5 +1,7 @@
-import requests
 from pathlib import Path
+
+import requests
+
 
 def test_endpoints():
     env_path = Path(__file__).parent.parent / ".env"
@@ -19,7 +21,7 @@ def test_endpoints():
         "v3/stock/list",
         "v3/available-traded/list",
         "v3/symbol/NASDAQ",
-        "v3/search?query=AA" # Basic search to verify key is good
+        "v3/search?query=AA",  # Basic search to verify key is good
     ]
 
     print(f"Testing key: {api_key[:4]}...{api_key[-4:]}")
@@ -45,6 +47,7 @@ def test_endpoints():
                 print(f"Response: {resp.text[:100]}")
         except Exception as e:
             print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     test_endpoints()

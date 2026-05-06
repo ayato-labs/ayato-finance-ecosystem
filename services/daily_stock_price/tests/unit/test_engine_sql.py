@@ -1,4 +1,3 @@
-
 def test_engine_synced_view_sql_gen(engine):
     """Verify that get_synced_view generates a valid SQL string with correct placeholders."""
     # Register dummy path in catalog
@@ -19,6 +18,7 @@ def test_engine_synced_view_sql_gen(engine):
 
     # Check for path inclusion
     assert "dummy/path/batch_1.parquet" in sql.replace("\\", "/")
+
 
 def test_engine_empty_catalog_return(engine):
     """Verify that get_synced_view returns None for non-existent tickers."""

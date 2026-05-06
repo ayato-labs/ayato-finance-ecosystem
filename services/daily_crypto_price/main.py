@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -24,9 +25,11 @@ db = CryptoDBEngine(db_path=os.getenv("DATABASE_PATH", "crypto_prices.duckdb"))
 
 TICKER_REGEX = re.compile(r"^[A-Z0-9\-\.\_]+$")
 
+
 @app.get("/")
 async def root():
     return {"message": "Daily Crypto Price API is running"}
+
 
 @app.get("/prices/{ticker}")
 async def get_prices(ticker: str, sync: bool = Query(False)):
@@ -35,7 +38,7 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
     If sync=True, it fetches latest data from Yahoo Finance first.
     """
     clean_ticker = ticker.upper().strip()
-    
+
     # Validation
     if not TICKER_REGEX.match(clean_ticker):
         logger.warning(f"Invalid ticker format rejected: {clean_ticker}")
@@ -45,14 +48,14 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
     # Standardize ticker for crypto
     clean_ticker = clean_ticker.replace("-USD", "")
-    
+
     if sync:
         try:
             # Sync Prices
             df = fetcher.fetch_daily_data(clean_ticker)
             if not df.empty:
                 db.save_prices(clean_ticker, df)
-            
+
             # Sync Metadata
             meta = fetcher.fetch_metadata(clean_ticker)
             if meta:
@@ -66,15 +69,38 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
     if not prices:
         raise HTTPException(status_code=404, detail=f"Ticker {clean_ticker} not found")
-    
-    return {
-        "ticker": clean_ticker,
-        "prices": prices,
-        "metadata": metadata
-    }
+
+    return {"ticker": clean_ticker, "prices": prices, "metadata": metadata}
+
 
 if __name__ == "__main__":
-    host = os.getenv("CRYPTO_API_HOST", "127.0.0.1")
-    port = int(os.getenv("CRYPTO_API_PORT", "5012"))
-    logger.info(f"Starting Crypto Price API on {host}:{port}...")
-    uvicorn.run(app, host=host, port=port)
+    import argparse
+    parser = argparse.ArgumentParser(description="Daily Crypto Price API")
+    parser.add_argument("--api", action="store_true", help="Start the API server")
+    parser.add_argument("--sync", nargs="*", help="Sync specific tickers (e.g., BTC, ETH)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host for the API server")
+    parser.add_argument("--port", type=int, default=5012, help="Port for the API server")
+    
+    args = parser.parse_args()
+
+    if args.sync is not None:
+        tickers = args.sync if args.sync else ["BTC", "ETH", "SOL", "XRP", "BNB"]
+        logger.info(f"Starting crypto sync for: {tickers}")
+        for t in tickers:
+            try:
+                df = fetcher.fetch_daily_data(t)
+                if not df.empty:
+                    db.save_prices(t, df)
+                meta = fetcher.fetch_metadata(t)
+                if meta:
+                    db.save_metadata(t, meta)
+                logger.info(f"Successfully synced {t}")
+                # Rate limiting buffer
+                time.sleep(2)
+            except Exception as e:
+                logger.error(f"Failed to sync {t}: {e}")
+        print("Crypto sync complete.")
+        
+    elif args.api or (not args.sync and not args.api):
+        logger.info(f"Starting Crypto Price API on {args.host}:{args.port}...")
+        uvicorn.run(app, host=args.host, port=args.port)

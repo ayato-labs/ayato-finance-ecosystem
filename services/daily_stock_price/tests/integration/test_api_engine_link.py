@@ -8,6 +8,7 @@ STATUS_OK = 200
 STATUS_NOT_FOUND = 404
 EXPECTED_PRICE_COUNT = 5
 
+
 # Define a temporary engine for the API tests
 @pytest.fixture
 def api_client(engine):

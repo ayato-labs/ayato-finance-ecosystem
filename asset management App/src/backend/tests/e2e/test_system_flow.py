@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-import unittest.mock as mock
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,16 +54,20 @@ def test_portfolio_endpoint_full_flow(client):
     Test the main /portfolio endpoint.
     Mocks external APIs to avoid actual network calls in E2E backend test.
     """
-    with mock.patch(
-        "core.aggregator.ExternalApiAggregator.get_latest_price", return_value=40000.0
-    ), mock.patch(
-        "core.aggregator.ExternalApiAggregator.get_benchmark_performance", return_value=10.0
-    ), mock.patch(
-        "core.aggregator.ExternalApiAggregator.get_latest_macro_value", return_value=4.5
-    ), mock.patch(
-        "core.aggregator.ExternalApiAggregator.get_historical_data_raw", return_value=[]
-    ), mock.patch(
-        "core.aggregator.ExternalApiAggregator.get_latest_exchange_rate", return_value=1.0
+    with (
+        mock.patch("core.aggregator.ExternalApiAggregator.get_latest_price", return_value=40000.0),
+        mock.patch(
+            "core.aggregator.ExternalApiAggregator.get_benchmark_performance", return_value=10.0
+        ),
+        mock.patch(
+            "core.aggregator.ExternalApiAggregator.get_latest_macro_value", return_value=4.5
+        ),
+        mock.patch(
+            "core.aggregator.ExternalApiAggregator.get_historical_data_raw", return_value=[]
+        ),
+        mock.patch(
+            "core.aggregator.ExternalApiAggregator.get_latest_exchange_rate", return_value=1.0
+        ),
     ):
         response = client.get("/portfolio?currency=USD")
         assert response.status_code == 200

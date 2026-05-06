@@ -3,10 +3,10 @@ from fastapi import FastAPI, HTTPException
 from ..engine import IndexEngine
 from ..fetchers.yf_fetcher import YFinanceFetcher
 
-
 app = FastAPI(title="Market Index API")
 engine = IndexEngine()
 fetcher = YFinanceFetcher()
+
 
 @app.get("/prices/{ticker}")
 async def get_prices(ticker: str):
@@ -17,6 +17,7 @@ async def get_prices(ticker: str):
     if not data:
         raise HTTPException(status_code=404, detail=f"No data found for {ticker}")  # noqa: PLR2004
     return data
+
 
 @app.post("/sync/{ticker}")
 async def sync_ticker(ticker: str):
@@ -31,6 +32,7 @@ async def sync_ticker(ticker: str):
 
     engine.save_data(ticker, df)
     return {"status": "success", "rows_added": len(df)}
+
 
 @app.get("/health")
 async def health():

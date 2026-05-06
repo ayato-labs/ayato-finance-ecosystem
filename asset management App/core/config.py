@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     アプリケーション全体の設定を管理するクラス。
     環境変数(.env)から読み込み、デフォルト値を保持する。
     """
+
     # API URLs
     price_api_url: str = "http://127.0.0.1:5005"
     financials_api_url: str = "http://127.0.0.1:5006"

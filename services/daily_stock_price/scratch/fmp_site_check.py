@@ -1,5 +1,7 @@
-import requests
 from pathlib import Path
+
+import requests
+
 
 def test_site_subdomain():
     env_path = Path(__file__).parent.parent / ".env"
@@ -16,17 +18,14 @@ def test_site_subdomain():
         return
 
     # Modern FMP endpoints often use 'site.' subdomain in some regions/versions
-    bases = [
-        "https://financialmodelingprep.com/api",
-        "https://site.financialmodelingprep.com/api"
-    ]
-    
+    bases = ["https://financialmodelingprep.com/api", "https://site.financialmodelingprep.com/api"]
+
     # v3 vs v4
     endpoints = [
         "v3/stock/list",
-        "v3/symbol/available-traded", # Different variation
+        "v3/symbol/available-traded",  # Different variation
         "v4/stock-symbol",
-        "v3/quote/AAPL"
+        "v3/quote/AAPL",
     ]
 
     print(f"Testing key: {api_key[:4]}...{api_key[-4:]}")
@@ -41,11 +40,13 @@ def test_site_subdomain():
                 if resp.status_code == 200:
                     data = resp.json()
                     print(f"Count: {len(data)}")
-                    if len(data) > 0: print("Sample:", data[0])
+                    if len(data) > 0:
+                        print("Sample:", data[0])
                 else:
                     print(f"Response: {resp.text[:100]}")
             except Exception as e:
                 print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     test_site_subdomain()

@@ -15,6 +15,7 @@ STATUS_OK = 200
 STATUS_NOT_FOUND = 404
 EXPECTED_PARTIAL_COUNT = 1
 
+
 @pytest.fixture
 def client():
     db_path = "tests/e2e_test.duckdb"
@@ -31,6 +32,7 @@ def client():
         path.unlink()
     main.db = original_db
 
+
 def test_full_sync_and_retrieval_flow(client):
     """
     Scenario: User requests BTC for the first time with sync.
@@ -45,6 +47,7 @@ def test_full_sync_and_retrieval_flow(client):
     assert resp_cached.status_code == STATUS_OK
     assert resp.json() == resp_cached.json()
 
+
 def test_system_handles_fetcher_failure(client):
     """
     Scenario: YFinance fails (network down).
@@ -58,15 +61,22 @@ def test_system_handles_fetcher_failure(client):
         # Should fail to sync but try to get from DB. DB is empty, so 404.
         assert resp.status_code == STATUS_NOT_FOUND
 
+
 def test_system_handles_partial_data(client):
     """
     Scenario: Prices are fetched but metadata fails.
     Expect: Prices are returned, metadata is null.
     """
-    mock_df = pd.DataFrame({
-        "Date": ["2023-01-01"], "Open": [1.0], "High": [1.1],
-        "Low": [0.9], "Close": [1.0], "Volume": [100]
-    })
+    mock_df = pd.DataFrame(
+        {
+            "Date": ["2023-01-01"],
+            "Open": [1.0],
+            "High": [1.1],
+            "Low": [0.9],
+            "Close": [1.0],
+            "Volume": [100],
+        }
+    )
 
     with (
         mock.patch.object(fetcher_mod.CryptoPriceFetcher, "fetch_daily_data", return_value=mock_df),
@@ -77,6 +87,7 @@ def test_system_handles_partial_data(client):
         data = resp.json()
         assert len(data["prices"]) == EXPECTED_PARTIAL_COUNT
         assert data["metadata"] is None
+
 
 def test_strict_invalid_data_handling(client):
     """

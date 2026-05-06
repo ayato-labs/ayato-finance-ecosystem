@@ -12,16 +12,19 @@ def test_fetcher_standardizes_ticker():
     assert "Close" in df.columns
     assert len(df) >= 1
 
+
 def test_fetcher_handles_invalid_ticker():
     fetcher = CryptoPriceFetcher()
     df = fetcher.fetch_daily_data("NON_EXISTENT_COIN_12345", days=1)
     assert df.empty
+
 
 def test_fetcher_handles_days_parameter():
     fetcher = CryptoPriceFetcher()
     df = fetcher.fetch_daily_data("BTC", days=5)
     # yfinance might return 4-6 days depending on the time, but definitely more than 1
     assert len(df) > 1
+
 
 def test_fetcher_fetches_metadata_success():
     fetcher = CryptoPriceFetcher()
@@ -31,6 +34,7 @@ def test_fetcher_fetches_metadata_success():
     assert "circulating_supply" in meta
     assert meta["circulating_supply"] > 0
     assert "description" in meta
+
 
 def test_fetcher_metadata_invalid_ticker():
     fetcher = CryptoPriceFetcher()

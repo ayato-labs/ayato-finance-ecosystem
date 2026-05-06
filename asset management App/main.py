@@ -147,8 +147,7 @@ async def get_portfolio(currency: str = "JPY"):
         display_currency = currency.upper()
         currencies_needed = list(
             set(
-                [pos[4] for pos in positions if len(pos) > 4 and pos[4]]
-                + ["USD", display_currency]
+                [pos[4] for pos in positions if len(pos) > 4 and pos[4]] + ["USD", display_currency]
             )
         )
         forex_tasks = {
@@ -319,9 +318,7 @@ async def get_portfolio(currency: str = "JPY"):
                 asset.total_quantity * asset.average_price
             )
             cost_total = asset.total_quantity * asset.average_price
-            asset.gain_percent = (
-                (asset.unrealized_gain / cost_total * 100) if cost_total > 0 else 0
-            )
+            asset.gain_percent = (asset.unrealized_gain / cost_total * 100) if cost_total > 0 else 0
 
         logger.info(
             f"Alpha calculation complete: Alpha={alpha_percent:.2f}% "
@@ -366,8 +363,7 @@ async def get_portfolio(currency: str = "JPY"):
 
         holdings = {pos[0]: pos[2] for pos in positions}
         current_sp500_price_usd = (
-            sp500_map.get(datetime.now().strftime("%Y-%m-%d"))
-            or list(sp500_map.values())[-1]
+            sp500_map.get(datetime.now().strftime("%Y-%m-%d")) or list(sp500_map.values())[-1]
             if sp500_map
             else 0
         )

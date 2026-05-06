@@ -4,6 +4,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class CatalogManager:
     def __init__(self, db_path: str = "./data/catalog.sqlite"):
         self.db_path = Path(db_path)
@@ -47,26 +48,30 @@ class CatalogManager:
             processed_data.append((ticker, rel_path, data_type))
 
         with sqlite3.connect(str(self.db_path)) as conn:
-            conn.executemany("""
+            conn.executemany(
+                """
                 INSERT OR IGNORE INTO ticker_index (ticker, file_path, data_type)
                 VALUES (?, ?, ?)
-            """, processed_data)
+            """,
+                processed_data,
+            )
 
     def get_paths(self, ticker: str, data_type: str = "price") -> list[str]:
         """Retrieve list of file paths containing the specific ticker."""
         with sqlite3.connect(str(self.db_path), timeout=5.0) as conn:
-            res = conn.execute("""
+            res = conn.execute(
+                """
                 SELECT file_path FROM ticker_index
                 WHERE ticker = ? AND data_type = ?
-            """, (ticker, data_type)).fetchall()
+            """,
+                (ticker, data_type),
+            ).fetchall()
             return [r[0] for r in res]
 
     def get_stats(self) -> dict:
         """Get summary statistics of the catalog."""
         with sqlite3.connect(str(self.db_path)) as conn:
-            total_mappings = conn.execute(
-                "SELECT COUNT(*) FROM ticker_index"
-            ).fetchone()[0]
+            total_mappings = conn.execute("SELECT COUNT(*) FROM ticker_index").fetchone()[0]
             unique_tickers = conn.execute(
                 "SELECT COUNT(DISTINCT ticker) FROM ticker_index"
             ).fetchone()[0]
@@ -76,7 +81,7 @@ class CatalogManager:
             return {
                 "total_mappings": total_mappings,
                 "unique_tickers": unique_tickers,
-                "unique_files": unique_files
+                "unique_files": unique_files,
             }
 
     def clear(self):
