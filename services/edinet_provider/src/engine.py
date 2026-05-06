@@ -33,7 +33,7 @@ class JPEDINETEngine:
         except Exception as e:
             logger.error(f"Failed to execute VACUUM: {e}")
 
-    def sync_market(self, days: int = 30, session_id: str = "market-sync", max_workers: int = 20):
+    def sync_market(self, days: int = 30, session_id: str = "market-sync", max_workers: int = 5):
         logger.info(f"🚀 Launching Ultra-Fast Mode: Syncing market for the last {days} days...")
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=days)
@@ -64,7 +64,7 @@ class JPEDINETEngine:
         self._process_docs_concurrently(all_docs, session_id, max_workers)
         self._vacuum_db()
 
-    def sync_company(self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 20):
+    def sync_company(self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 5):
         """Sync specific company's latest filings."""
         logger.info(f"🔍 Syncing JP Company {ticker} (Last {days} days)...")
         try:
@@ -137,7 +137,7 @@ class JPEDINETEngine:
                 with db_manager.connect_master() as conn:
                     self._flush_results_to_db(conn, results_batch)
 
-    def backfill_missing_data(self, max_workers: int = 20):
+    def backfill_missing_data(self, max_workers: int = 5):
         logger.info("Starting backfill for missing data...")
         
         # Step 1: Query missing records using a READ-ONLY connection

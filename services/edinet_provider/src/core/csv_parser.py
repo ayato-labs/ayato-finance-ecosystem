@@ -57,7 +57,7 @@ def parse_edinet_csv(content: bytes):
                                 continue
                             f.seek(0)
                             
-                            df = pd.read_csv(f, encoding="cp932", skiprows=1, on_bad_lines='warn', encoding_errors="replace")
+                            df = pd.read_csv(f, encoding="cp932", skiprows=1, on_bad_lines='skip', encoding_errors="replace")
                             results[file_name] = df
                     except Exception as e:
                         logger.error(
