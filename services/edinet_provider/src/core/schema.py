@@ -87,7 +87,7 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "ddl": """
                     CREATE TABLE IF NOT EXISTS narratives (
                         doc_id VARCHAR NOT NULL,
-                        section_name section_name_t NOT NULL,
+                        section_name VARCHAR NOT NULL,
                         content_md VARCHAR NOT NULL USING COMPRESSION ZSTD,
                         session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
