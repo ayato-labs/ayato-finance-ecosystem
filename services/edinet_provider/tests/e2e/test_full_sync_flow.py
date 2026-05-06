@@ -7,6 +7,7 @@ class MockDoc:
     def __init__(self, doc_id, sec_code="1234"):
         self._data = {
             "docID": doc_id,
+            "edinetCode": "E99999",
             "secCode": sec_code,
             "filerName": "E2E Filer",
             "docDescription": "E2E Desc",
