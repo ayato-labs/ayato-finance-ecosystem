@@ -28,13 +28,10 @@ class JPEDINETEngine:
         logger.info("Running DB VACUUM to reclaim storage space...")
         try:
             with db_manager.connect_master() as conn:
-                conn.execute("VACUUM;") # Master
-                conn.execute("VACUUM registry_db;")
-                conn.execute("VACUUM facts_db;")
-                conn.execute("VACUUM narr_db;")
+                conn.execute("VACUUM;") # Only main database vacuum is reliably supported across versions
             logger.info("VACUUM completed successfully.")
         except Exception as e:
-            logger.error(f"Failed to execute VACUUM: {e}", exc_info=True)
+            logger.error(f"Failed to execute VACUUM: {e}")
 
     def sync_market(self, days: int = 30, session_id: str = "market-sync", max_workers: int = 20):
         logger.info(f"🚀 Launching Ultra-Fast Mode: Syncing market for the last {days} days...")
