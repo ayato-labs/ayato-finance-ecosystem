@@ -16,20 +16,24 @@ def get_csv_from_edinet(doc_id: str, api_key: str):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            logger.debug(f"Fetching CSV from EDINET: {doc_id} (Attempt {attempt + 1})")
+            logger.debug(f"Fetching CSV: {doc_id} (Attempt {attempt + 1}/{max_retries})")
             with urllib.request.urlopen(url, timeout=30) as response:
-                return response.read()
+                content = response.read()
+                logger.debug(f"Successfully fetched CSV for {doc_id}, size: {len(content)} bytes")
+                return content
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 wait = 2 ** attempt
-                logger.warning(f"Rate limited (429). Waiting {wait}s...")
+                logger.warning(f"Rate limited (429) on attempt {attempt + 1} for {doc_id}. Waiting {wait}s...")
                 time.sleep(wait)
                 continue
-            logger.error(f"HTTP Error {e.code} for {doc_id}")
+            logger.error(f"HTTP Error {e.code} for {doc_id}: {e.reason}")
             return None
         except Exception as e:
-            logger.error(f"Failed to fetch {doc_id}: {e}")
-            return None
+            logger.error(f"Failed to fetch {doc_id} on attempt {attempt + 1}: {e}", exc_info=True)
+            if attempt == max_retries - 1:
+                return None
+            time.sleep(1)
     return None
 
 def parse_edinet_csv(content: bytes):
