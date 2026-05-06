@@ -1,6 +1,7 @@
 import concurrent.futures
 import datetime
 import pandas as pd
+import zstandard as zstd
 from loguru import logger
 
 import edinet_tools
@@ -263,9 +264,11 @@ class JPEDINETEngine:
 
         # 2. Narratives (narr_db)
         narrative_batch = []
+        cctx = zstd.ZstdCompressor(level=3)
         for r in results:
             for n in r["narratives"]:
-                narrative_batch.append((n["doc_id"], n["section_name"], n["content_md"], n["session_id"]))
+                compressed_content = cctx.compress(n["content_md"].encode("utf-8"))
+                narrative_batch.append((n["doc_id"], n["section_name"], compressed_content, n["session_id"]))
         
         if narrative_batch:
             self._batch_insert_resilient(
