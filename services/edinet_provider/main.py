@@ -1,5 +1,6 @@
 import argparse
 import time
+from loguru import logger
 from src.core.logging_config import setup_logging
 from src.engine import JPEDINETEngine
 

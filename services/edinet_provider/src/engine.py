@@ -12,7 +12,6 @@ from loguru import logger
 from src.core.config import settings
 from src.core.contracts import CompanyFact, FilingMetadata, NarrativeBlock
 from src.core.db import db_manager
-from src.core.governance import governor
 from src.core.migrations import MigrationManager
 from src.core.tracing import with_context
 

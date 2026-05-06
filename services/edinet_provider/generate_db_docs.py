@@ -27,9 +27,12 @@ def main():
                 for c in cols:
                     name, type_, null, pk, def_, extra = c
                     constraints = []
-                    if pk == 'PRI': constraints.append("PRIMARY KEY")
-                    if null == 'NO': constraints.append("NOT NULL")
-                    if def_: constraints.append(f"DEFAULT {def_}")
+                    if pk == 'PRI':
+                        constraints.append("PRIMARY KEY")
+                    if null == 'NO':
+                        constraints.append("NOT NULL")
+                    if def_:
+                        constraints.append(f"DEFAULT {def_}")
                     print(f"| {name} | {type_} | {', '.join(constraints)} |")
                 print()
             conn.close()
