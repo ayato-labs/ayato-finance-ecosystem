@@ -1,4 +1,3 @@
-import os
 from src.core.config import settings
 from src.core.csv_parser import get_csv_from_edinet, parse_edinet_csv
 from loguru import logger
