@@ -207,10 +207,11 @@ class USEngine:
                 
                 # Use ThreadPool for parallel parsing with a conservative worker count
                 num_workers = min(os.cpu_count() or 4, 4)
+                chunk_size = 1000  # Process files in chunks to avoid massive Future lists
+                
                 with ThreadPoolExecutor(max_workers=num_workers) as executor:
                     def process_file(file_info_name):
                         try:
-                            # Use a separate ZipFile object per thread to avoid contention/errors
                             with zipfile.ZipFile(zip_path, "r") as z_inner:
                                 with z_inner.open(file_info_name) as f:
                                     content = f.read().decode("utf-8")
@@ -221,31 +222,37 @@ class USEngine:
                             logger.error(f"Parse error {file_info_name}: {e}")
                             return [], []
 
-                    # Map filenames to the processor
-                    # Using a generator with imap/executor.map would be better,
-                    # but let's use submit for fine-grained control if needed.
-                    futures = [executor.submit(process_file, info.filename) for info in all_files]
-                    
-                    for i, future in enumerate(futures):
-                        if i % 500 == 0:
-                            mem = process.memory_info().rss / 1024 / 1024
-                            logger.info(f"Progress: {i}/{total_files} | Mem: {mem:.2f}MB")
-
-                        filing_recs, fact_recs = future.result()
+                    for chunk_idx in range(0, total_files, chunk_size):
+                        chunk = all_files[chunk_idx : chunk_idx + chunk_size]
+                        futures = [executor.submit(process_file, info.filename) for info in chunk]
                         
-                        if filing_recs:
-                            batch_filings.extend(filing_recs)
-                            batch_facts.extend(fact_recs)
+                        for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                            current_total = chunk_idx + i
+                            if current_total % 500 == 0:
+                                mem = process.memory_info().rss / 1024 / 1024
+                                logger.info(f"Progress: {current_total}/{total_files} | Mem: {mem:.2f}MB")
 
-                            if len(batch_facts) >= 100000:
-                                # Send to writer queue
-                                write_queue.put((batch_filings, batch_facts))
-                                batch_filings = []
-                                batch_facts = []
+                            filing_recs, fact_recs = future.result()
+                            
+                            if filing_recs:
+                                batch_filings.extend(filing_recs)
+                                batch_facts.extend(fact_recs)
+
+                                # Reduced batch size for RAM stability (100k -> 50k)
+                                if len(batch_facts) >= 50000:
+                                    write_queue.put((batch_filings, batch_facts))
+                                    batch_filings = []
+                                    batch_facts = []
+                        
+                        # Explicitly clear futures and trigger GC after each chunk
+                        del futures
+                        gc.collect()
 
                     # Final batch
                     if batch_filings or batch_facts:
                         write_queue.put((batch_filings, batch_facts))
+                        batch_filings = []
+                        batch_facts = []
 
         finally:
             # Signal writer to stop
@@ -318,7 +325,8 @@ class USEngine:
                 logger.debug("Converting value to numeric")
                 df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
 
-                sub_batch_size = 100000
+                # Reduced sub-batch size for RAM stability (100k -> 50k)
+                sub_batch_size = 50000
                 logger.debug(f"Starting chunked insert for {len(df)} facts")
                 for i in range(0, len(df), sub_batch_size):
                     logger.debug(f"Processing chunk {i}")

@@ -32,8 +32,8 @@ class Settings(BaseSettings):
         
         import psutil
         total_mem = psutil.virtual_memory().total
-        # Use 70% of total RAM, minimum 2GB
-        limit_gb = max(2, int((total_mem * 0.7) / (1024**3)))
+        # Use 40% of total RAM (leaving 60% for Python, OS, and buffers), minimum 2GB
+        limit_gb = max(2, int((total_mem * 0.4) / (1024**3)))
         return f"{limit_gb}GB"
 
     @property
