@@ -13,10 +13,18 @@ class JPEDINETEngine:
     def __init__(self):
         self.ingestor = DataIngestor()
         self.repo = DataRepository()
-        self._init_db()
+        self._db_initialized = False
 
-    def _init_db(self):
-        MigrationManager.apply_migrations()
+    def _ensure_db_initialized(self):
+        """Lazy initialization: only runs migrations when a write action is requested."""
+        if not self._db_initialized:
+            logger.info("Initializing database and checking migrations...")
+            try:
+                MigrationManager.apply_migrations()
+                self._db_initialized = True
+            except Exception as e:
+                logger.critical(f"Failed to initialize database: {e}")
+                raise
 
     def sync_market(
         self,
@@ -24,7 +32,9 @@ class JPEDINETEngine:
         end_date: datetime.date = None,
         session_id: str = "market-sync",
         max_workers: int = 5,
+        run_vacuum: bool = False,
     ):
+        self._ensure_db_initialized()
         if end_date is None:
             end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=days - 1)
@@ -57,10 +67,16 @@ class JPEDINETEngine:
             logger.critical(f"Market sync pipeline failed: {e}", exc_info=True)
             raise
         finally:
-            self._vacuum_db()
+            if run_vacuum:
+                self._vacuum_db()
 
     def sync_company(
-        self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 5
+        self,
+        ticker: str,
+        days: int = 30,
+        session_id: str = "manual",
+        max_workers: int = 5,
+        run_vacuum: bool = False,
     ):
         logger.info(f"🔍 Syncing JP Company {ticker} (Last {days} days)...")
         try:
@@ -75,9 +91,11 @@ class JPEDINETEngine:
             logger.error(f"❌ Failed to sync {ticker}: {e}", exc_info=True)
             raise
         finally:
-            self._vacuum_db()
+            if run_vacuum:
+                self._vacuum_db()
 
     def backfill_missing_data(self, max_workers: int = 5):
+        self._ensure_db_initialized()
         self.ingestor.backfill_missing_data(max_workers=max_workers)
         self._vacuum_db()
 

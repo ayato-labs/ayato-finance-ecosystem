@@ -63,25 +63,25 @@ class DuckDBManager:
         
         start_time = time.time()
         conn = None
+        current_pid = os.getpid()
 
-        logger.debug(f"Attempting to connect to master DB: {master_path}")
+        logger.debug(f"[PID:{current_pid}] Attempting to connect to master DB: {master_path}")
         while time.time() - start_time < timeout_seconds:
             try:
                 with DuckDBManager._local_lock:
                     if is_memory:
+                        # ... (existing memory logic)
                         if DuckDBManager._memory_conn is None:
                             DuckDBManager._memory_conn = duckdb.connect(":memory:")
-                            # For in-memory, we still want the aliases to exist to keep SQL consistent
-                            # We attach other in-memory dbs as shards
                             DuckDBManager._memory_conn.execute("ATTACH ':memory:' AS registry_db")
                             DuckDBManager._memory_conn.execute("ATTACH ':memory:' AS facts_db")
                             DuckDBManager._memory_conn.execute("ATTACH ':memory:' AS narr_db")
                         conn = DuckDBManager._memory_conn
-                        # We don't close the in-memory connection until process exit or reset
                         yield conn
                         return
                     else:
                         conn = duckdb.connect(master_path, read_only=read_only)
+                        # ... (rest of disk logic)
                         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
                         
                         # ATTACH the tiered architecture
@@ -105,8 +105,11 @@ class DuckDBManager:
                         conn.execute(f"ATTACH IF NOT EXISTS '{narr_path}' AS narr_db{ro_suffix}")
                 break
             except (duckdb.IOException, duckdb.ConnectionException, OSError) as e:
-                logger.warning(f"Database contention at {master_path}: {e}. Retrying...")
-                time.sleep(0.5)
+                logger.warning(
+                    f"[{current_pid}] DB Contention at {master_path}. "
+                    f"Error: {e}. Retrying (Elapsed: {time.time() - start_time:.1f}s)..."
+                )
+                time.sleep(1.0)
             except Exception as e:
                 logger.error(f"Unexpected database error: {e}", exc_info=True)
                 raise
