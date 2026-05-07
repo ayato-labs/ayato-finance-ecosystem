@@ -1,6 +1,4 @@
 @echo off
-:: FREDデータ同期バッチファイル
-cd /d %~dp0
-call .venv\Scripts\activate
-python main.py sync --symbols DFF UNRATE
+echo Running daily differential update...
+.venv\Scripts\python main.py sync --symbols DFF UNRATE
 pause
