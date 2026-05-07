@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     Application settings and configuration.
     Values are loaded from environment variables or .env file.
     """
+
     # EDINET API Requirements
     EDINET_API_KEY: str = ""
 

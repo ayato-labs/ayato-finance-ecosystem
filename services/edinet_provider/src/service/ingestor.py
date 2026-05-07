@@ -39,9 +39,7 @@ class DataIngestor:
                 logger.error(f"Failed to query existing filings: {e}", exc_info=True)
                 raise  # Do not swallow registry query failures
 
-        docs_to_process = [
-            doc for doc in docs if doc._data.get("docID") not in existing_doc_ids
-        ]
+        docs_to_process = [doc for doc in docs if doc._data.get("docID") not in existing_doc_ids]
 
         if not docs_to_process:
             logger.info("All documents are up-to-date. Skipping ingestion.")
@@ -49,7 +47,7 @@ class DataIngestor:
 
         logger.info(f"Processing {len(docs_to_process)} new documents (Session: {session_id})...")
         processed_count = 0
-        
+
         # Start the background writer
         self.writer.start()
 
@@ -85,10 +83,12 @@ class DataIngestor:
                             status_info.get("error"),
                         )
                         self.writer.put("log", log_data)
-                        
+
                         processed_count += 1
                         if processed_count % 10 == 0:
-                            logger.info(f"Progress: {processed_count}/{len(docs_to_process)} (Queued)")
+                            logger.info(
+                                f"Progress: {processed_count}/{len(docs_to_process)} (Queued)"
+                            )
                     except Exception as e:
                         logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
@@ -153,9 +153,7 @@ class DataIngestor:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_info = {
-                    executor.submit(
-                        with_context(self._process_single_doc), d, sc, "backfill"
-                    ): d
+                    executor.submit(with_context(self._process_single_doc), d, sc, "backfill"): d
                     for d, sc in docs_to_process
                 }
                 for future in concurrent.futures.as_completed(future_to_info):
@@ -164,9 +162,11 @@ class DataIngestor:
                         if result:
                             self.writer.put("ingest", result)
                             processed_count += 1
-                        
+
                         if processed_count % 10 == 0:
-                            logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)} (Queued)")
+                            logger.info(
+                                f"Backfill Progress: {processed_count}/{len(docs_to_process)} (Queued)"
+                            )
                     except Exception as e:
                         logger.error(f"Backfill processing error: {e}")
         finally:

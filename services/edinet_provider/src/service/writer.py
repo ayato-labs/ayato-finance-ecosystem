@@ -2,7 +2,7 @@ import threading
 import queue
 from loguru import logger
 from src.infra.db import db_manager
-import datetime
+
 
 class DatabaseWriter:
     """
@@ -11,6 +11,7 @@ class DatabaseWriter:
     This prevents contention by ensuring only one thread/process handles writes
     at a specific time, and analysis happens outside the lock.
     """
+
     def __init__(self, batch_size=20):
         self.queue = queue.Queue()
         self.batch_size = batch_size
@@ -39,24 +40,24 @@ class DatabaseWriter:
     def _run(self):
         results_batch = []
         logs_batch = []
-        
+
         while not self._stop_event.is_set() or not self.queue.empty():
             try:
                 # Wait for data with a timeout to check stop_event
                 item = self.queue.get(timeout=1.0)
                 res_type, data = item
-                
+
                 if res_type == "ingest":
                     results_batch.append(data)
                 elif res_type == "log":
                     logs_batch.append(data)
-                
+
                 # Flush if batch size reached
                 if len(results_batch) >= self.batch_size or len(logs_batch) >= self.batch_size:
                     self._flush(results_batch, logs_batch)
                     results_batch.clear()
                     logs_batch.clear()
-                
+
                 self.queue.task_done()
             except queue.Empty:
                 # Flush remaining if empty for a while
@@ -75,7 +76,7 @@ class DatabaseWriter:
     def _flush(self, results, logs):
         if not results and not logs:
             return
-            
+
         logger.debug(f"Writer flushing {len(results)} results and {len(logs)} logs to DB...")
         try:
             with db_manager.connect_master() as conn:

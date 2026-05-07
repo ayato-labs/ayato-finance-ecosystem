@@ -5,6 +5,7 @@ from src.core.db import db_manager
 # Ensure testing environment variable is set before any config imports
 os.environ["TESTING"] = "true"
 
+
 @pytest.fixture(autouse=True)
 def reset_db_each_test():
     """
@@ -15,6 +16,7 @@ def reset_db_each_test():
         db_manager._reset_memory_db()
     yield
 
+
 @pytest.fixture(scope="function")
 def engine(reset_db_each_test):
     """
@@ -22,7 +24,9 @@ def engine(reset_db_each_test):
     Depends on reset_db_each_test to ensure migrations run on a clean DB.
     """
     from src.engine import JPEDINETEngine
+
     return JPEDINETEngine()
+
 
 @pytest.fixture(scope="session")
 def db():

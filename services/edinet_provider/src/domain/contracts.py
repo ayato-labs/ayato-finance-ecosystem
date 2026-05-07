@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 class DataContract(BaseModel):
     """Base class for all data contracts in the EDINET Provider."""
+
     model_config = ConfigDict(strict=True, extra="ignore")
 
 
@@ -26,6 +27,7 @@ class FiscalPeriod(str, Enum):
 
 class FilingMetadata(DataContract):
     """Metadata for every filed document (Registry Layer)."""
+
     doc_id: str
     edinet_code: str | None = None
     sec_code: str | None = None
@@ -67,6 +69,7 @@ class FilingMetadata(DataContract):
 
 class CompanyFact(DataContract):
     """Numerical financial data (Facts Layer)."""
+
     doc_id: str
     item_name: str
     item_value: float | None = None
@@ -79,6 +82,7 @@ class CompanyFact(DataContract):
 
 class NarrativeBlock(DataContract):
     """Extracted text blocks (Narratives Layer)."""
+
     doc_id: str
     section_name: str  # e.g., '事業等のリスク', '経営方針'
     content_md: str

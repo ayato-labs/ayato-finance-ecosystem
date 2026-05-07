@@ -2,6 +2,7 @@ import sys
 from loguru import logger
 from pathlib import Path
 
+
 def setup_logging():
     # Clear existing handlers
     logger.remove()
@@ -13,34 +14,37 @@ def setup_logging():
     logger.add(
         sys.stderr,
         level="DEBUG",
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
-               "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        enqueue=True
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        enqueue=True,
     )
 
     # 2. General app log (Structured JSON)
-    # Uses timestamp to ensure each run is a new file, retention=2 keeps last two runs.
+    # Retention=2 keeps only the last 2 log files.
+    app_log_format = "app.{time:YYYY-MM-DD_HH-mm-ss_SSSSSS}.log"
     logger.add(
-        log_dir / "app_{time:YYYY-MM-DD_HH-mm-ss}.log",
-        format="{message}",
+        log_dir / app_log_format,
+        level="INFO",
         serialize=True,
         retention=2,
-        level="INFO",
-        enqueue=True
+        enqueue=True,
+        backtrace=True,
+        diagnose=True,
     )
 
     # 3. Dedicated Error Isolation (Structured JSON)
-    # Always appends to error.log for historical tracking of failures.
-    # Rotates at 10MB to prevent bloat, but error isolation is the priority.
     logger.add(
         log_dir / "error.log",
-        format="{message}",
+        level="ERROR",
         serialize=True,
         rotation="10 MB",
         retention=5,
-        level="ERROR",
-        filter=lambda record: record["level"].name == "ERROR",
-        enqueue=True
+        enqueue=True,
+        backtrace=True,
+        diagnose=True,
     )
 
-    logger.info("Observability platform initialized with run-based rotation.")
+    logger.debug(
+        "Logging initialized. App logs limited to last 2 runs. Errors isolated to error.log."
+    )

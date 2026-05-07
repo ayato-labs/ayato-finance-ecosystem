@@ -22,7 +22,9 @@ def main():
     elif args.market:
         engine.sync_market(days=args.days, session_id=session_id, max_workers=args.workers)
     elif args.ticker:
-        engine.sync_company(args.ticker, days=args.days, session_id=session_id, max_workers=args.workers)
+        engine.sync_company(
+            args.ticker, days=args.days, session_id=session_id, max_workers=args.workers
+        )
     else:
         parser.print_help()
 

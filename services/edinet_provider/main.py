@@ -27,6 +27,7 @@ def main():
     if args.command == "ingest":
         # Forward to ingestion CLI
         from src.apps.ingestion.cli import main as ingestion_main
+
         sys.argv = [sys.argv[0]] + unknown
         if args.ticker:
             sys.argv.extend(["--ticker", args.ticker])
@@ -41,13 +42,17 @@ def main():
     elif args.command == "api":
         logger.info(f"Starting API server on {args.host}:{args.port}...")
         try:
-            subprocess.run([
-                "uvicorn", 
-                "src.apps.api.server:app", 
-                "--host", args.host, 
-                "--port", str(args.port),
-                "--reload"
-            ])
+            subprocess.run(
+                [
+                    "uvicorn",
+                    "src.apps.api.server:app",
+                    "--host",
+                    args.host,
+                    "--port",
+                    str(args.port),
+                    "--reload",
+                ]
+            )
         except KeyboardInterrupt:
             logger.info("API server stopped.")
     else:

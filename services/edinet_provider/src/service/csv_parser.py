@@ -14,8 +14,7 @@ def get_csv_from_edinet(doc_id: str, api_key: str):
     Uses standard urllib to bypass environment-specific issues.
     """
     url = (
-        f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
-        f"?type=5&Subscription-Key={api_key}"
+        f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}?type=5&Subscription-Key={api_key}"
     )
 
     max_retries = 3
@@ -28,10 +27,9 @@ def get_csv_from_edinet(doc_id: str, api_key: str):
                 return content
         except urllib.error.HTTPError as e:
             if e.code == 429:
-                wait = 2 ** attempt
+                wait = 2**attempt
                 logger.warning(
-                    f"Rate limited (429) on attempt {attempt + 1} for {doc_id}. "
-                    f"Waiting {wait}s..."
+                    f"Rate limited (429) on attempt {attempt + 1} for {doc_id}. Waiting {wait}s..."
                 )
                 time.sleep(wait)
                 continue

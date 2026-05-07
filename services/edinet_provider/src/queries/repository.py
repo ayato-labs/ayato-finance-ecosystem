@@ -41,7 +41,9 @@ class DataRepository:
         try:
             time.sleep(0.2)
             docs = edinet_tools.documents(date=target_date)
-            logger.info(f"Retrieved {len(docs) if docs else 0} documents from API for {target_date}")
+            logger.info(
+                f"Retrieved {len(docs) if docs else 0} documents from API for {target_date}"
+            )
         except Exception as e:
             logger.error(f"EDINET API failure for date {target_date}: {e}")
             raise
@@ -49,9 +51,7 @@ class DataRepository:
         if docs is not None:
             try:
                 with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump(
-                        [doc._data for doc in docs], f, ensure_ascii=False, indent=2
-                    )
+                    json.dump([doc._data for doc in docs], f, ensure_ascii=False, indent=2)
                 logger.debug(f"Documents for {target_date} cached to {cache_file}")
             except Exception as e:
                 logger.warning(f"Failed to save cache {cache_file}: {e}")

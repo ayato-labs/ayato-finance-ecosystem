@@ -2,6 +2,7 @@
 Schema-as-Code: The authoritative definition of the EDINET Provider database.
 This file serves as the Single Source of Truth (SSoT) for DDL and documentation.
 """
+
 from typing import Dict, Any, Type
 from src.domain.contracts import FilingMetadata, CompanyFact, NarrativeBlock, DataContract
 
@@ -16,7 +17,7 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         version INTEGER PRIMARY KEY,
                         applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """
+                """,
             },
             "ingestion_log": {
                 "description": "Tracks sync status and self-healing progress",
@@ -28,9 +29,9 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         retry_count INTEGER DEFAULT 0,
                         error_message TEXT
                     )
-                """
-            }
-        }
+                """,
+            },
+        },
     },
     "registry_db": {
         "description": "Registry Database - Document Catalog & Metadata",
@@ -51,9 +52,9 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         session_id VARCHAR,
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """
+                """,
             }
-        }
+        },
     },
     "facts_db": {
         "description": "Facts Database - Numerical Financial Data",
@@ -74,9 +75,9 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, item_name, context_id)
                     )
-                """
+                """,
             }
-        }
+        },
     },
     "narr_db": {
         "description": "Narratives Database - Unstructured Text Storage",
@@ -93,10 +94,10 @@ TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                         ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (doc_id, section_name)
                     )
-                """
+                """,
             }
-        }
-    }
+        },
+    },
 }
 
 

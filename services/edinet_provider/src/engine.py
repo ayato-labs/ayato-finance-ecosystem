@@ -6,10 +6,12 @@ from src.service.ingestor import DataIngestor
 from src.queries.repository import DataRepository
 from src.infra.migrations import MigrationManager
 
+
 class JPEDINETEngine:
     """
     Orchestration layer that coordinates Ingestion and Repository services.
     """
+
     def __init__(self):
         self.ingestor = DataIngestor()
         self.repo = DataRepository()
@@ -40,7 +42,7 @@ class JPEDINETEngine:
         start_date = end_date - datetime.timedelta(days=days - 1)
 
         logger.info(f"🚀 Launching Syncing market from {start_date} to {end_date} ({days} days)...")
-        
+
         all_docs = []
         current_date = start_date
         while current_date <= end_date:
@@ -59,7 +61,7 @@ class JPEDINETEngine:
             return
 
         logger.info(f"Discovery phase complete. Total candidates: {len(all_docs)}")
-        
+
         try:
             # Delegate processing to the Ingestor
             self.ingestor.process_docs_concurrently(all_docs, session_id, max_workers)

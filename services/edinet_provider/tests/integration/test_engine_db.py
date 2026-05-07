@@ -1,6 +1,7 @@
 from unittest.mock import patch
 from src.engine import JPEDINETEngine
 
+
 class MockDoc:
     def __init__(self, doc_id, edinet_code="E12345", sec_code="0000"):
         self._data = {
@@ -12,10 +13,12 @@ class MockDoc:
             "submitDateTime": "2024-01-01 10:00:00",
             "formCode": "030000",
             "docTypeCode": "120",
-            "csvFlag": "0"
+            "csvFlag": "0",
         }
+
     def parse(self):
         return None
+
 
 def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
     """
@@ -25,21 +28,24 @@ def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
     monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "registry.db"))
     monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts.db"))
     monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narrative.db"))
-    
+
     engine = JPEDINETEngine()
-    
+
     mock_doc = MockDoc("DOC001")
-    
+
     # 1. First sync - should insert
     with patch("edinet_tools.documents", return_value=[mock_doc]):
         engine.sync_market(days=1)
-    
+
     # Verify insertion
     from src.core.db import db_manager
+
     with db_manager.connect_master(read_only=True) as conn:
-        count = conn.execute("SELECT count(*) FROM registry_db.filings WHERE doc_id='DOC001'").fetchone()[0]
+        count = conn.execute(
+            "SELECT count(*) FROM registry_db.filings WHERE doc_id='DOC001'"
+        ).fetchone()[0]
         assert count == 1
-    
+
     # 2. Second sync - should skip (mocked process_single_doc to check call)
     with patch("edinet_tools.documents", return_value=[mock_doc]):
         with patch.object(JPEDINETEngine, "_process_single_doc") as mock_process:
