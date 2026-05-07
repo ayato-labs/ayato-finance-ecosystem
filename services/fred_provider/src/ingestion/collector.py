@@ -11,14 +11,32 @@ class FredCollector:
         self.fred = Fred(api_key=self.api_key) if self.api_key else None
         self.data_queue = queue.Queue()
 
+    def discover_series_by_category(self, category_id: int):
+        try:
+            logger.info(f"Discovering series in category {category_id}")
+            series_list = self.fred.get_series_in_category(category_id)
+            return series_list['id'].tolist()
+        except Exception as e:
+            logger.error(f"Failed to discover series: {e}")
+            return []
+
     def fetch_series(self, symbol: str, start_date: str):
         try:
             logger.info(f"Fetching {symbol} from FRED", extra={"series_id": symbol})
+            # Fetch observations
             series = self.fred.get_series(symbol, observation_start=start_date)
             df = series.to_frame(name="value")
             df["series_id"] = symbol
             df["date"] = df.index
-            self.data_queue.put(df)
+            
+            # Fetch metadata
+            info = self.fred.get_series(symbol) # Note: FredAPI provides metadata in the series info dict
+            meta = self.fred.get_series_info(symbol)
+            
+            # Put into queue as a tuple (type, data)
+            self.data_queue.put(("metadata", meta))
+            self.data_queue.put(("observations", df))
+            
             logger.debug(f"Successfully fetched {symbol}")
         except Exception as e:
             msg = f"Failed to fetch {symbol}: {e}"
