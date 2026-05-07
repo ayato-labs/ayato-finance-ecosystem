@@ -11,6 +11,9 @@ def test_heavy_contention_resilience(tmp_path, monkeypatch):
     """
     db_file = tmp_path / "contention.db"
     monkeypatch.setenv("MASTER_DB_PATH", str(db_file))
+    monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "reg.db"))
+    monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts.db"))
+    monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narr.db"))
     
     # Initialize DB
     with db_manager.connect_master() as conn:

@@ -14,7 +14,7 @@ class MockDoc:
         }
     def parse(self):
         m = MagicMock()
-        m.text_blocks = {"Key": "Value"}
+        m.text_blocks = {"Key": "This is a sufficiently long narrative block for the E2E test to pass."}
         return m
 
 def test_full_user_workflow_sync(tmp_path, monkeypatch):
@@ -23,6 +23,9 @@ def test_full_user_workflow_sync(tmp_path, monkeypatch):
     Checks list fetching, parallel processing, and DB persistence.
     """
     monkeypatch.setenv("MASTER_DB_PATH", str(tmp_path / "e2e_master.db"))
+    monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "e2e_reg.db"))
+    monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "e2e_facts.db"))
+    monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "e2e_narr.db"))
     
     engine = JPEDINETEngine()
     

@@ -88,13 +88,6 @@ class DuckDBManager:
                         # ... (rest of disk logic)
                         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-                        # ATTACH the tiered architecture
-                        # Use READ_ONLY flag if the master connection is read_only to avoid unnecessary write locks on shards
-                        ro_suffix = " (READ_ONLY)" if read_only else ""
-                        logger.debug(
-                            f"Attaching sub-databases{ro_suffix}: registry, facts, narratives"
-                        )
-
                         # Apply dynamic memory limit (Ratio of total RAM from settings)
                         total_ram = get_system_ram_bytes()
                         limit_bytes = int(total_ram * settings.MEM_LIMIT_RATIO)
@@ -108,9 +101,14 @@ class DuckDBManager:
                             f"DuckDB memory limit set to {limit_gb:.2f} GB (30% of system RAM)"
                         )
 
-                        conn.execute(f"ATTACH IF NOT EXISTS '{reg_path}' AS registry_db{ro_suffix}")
-                        conn.execute(f"ATTACH IF NOT EXISTS '{facts_path}' AS facts_db{ro_suffix}")
-                        conn.execute(f"ATTACH IF NOT EXISTS '{narr_path}' AS narr_db{ro_suffix}")
+                        def get_attach_sql(path, name, ro):
+                            ro_flag = " (READ_ONLY)" if ro and path != ":memory:" else ""
+                            return f"ATTACH IF NOT EXISTS '{path}' AS {name}{ro_flag}"
+
+                        conn.execute(get_attach_sql(reg_path, "registry_db", read_only))
+                        conn.execute(get_attach_sql(facts_path, "facts_db", read_only))
+                        conn.execute(get_attach_sql(narr_path, "narr_db", read_only))
+
                 break
             except (duckdb.IOException, duckdb.ConnectionException, OSError) as e:
                 logger.warning(

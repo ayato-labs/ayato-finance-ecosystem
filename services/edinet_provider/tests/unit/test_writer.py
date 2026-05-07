@@ -7,6 +7,10 @@ def test_database_writer_batch_flush(tmp_path, monkeypatch):
     Unit: Verify that DatabaseWriter correctly flushes data to DuckDB.
     """
     monkeypatch.setenv("MASTER_DB_PATH", ":memory:")
+    
+    from src.infra.migrations import MigrationManager
+    MigrationManager.apply_migrations()
+    
     writer = DatabaseWriter(batch_size=2)
     writer.start()
     

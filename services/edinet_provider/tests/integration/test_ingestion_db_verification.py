@@ -43,7 +43,7 @@ def test_ingestion_to_db_full_verification(tmp_path, monkeypatch):
     with patch("src.service.ingestor.get_csv_from_edinet", return_value=b"PK..."):
         # Mock CSV parsing to return some facts
         with patch("src.service.ingestor.parse_edinet_csv", return_value={
-            "file1.csv": MagicMock(empty=False, columns=["A", "B", "C", "D", "E", "F", "G", "H", "I"],
+            "file1.csv": MagicMock(empty=False, columns=MagicMock(tolist=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I"]),
                                   iterrows=lambda self: iter([(0, ["", "Sales", "ctx", "", "", "", "", "JPY", "1000000"])]))
         }):
             ingestor.process_docs_concurrently(docs, "test-session", max_workers=1)
@@ -78,6 +78,12 @@ def test_ingestion_duplicate_prevention(tmp_path, monkeypatch):
     Integration: Verify that the same doc_id is not processed twice.
     """
     monkeypatch.setenv("MASTER_DB_PATH", str(tmp_path / "master_dup.db"))
+    monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "registry_dup.db"))
+    monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts_dup.db"))
+    monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narrative_dup.db"))
+    
+    from src.infra.migrations import MigrationManager
+    MigrationManager.apply_migrations()
     
     ingestor = DataIngestor()
     doc = MockDoc("DUP_001")

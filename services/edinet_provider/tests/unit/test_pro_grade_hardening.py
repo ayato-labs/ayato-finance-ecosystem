@@ -32,10 +32,17 @@ def test_engine_batch_partial_success(tmp_path, monkeypatch):
     Severe Test (Architect): Verify that 1 bad record doesn't roll back the whole batch.
     """
     monkeypatch.setenv("MASTER_DB_PATH", ":memory:")
-    engine = JPEDINETEngine()
+    
+    # Run migrations first
+    from src.infra.migrations import MigrationManager
+    MigrationManager.apply_migrations()
+
+    from src.service.writer import DatabaseWriter
+    writer = DatabaseWriter()
 
     # Mock results: 1 good, 1 bad (missing doc_id), 1 good
     results = [
+        # ... (rest of the results)
         {
             "metadata": {
                 "doc_id": "GOOD_1",
@@ -88,7 +95,7 @@ def test_engine_batch_partial_success(tmp_path, monkeypatch):
     with db_manager.connect_master() as conn:
         # We expect the batch to fail due to the None doc_id (NOT NULL constraint in real SQL,
         # or just DuckDB error). In our resilient implementation, it should fall back.
-        engine._flush_results_to_db(conn, results)
+        writer._flush_results_to_db(conn, results)
 
         # Verify GOOD_1 and GOOD_2 are there (fresh DB due to reset fixture)
         ids = [

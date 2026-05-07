@@ -47,6 +47,10 @@ def test_backfill_logic(engine):
     """
     E2E Test: Backfill logic identification
     """
+    # Initialize DB (migrations)
+    from src.infra.migrations import MigrationManager
+    MigrationManager.apply_migrations()
+
     # Create some dummy filings without narratives/facts
     with db_manager.connect_master() as conn:
         conn.execute(

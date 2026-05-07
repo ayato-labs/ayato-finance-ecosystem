@@ -47,7 +47,8 @@ def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
         assert count == 1
 
     # 2. Second sync - should skip (mocked process_single_doc to check call)
+    from src.service.ingestor import DataIngestor
     with patch("edinet_tools.documents", return_value=[mock_doc]):
-        with patch.object(JPEDINETEngine, "_process_single_doc") as mock_process:
+        with patch.object(DataIngestor, "_process_single_doc") as mock_process:
             engine.sync_market(days=1)
             assert mock_process.call_count == 0
