@@ -1,6 +1,6 @@
 import os
 import pytest
-from src.core.db import db_manager
+from src.infra.db import db_manager
 
 # Ensure testing environment variable is set before any config imports
 os.environ["TESTING"] = "true"

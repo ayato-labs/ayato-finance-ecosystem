@@ -1,6 +1,6 @@
 import uuid
 import pytest
-from src.core.tracing import trace_execution, current_trace_id
+from src.infra.tracing import trace_execution, current_trace_id
 
 
 def test_trace_execution_generates_id():

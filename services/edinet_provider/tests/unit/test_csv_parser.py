@@ -1,6 +1,6 @@
 import io
 import zipfile
-from src.core.csv_parser import parse_edinet_csv
+from src.service.csv_parser import parse_edinet_csv
 
 
 def test_parse_edinet_csv_valid():

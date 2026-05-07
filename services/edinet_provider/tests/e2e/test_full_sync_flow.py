@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from src.core.db import db_manager
+from src.infra.db import db_manager
 
 
 class MockDoc:

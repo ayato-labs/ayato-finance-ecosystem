@@ -38,9 +38,9 @@ def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
         engine.sync_market(days=1)
 
     # Verify insertion
-    from src.core.db import db_manager
-
+    from src.infra.db import db_manager
     with db_manager.connect_master(read_only=True) as conn:
+
         count = conn.execute(
             "SELECT count(*) FROM registry_db.filings WHERE doc_id='DOC001'"
         ).fetchone()[0]

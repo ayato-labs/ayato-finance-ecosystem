@@ -1,5 +1,5 @@
 import concurrent.futures
-from src.core.tracing import trace_execution, current_trace_id, with_context
+from src.infra.tracing import trace_execution, current_trace_id, with_context
 from src.engine import JPEDINETEngine
 
 
@@ -83,7 +83,7 @@ def test_engine_batch_partial_success(tmp_path, monkeypatch):
         },
     ]
 
-    from src.core.db import db_manager
+    from src.infra.db import db_manager
 
     with db_manager.connect_master() as conn:
         # We expect the batch to fail due to the None doc_id (NOT NULL constraint in real SQL,
