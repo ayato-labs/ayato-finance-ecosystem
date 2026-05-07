@@ -10,7 +10,7 @@ from loguru import logger
 from src.infra.config import settings
 
 
-def get_csv_from_edinet(doc_id: str, api_key: str):
+def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
     """
     Fetches the ZIP containing CSV documents from EDINET API v2 or local cache.
     Uses standard urllib to bypass environment-specific issues, and Zstandard
@@ -41,14 +41,18 @@ def get_csv_from_edinet(doc_id: str, api_key: str):
                 content = response.read()
                 logger.debug(f"Successfully fetched CSV for {doc_id}, size: {len(content)} bytes")
                 
-                # Cache the raw content with zstd
-                try:
-                    cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
-                    with open(cache_path, "wb") as f:
-                        f.write(cctx.compress(content))
-                    logger.debug(f"Cached raw CSV for {doc_id} to {cache_path} (level {settings.ZSTD_COMPRESSION_LEVEL})")
-                except Exception as e:
-                    logger.warning(f"Failed to cache raw CSV for {doc_id}: {e}")
+                # Cache the raw content with zstd asynchronously if writer is provided
+                if cache_writer is not None:
+                    cache_writer.put(doc_id, content)
+                else:
+                    # Fallback to synchronous writing if no queue is available
+                    try:
+                        cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
+                        with open(cache_path, "wb") as f:
+                            f.write(cctx.compress(content))
+                        logger.debug(f"Cached raw CSV for {doc_id} to {cache_path} (level {settings.ZSTD_COMPRESSION_LEVEL})")
+                    except Exception as e:
+                        logger.warning(f"Failed to cache raw CSV for {doc_id}: {e}")
                 
                 return content
         except urllib.error.HTTPError as e:

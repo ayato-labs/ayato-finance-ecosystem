@@ -5,16 +5,16 @@ import logging
 
 # Suppress edinet_tools LLM warning before it gets imported
 logging.getLogger().setLevel(logging.ERROR)
-import edinet_tools
-import pandas as pd
-from loguru import logger
+import edinet_tools  # noqa: E402
+import pandas as pd  # noqa: E402
+from loguru import logger  # noqa: E402
 
-from src.infra.config import settings
-from src.domain.contracts import CompanyFact, FilingMetadata, NarrativeBlock
-from src.infra.db import db_manager
-from src.infra.tracing import with_context
-from .csv_parser import get_csv_from_edinet, parse_edinet_csv
-from .writer import DatabaseWriter
+from src.infra.config import settings  # noqa: E402
+from src.domain.contracts import CompanyFact, FilingMetadata, NarrativeBlock  # noqa: E402
+from src.infra.db import db_manager  # noqa: E402
+from src.infra.tracing import with_context  # noqa: E402
+from .csv_parser import get_csv_from_edinet, parse_edinet_csv  # noqa: E402
+from .writer import DatabaseWriter, RawCacheWriter  # noqa: E402
 
 
 class DataIngestor:
@@ -24,6 +24,7 @@ class DataIngestor:
         edinet_tools.configure(api_key=settings.EDINET_API_KEY)
         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.writer = DatabaseWriter()
+        self.cache_writer = RawCacheWriter()
 
     def process_docs_concurrently(self, docs, session_id, max_workers):
         if not docs:
@@ -51,8 +52,9 @@ class DataIngestor:
         logger.info(f"Processing {len(docs_to_process)} new documents (Session: {session_id})...")
         processed_count = 0
 
-        # Start the background writer
+        # Start the background writers
         self.writer.start()
+        self.cache_writer.start()
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -96,9 +98,10 @@ class DataIngestor:
                         logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
         finally:
-            # Wait for all writes to finish and stop the writer
-            logger.info("Finishing ingestion. Waiting for DB Writer to flush remaining data...")
+            # Wait for all writes to finish and stop the writers
+            logger.info("Finishing ingestion. Waiting for background writers to flush remaining data...")
             self.writer.stop()
+            self.cache_writer.stop()
             gc.collect()
 
     def backfill_missing_data(self, max_workers: int = 5):
@@ -152,6 +155,7 @@ class DataIngestor:
 
         processed_count = 0
         self.writer.start()
+        self.cache_writer.start()
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -174,6 +178,7 @@ class DataIngestor:
                         logger.error(f"Backfill processing error: {e}")
         finally:
             self.writer.stop()
+            self.cache_writer.stop()
             gc.collect()
 
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
@@ -263,7 +268,7 @@ class DataIngestor:
             data = doc._data
             if data.get("csvFlag") != "1":
                 return []
-            content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY)
+            content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY, self.cache_writer)
             if content is None:
                 return None
 
