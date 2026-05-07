@@ -11,6 +11,7 @@ from src.domain.contracts import CompanyFact, FilingMetadata, NarrativeBlock
 from src.infra.db import db_manager
 from src.infra.tracing import with_context
 from .csv_parser import get_csv_from_edinet, parse_edinet_csv
+from .writer import DatabaseWriter
 
 
 class DataIngestor:
@@ -19,6 +20,7 @@ class DataIngestor:
             logger.warning("EDINET_API_KEY is not set. API calls will fail.")
         edinet_tools.configure(api_key=settings.EDINET_API_KEY)
         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.writer = DatabaseWriter()
 
     def process_docs_concurrently(self, docs, session_id, max_workers):
         if not docs:
@@ -46,68 +48,55 @@ class DataIngestor:
             return
 
         logger.info(f"Processing {len(docs_to_process)} new documents (Session: {session_id})...")
-        batch_size = 20
-        results_batch = []
-        log_batch = []
         processed_count = 0
+        
+        # Start the background writer
+        self.writer.start()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_doc = {
-                executor.submit(
-                    with_context(self._process_single_doc),
-                    doc,
-                    doc._data.get("secCode", "0000"),
-                    session_id,
-                ): doc
-                for doc in docs_to_process
-            }
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_doc = {
+                    executor.submit(
+                        with_context(self._process_single_doc),
+                        doc,
+                        doc._data.get("secCode", "0000"),
+                        session_id,
+                    ): doc
+                    for doc in docs_to_process
+                }
 
-            for future in concurrent.futures.as_completed(future_to_doc):
-                doc = future_to_doc[future]
-                doc_id = doc._data.get("docID")
-                try:
-                    result, status_info = future.result()
-                    if result:
-                        results_batch.append(result)
-                        logger.debug(f"Successfully processed {doc_id} with status {status_info['status']}")
-                    else:
-                        logger.warning(f"Processing returned empty for {doc_id}: {status_info}")
+                for future in concurrent.futures.as_completed(future_to_doc):
+                    doc = future_to_doc[future]
+                    doc_id = doc._data.get("docID")
+                    try:
+                        result, status_info = future.result()
+                        if result:
+                            # Queue for asynchronous writing
+                            self.writer.put("ingest", result)
+                            logger.debug(f"Queued {doc_id} for DB write.")
+                        else:
+                            logger.warning(f"Processing returned empty for {doc_id}: {status_info}")
 
-                    log_batch.append(
-                        (
+                        # Queue log update
+                        log_data = (
                             doc_id,
                             status_info["status"],
                             datetime.datetime.now(),
                             status_info.get("error"),
                         )
-                    )
-                    processed_count += 1
+                        self.writer.put("log", log_data)
+                        
+                        processed_count += 1
+                        if processed_count % 10 == 0:
+                            logger.info(f"Progress: {processed_count}/{len(docs_to_process)} (Queued)")
+                    except Exception as e:
+                        logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
 
-                    if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
-                        logger.info(f"Flushing batch of {len(results_batch)} results to DB...")
-                        with db_manager.connect_master() as conn:
-                            if results_batch:
-                                self._flush_results_to_db(conn, results_batch)
-                                results_batch.clear()
-                            if log_batch:
-                                self._update_ingestion_logs(conn, log_batch)
-                                log_batch.clear()
-                        gc.collect()
-                        logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
-                except Exception as e:
-                    logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
-                    # We continue with other docs but log the error
-
-            if results_batch or log_batch:
-                logger.info("Flushing final batch to DB...")
-                with db_manager.connect_master() as conn:
-                    if results_batch:
-                        self._flush_results_to_db(conn, results_batch)
-                    if log_batch:
-                        self._update_ingestion_logs(conn, log_batch)
-                results_batch.clear()
-                log_batch.clear()
-                gc.collect()
+        finally:
+            # Wait for all writes to finish and stop the writer
+            logger.info("Finishing ingestion. Waiting for DB Writer to flush remaining data...")
+            self.writer.stop()
+            gc.collect()
 
     def backfill_missing_data(self, max_workers: int = 5):
         """Identifies and processes filings missing narratives or facts."""
@@ -145,8 +134,6 @@ class DataIngestor:
         docs_to_process = []
         for d, items in by_date.items():
             try:
-                # Use simple edinet_tools call for backfill to avoid cache dependency if needed,
-                # but cache is generally better.
                 all_docs_on_date = edinet_tools.documents(date=d)
                 target_ids = {did for did, sc in items}
                 for doc in all_docs_on_date:
@@ -160,38 +147,31 @@ class DataIngestor:
             logger.warning("Could not retrieve any document objects for backfill.")
             return
 
-        batch_size = 20
-        results_batch = []
         processed_count = 0
+        self.writer.start()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_info = {
-                executor.submit(
-                    with_context(self._process_single_doc), d, sc, "backfill"
-                ): d
-                for d, sc in docs_to_process
-            }
-            for future in concurrent.futures.as_completed(future_to_info):
-                try:
-                    result, _ = future.result()
-                    if result:
-                        results_batch.append(result)
-                        processed_count += 1
-
-                    if len(results_batch) >= batch_size:
-                        with db_manager.connect_master() as conn:
-                            self._flush_results_to_db(conn, results_batch)
-                        results_batch.clear()
-                        gc.collect()
-                        logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)}")
-                except Exception as e:
-                    logger.error(f"Backfill processing error: {e}")
-
-            if results_batch:
-                with db_manager.connect_master() as conn:
-                    self._flush_results_to_db(conn, results_batch)
-                results_batch.clear()
-                gc.collect()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_info = {
+                    executor.submit(
+                        with_context(self._process_single_doc), d, sc, "backfill"
+                    ): d
+                    for d, sc in docs_to_process
+                }
+                for future in concurrent.futures.as_completed(future_to_info):
+                    try:
+                        result, _ = future.result()
+                        if result:
+                            self.writer.put("ingest", result)
+                            processed_count += 1
+                        
+                        if processed_count % 10 == 0:
+                            logger.info(f"Backfill Progress: {processed_count}/{len(docs_to_process)} (Queued)")
+                    except Exception as e:
+                        logger.error(f"Backfill processing error: {e}")
+        finally:
+            self.writer.stop()
+            gc.collect()
 
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
 
@@ -227,80 +207,6 @@ class DataIngestor:
             logger.error(f"Contract validation failed for {doc_id}: {e}")
             status_info = {"status": "PARTIAL_FAIL", "error": str(e)}
             return None, status_info
-
-    def _flush_results_to_db(self, conn, results):
-        metadata_batch = [
-            (
-                r["metadata"]["doc_id"],
-                r["metadata"]["edinet_code"],
-                r["metadata"]["sec_code"],
-                r["metadata"]["filer_name"],
-                r["metadata"]["doc_description"],
-                r["metadata"]["submit_datetime"],
-                r["metadata"]["form_code"],
-                r["metadata"]["doc_type_code"],
-                r["metadata"]["session_id"],
-            )
-            for r in results
-        ]
-        self._batch_insert_resilient(
-            conn,
-            "INSERT OR IGNORE INTO registry_db.filings (doc_id, edinet_code, sec_code, filer_name, "
-            "doc_description, submit_datetime, form_code, doc_type_code, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            metadata_batch,
-        )
-
-        narrative_batch = [
-            (n["doc_id"], n["section_name"], n["content_md"], n["session_id"])
-            for r in results
-            for n in r["narratives"]
-        ]
-
-        if narrative_batch:
-            self._batch_insert_resilient(
-                conn,
-                "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, "
-                "session_id) VALUES (?, ?, ?, ?)",
-                narrative_batch,
-            )
-
-        fact_batch = [
-            (
-                f["doc_id"],
-                f["item_name"],
-                f["item_value"],
-                f["unit"],
-                f["context_id"],
-                f["fiscal_year"],
-                f["fiscal_period"],
-                f["session_id"],
-            )
-            for r in results
-            for f in r["facts"]
-        ]
-
-        if fact_batch:
-            self._batch_insert_resilient(
-                conn,
-                "INSERT OR REPLACE INTO facts_db.company_facts (doc_id, item_name, item_value, "
-                "unit, context_id, fiscal_year, fiscal_period, session_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                fact_batch,
-            )
-
-    def _batch_insert_resilient(self, conn, sql, batch):
-        try:
-            conn.executemany(sql, batch)
-        except Exception as batch_err:
-            logger.warning(f"Batch insert failed, falling back to individual inserts: {batch_err}")
-            for record in batch:
-                try:
-                    conn.execute(sql, record)
-                except Exception as rec_err:
-                    logger.error(
-                        f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}"
-                    )
 
     def _extract_metadata(self, doc, ticker, session_id):
         data = doc._data
@@ -403,16 +309,3 @@ class DataIngestor:
                 extra={"session_id": session_id},
             )
             return []
-
-    def _update_ingestion_logs(self, conn, logs):
-        """Batch update ingestion_log table."""
-        sql = """
-            INSERT INTO ingestion_log (doc_id, status, last_attempt, error_message, retry_count)
-            VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT (doc_id) DO UPDATE SET
-                status = excluded.status,
-                last_attempt = excluded.last_attempt,
-                error_message = excluded.error_message,
-                retry_count = retry_count + 1
-        """
-        conn.executemany(sql, logs)
