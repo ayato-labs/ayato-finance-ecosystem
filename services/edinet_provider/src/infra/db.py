@@ -5,8 +5,8 @@ import platform
 import ctypes
 from contextlib import contextmanager
 import duckdb
-from src.core.logging_config import logger
-from src.core.config import settings
+from src.infra.logging_config import logger
+from src.infra.config import settings
 
 def get_system_ram_bytes() -> int:
     """Gets total system RAM in bytes without external dependencies."""

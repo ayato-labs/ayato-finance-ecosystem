@@ -2,7 +2,7 @@ import datetime
 import time
 from loguru import logger
 from src.engine import JPEDINETEngine
-from src.core.db import db_manager
+from src.infra.db import db_manager
 
 def setup_progress_table():
     with db_manager.connect_master() as conn:

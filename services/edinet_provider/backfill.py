@@ -1,8 +1,8 @@
 import sys
 from loguru import logger
 from src.engine import JPEDINETEngine
-from src.core.tracing import trace_execution
-from src.core.logging_config import setup_logging
+from src.infra.tracing import trace_execution
+from src.infra.logging_config import setup_logging
 
 @trace_execution
 def main():

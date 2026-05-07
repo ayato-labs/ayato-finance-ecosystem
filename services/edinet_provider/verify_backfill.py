@@ -1,6 +1,6 @@
 from src.engine import JPEDINETEngine
 import edinet_tools
-from src.core.db import db_manager
+from src.infra.db import db_manager
 from loguru import logger
 import datetime
 
@@ -19,14 +19,14 @@ def test_backfill_single():
         logger.error("Could not find document object via API")
         return
         
-    result = engine._process_single_doc(target_doc, "9843", "debug-backfill")
+    result, status = engine.ingestor._process_single_doc(target_doc, "9843", "debug-backfill")
     if result:
         logger.info(f"Successfully processed {doc_id}. Found {len(result['facts'])} facts.")
         with db_manager.connect_master() as conn:
-            engine._flush_results_to_db(conn, [result])
+            engine.ingestor._flush_results_to_db(conn, [result])
         logger.info("Flushed to DB.")
     else:
-        logger.error("Processing failed.")
+        logger.error(f"Processing failed: {status}")
 
 if __name__ == "__main__":
     test_backfill_single()

@@ -1,7 +1,7 @@
 import io
 import zipfile
-from src.core.config import settings
-from src.core.csv_parser import get_csv_from_edinet
+from src.infra.config import settings
+from src.service.csv_parser import get_csv_from_edinet
 
 def debug_raw_zip():
     doc_id = "S100L8TB"

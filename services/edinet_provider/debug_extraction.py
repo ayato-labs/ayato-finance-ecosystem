@@ -1,5 +1,5 @@
-from src.core.config import settings
-from src.core.csv_parser import get_csv_from_edinet, parse_edinet_csv
+from src.infra.config import settings
+from src.service.csv_parser import get_csv_from_edinet, parse_edinet_csv
 from loguru import logger
 
 def debug_mufg_csv():

@@ -3,7 +3,7 @@ Schema-as-Code: The authoritative definition of the EDINET Provider database.
 This file serves as the Single Source of Truth (SSoT) for DDL and documentation.
 """
 from typing import Dict, Any, Type
-from src.core.contracts import FilingMetadata, CompanyFact, NarrativeBlock, DataContract
+from src.domain.contracts import FilingMetadata, CompanyFact, NarrativeBlock, DataContract
 
 TABLE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     "master": {

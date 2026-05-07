@@ -2,7 +2,7 @@ import psutil
 import time
 from loguru import logger
 
-from src.core.config import settings
+from src.infra.config import settings
 
 class MemoryGovernor:
     def __init__(self, limit_ratio=None, critical_threshold=None):
