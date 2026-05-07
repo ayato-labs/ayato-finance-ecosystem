@@ -1,6 +1,5 @@
 import duckdb
 from loguru import logger
-import pandas as pd
 
 class FredWriter:
     def __init__(self, db_path: str):

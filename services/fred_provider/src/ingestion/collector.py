@@ -1,11 +1,9 @@
-import queue
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from loguru import logger
-from fredapi import Fred
 import os
-import pandas as pd
-from datetime import datetime
+import queue
+from concurrent.futures import ThreadPoolExecutor
+
+from fredapi import Fred
+from loguru import logger
 
 class FredCollector:
     def __init__(self, api_key: str = None):
@@ -23,7 +21,8 @@ class FredCollector:
             self.data_queue.put(df)
             logger.debug(f"Successfully fetched {symbol}")
         except Exception as e:
-            logger.error(f"Failed to fetch {symbol}: {e}", extra={"series_id": symbol, "error": str(e)})
+            msg = f"Failed to fetch {symbol}: {e}"
+            logger.error(msg, extra={"series_id": symbol, "error": str(e)})
 
     def run(self, symbols: list[str], start_date: str):
         with ThreadPoolExecutor(max_workers=5) as executor:

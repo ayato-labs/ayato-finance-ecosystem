@@ -1,6 +1,6 @@
 import sys
-import os
 from pathlib import Path
+
 from loguru import logger
 
 def rotate_logs(logs_dir: Path):

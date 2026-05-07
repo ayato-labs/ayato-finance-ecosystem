@@ -1,7 +1,8 @@
-import uvicorn
-from fastapi import FastAPI
 import duckdb
 from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI
 
 app = FastAPI(title="FRED Provider API")
 
