@@ -1,0 +1,29 @@
+[project]
+name = "fred-provider"
+version = "0.1.0"
+description = "FRED (Federal Reserve Economic Data) provider service"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fredapi>=0.5.2",
+    "duckdb>=1.1.0",
+    "pandas>=2.2.0",
+    "pydantic-settings>=2.4.0",
+    "loguru>=0.7.2",
+    "fastapi>=0.112.0",
+    "uvicorn>=0.30.0",
+    "python-dotenv>=1.0.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
