@@ -5,45 +5,80 @@ from concurrent.futures import ThreadPoolExecutor
 from fredapi import Fred
 from loguru import logger
 
+
 class FredCollector:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("FRED_API_KEY")
-        self.fred = Fred(api_key=self.api_key) if self.api_key else None
+        if not self.api_key:
+            logger.error("FRED_API_KEY not found in environment variables.")
+            raise ValueError("FRED_API_KEY must be provided.")
+
+        try:
+            self.fred = Fred(api_key=self.api_key)
+            logger.debug("FredCollector initialized with API key.")
+        except Exception:
+            logger.exception("Failed to initialize Fred API client.")
+            raise
+
         self.data_queue = queue.Queue()
 
     def discover_series_by_category(self, category_id: int):
+        """指定されたカテゴリー内のシリーズIDを探索する"""
         try:
-            logger.info(f"Discovering series in category {category_id}")
+            logger.info(f"Discovering series in category ID: {category_id}")
             series_list = self.fred.get_series_in_category(category_id)
-            return series_list['id'].tolist()
-        except Exception as e:
-            logger.error(f"Failed to discover series: {e}")
-            return []
+            if series_list is None or series_list.empty:
+                logger.warning(f"No series found in category {category_id}.")
+                return []
+
+            ids = series_list["id"].tolist()
+            logger.info(f"Discovered {len(ids)} series in category {category_id}.")
+            return ids
+        except Exception:
+            logger.exception(f"Error discovering series in category {category_id}")
+            raise
 
     def fetch_series(self, symbol: str, start_date: str):
+        """特定のシンボルのデータとメタデータを取得し、キューに投入する"""
+        logger.debug(f"Starting fetch for {symbol} from {start_date}")
         try:
-            logger.info(f"Fetching {symbol} from FRED", extra={"series_id": symbol})
-            # Fetch observations
+            # メタデータの取得
+            logger.debug(f"Fetching metadata for {symbol}")
+            meta = self.fred.get_series_info(symbol)
+            self.data_queue.put(("metadata", meta))
+
+            # 観測データの取得
+            logger.debug(f"Fetching observations for {symbol}")
             series = self.fred.get_series(symbol, observation_start=start_date)
+
+            if series is None or series.empty:
+                logger.warning(f"No observations found for {symbol} since {start_date}")
+                return
+
             df = series.to_frame(name="value")
             df["series_id"] = symbol
             df["date"] = df.index
-            
-            # Fetch metadata
-            info = self.fred.get_series(symbol) # Note: FredAPI provides metadata in the series info dict
-            meta = self.fred.get_series_info(symbol)
-            
-            # Put into queue as a tuple (type, data)
-            self.data_queue.put(("metadata", meta))
+
             self.data_queue.put(("observations", df))
-            
-            logger.debug(f"Successfully fetched {symbol}")
-        except Exception as e:
-            msg = f"Failed to fetch {symbol}: {e}"
-            logger.error(msg, extra={"series_id": symbol, "error": str(e)})
+            logger.info(f"Successfully fetched and queued {symbol}")
+
+        except Exception:
+            logger.exception(f"Failed to fetch data for {symbol}")
+            # エラーを握りつぶさず、必要に応じて再試行や上位への通知を検討
+            # ここではログを詳細に残した上で、キューの停止を防ぐため継続
 
     def run(self, symbols: list[str], start_date: str):
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for symbol in symbols:
-                executor.submit(self.fetch_series, symbol, start_date)
-        self.data_queue.put(None)  # Sentinel to signal completion
+        """複数シンボルの並列取得実行"""
+        logger.info(f"Starting batch fetch for {len(symbols)} symbols.")
+        try:
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                for symbol in symbols:
+                    executor.submit(self.fetch_series, symbol, start_date)
+
+            # 完了を示すセンチネル
+            self.data_queue.put(None)
+            logger.info("Batch fetch submitted to executor.")
+        except Exception:
+            logger.exception("Critical error in Collector.run loop")
+            self.data_queue.put(None)
+            raise
