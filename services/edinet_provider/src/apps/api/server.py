@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from loguru import logger
 from src.infra.logging_config import setup_logging
 from src.queries.repository import DataRepository
-from src.infra.config import settings
 
 app = FastAPI(title="EDINET Provider API")
 repo = DataRepository()
