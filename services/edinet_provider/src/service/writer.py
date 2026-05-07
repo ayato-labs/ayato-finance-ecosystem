@@ -79,7 +79,7 @@ class DatabaseWriter:
         if not results and not logs:
             return
 
-        logger.debug(f"Writer flushing {len(results)} results and {len(logs)} logs to DB...")
+        logger.info(f"Writer flushing {len(results)} results and {len(logs)} logs to DB...")
         try:
             with db_manager.connect_master() as conn:
                 if results:
@@ -87,7 +87,8 @@ class DatabaseWriter:
                 if logs:
                     self._update_ingestion_logs(conn, logs)
         except Exception as e:
-            logger.error(f"Failed to flush batch to DB: {e}")
+            logger.error(f"Critical failure during DB flush: {e}", exc_info=True)
+            raise
 
     def _flush_results_to_db(self, conn, results):
         # Implementation moved from DataIngestor to centralize write logic
@@ -105,6 +106,8 @@ class DatabaseWriter:
             )
             for r in results
         ]
+        
+        logger.debug(f"Inserting {len(metadata_batch)} metadata records.")
         self._batch_insert_resilient(
             conn,
             "INSERT OR IGNORE INTO registry_db.filings (doc_id, edinet_code, sec_code, filer_name, "
@@ -120,6 +123,7 @@ class DatabaseWriter:
         ]
 
         if narrative_batch:
+            logger.debug(f"Inserting {len(narrative_batch)} narrative records.")
             self._batch_insert_resilient(
                 conn,
                 "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, "
@@ -143,6 +147,7 @@ class DatabaseWriter:
         ]
 
         if fact_batch:
+            logger.debug(f"Inserting {len(fact_batch)} fact records.")
             self._batch_insert_resilient(
                 conn,
                 "INSERT OR REPLACE INTO facts_db.company_facts (doc_id, item_name, item_value, "
@@ -161,7 +166,8 @@ class DatabaseWriter:
                     conn.execute(sql, record)
                 except Exception as rec_err:
                     logger.error(
-                        f"Isolation failed for record {record[0] if record else 'unknown'}: {rec_err}"
+                        f"Isolated failure for doc_id {record[0]}: {rec_err}",
+                        extra={"record": record},
                     )
 
     def _update_ingestion_logs(self, conn, logs):

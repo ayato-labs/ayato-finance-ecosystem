@@ -21,7 +21,8 @@ def test_parse_edinet_csv_valid():
 def test_parse_edinet_csv_empty_zip():
     """Severe Test: Handle empty ZIP archives gracefully."""
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False):
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Create an empty zip file by just closing the context
         pass
 
     results = parse_edinet_csv(zip_buffer.getvalue())

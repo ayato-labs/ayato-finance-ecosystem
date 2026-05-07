@@ -25,17 +25,10 @@ def setup_test_env(tmp_path):
     settings.DATA_DIR = original_data_dir
 
 
-@pytest.fixture(autouse=True)
-def reset_db_each_test():
-    # Deprecated in favor of setup_test_env, but keeping it if others depend on it
-    pass
-
-
 @pytest.fixture(scope="function")
-def engine(reset_db_each_test):
+def engine():
     """
     Returns a fresh engine instance for each test.
-    Depends on reset_db_each_test to ensure migrations run on a clean DB.
     """
     from src.engine import JPEDINETEngine
 
