@@ -1,7 +1,10 @@
 import concurrent.futures
 import datetime
 import gc
+import logging
 
+# Suppress edinet_tools LLM warning before it gets imported
+logging.getLogger().setLevel(logging.ERROR)
 import edinet_tools
 import pandas as pd
 from loguru import logger

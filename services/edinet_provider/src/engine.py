@@ -1,4 +1,8 @@
 import datetime
+import logging
+
+# Suppress edinet_tools LLM warning before it gets imported
+logging.getLogger().setLevel(logging.ERROR)
 import edinet_tools
 from loguru import logger
 from src.infra.db import db_manager
