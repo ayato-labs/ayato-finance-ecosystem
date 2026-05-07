@@ -31,6 +31,8 @@ class DatabaseWriter:
         self._stop_event.set()
         if self._thread:
             self._thread.join()
+            self._thread = None
+        self._stop_event.clear()
         logger.info("Database Writer Thread stopped.")
 
     def put(self, result_type, data):
