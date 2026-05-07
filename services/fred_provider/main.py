@@ -9,23 +9,33 @@ import threading
 
 load_dotenv()
 
+from src.core.master_db_client import MasterDBClient
+import duckdb
+
 def run_sync(symbols: list[str]):
     setup_logging()
     logger.info("Starting synchronization process.")
     
     collector = FredCollector()
-    writer = FredWriter("data/fred.duckdb")
+    db_path = "data/fred.duckdb"
+    writer = FredWriter(db_path)
     
-    # Writerを別スレッドで起動
+    # ... (previous logic) ...
     writer_thread = threading.Thread(target=writer.write_loop, args=(collector.data_queue,))
     writer_thread.start()
     
-    # 取得開始
     collector.run(symbols, "2024-01-01")
-    
-    # 終了待ち
     writer_thread.join()
-    logger.info("Synchronization completed.")
+    
+    # Register with Master DB
+    conn = duckdb.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+    conn.close()
+    
+    master_client = MasterDBClient()
+    master_client.register_provider("fred_provider", db_path, "0.1.0", count)
+    
+    logger.info("Synchronization completed and registered with Master DB.")
 
 def main():
     parser = argparse.ArgumentParser(description="FRED Provider CLI")
