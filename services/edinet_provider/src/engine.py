@@ -3,12 +3,13 @@ import logging
 
 # Suppress edinet_tools LLM warning before it gets imported
 logging.getLogger().setLevel(logging.ERROR)
-import edinet_tools
-from loguru import logger
-from src.infra.db import db_manager
-from src.service.ingestor import DataIngestor
-from src.queries.repository import DataRepository
-from src.infra.migrations import MigrationManager
+import edinet_tools  # noqa: E402
+
+from loguru import logger  # noqa: E402
+from src.infra.db import db_manager  # noqa: E402
+from src.service.ingestor import DataIngestor  # noqa: E402
+from src.queries.repository import DataRepository  # noqa: E402
+from src.infra.migrations import MigrationManager  # noqa: E402
 
 
 class JPEDINETEngine:

@@ -1,12 +1,13 @@
-import threading
-import time
+import ctypes
 import os
 import platform
-import ctypes
+import threading
+import time
 from contextlib import contextmanager
+
 import duckdb
-from src.infra.logging_config import logger
 from src.infra.config import settings
+from src.infra.logging_config import logger
 
 
 def get_system_ram_bytes() -> int:

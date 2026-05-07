@@ -99,7 +99,9 @@ class DataIngestor:
 
         finally:
             # Wait for all writes to finish and stop the writers
-            logger.info("Finishing ingestion. Waiting for background writers to flush remaining data...")
+            logger.info(
+                "Finishing ingestion. Waiting for background writers to flush remaining data..."
+            )
             self.writer.stop()
             self.cache_writer.stop()
             gc.collect()
