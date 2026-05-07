@@ -175,3 +175,56 @@ class DatabaseWriter:
                 retry_count = retry_count + 1
         """
         conn.executemany(sql, logs)
+
+class RawCacheWriter:
+    """
+    Asynchronous Writer for Zstandard raw data compression.
+    Consumes raw bytes from a queue and compresses/writes them to disk.
+    This prevents CPU-intensive compression from blocking the main ingestion threads.
+    """
+    def __init__(self):
+        self.queue = queue.Queue()
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, name="RawCacheWriterThread", daemon=True)
+        self._thread.start()
+        logger.info("Raw Cache Writer Thread started.")
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join()
+            self._thread = None
+        self._stop_event.clear()
+        logger.info("Raw Cache Writer Thread stopped.")
+
+    def put(self, doc_id: str, content: bytes):
+        self.queue.put((doc_id, content))
+
+    def _run(self):
+        import zstandard as zstd
+        from src.infra.config import settings
+
+        while not self._stop_event.is_set() or not self.queue.empty():
+            try:
+                item = self.queue.get(timeout=1.0)
+                doc_id, content = item
+                
+                cache_path = settings.RAW_DATA_DIR / f"{doc_id}_csv.zip.zst"
+                try:
+                    cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
+                    with open(cache_path, "wb") as f:
+                        f.write(cctx.compress(content))
+                    logger.debug(f"Async cached raw CSV for {doc_id} to {cache_path} (level {settings.ZSTD_COMPRESSION_LEVEL})")
+                except Exception as e:
+                    logger.warning(f"Failed to async cache raw CSV for {doc_id}: {e}")
+                
+                self.queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Error in Raw Cache Writer thread: {e}", exc_info=True)
