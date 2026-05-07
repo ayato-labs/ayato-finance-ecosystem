@@ -3,16 +3,32 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zstandard as zstd
 
 import pandas as pd
 from loguru import logger
+from src.infra.config import settings
 
 
 def get_csv_from_edinet(doc_id: str, api_key: str):
     """
-    Fetches the ZIP containing CSV documents from EDINET API v2.
-    Uses standard urllib to bypass environment-specific issues.
+    Fetches the ZIP containing CSV documents from EDINET API v2 or local cache.
+    Uses standard urllib to bypass environment-specific issues, and Zstandard
+    for local raw data caching.
     """
+    settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = settings.RAW_DATA_DIR / f"{doc_id}_csv.zip.zst"
+
+    # Try loading from cache first
+    if cache_path.exists():
+        try:
+            logger.debug(f"Loading cached raw CSV for {doc_id}...")
+            with open(cache_path, "rb") as f:
+                dctx = zstd.ZstdDecompressor()
+                return dctx.decompress(f.read())
+        except Exception as e:
+            logger.warning(f"Failed to read cache for {doc_id}, falling back to API: {e}")
+
     url = (
         f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}?type=5&Subscription-Key={api_key}"
     )
@@ -24,6 +40,16 @@ def get_csv_from_edinet(doc_id: str, api_key: str):
             with urllib.request.urlopen(url, timeout=30) as response:
                 content = response.read()
                 logger.debug(f"Successfully fetched CSV for {doc_id}, size: {len(content)} bytes")
+                
+                # Cache the raw content with zstd
+                try:
+                    cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
+                    with open(cache_path, "wb") as f:
+                        f.write(cctx.compress(content))
+                    logger.debug(f"Cached raw CSV for {doc_id} to {cache_path} (level {settings.ZSTD_COMPRESSION_LEVEL})")
+                except Exception as e:
+                    logger.warning(f"Failed to cache raw CSV for {doc_id}: {e}")
+                
                 return content
         except urllib.error.HTTPError as e:
             if e.code == 429:

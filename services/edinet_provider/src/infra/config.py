@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Paths
     PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
     DATA_DIR: Path = PROJECT_ROOT / "data"
+    RAW_DATA_DIR: Path = DATA_DIR / "raw"
 
     # Split Database Architecture (The Quad-Split with Master)
     @property
