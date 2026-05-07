@@ -1,8 +1,6 @@
-import pytest
 from unittest.mock import patch, MagicMock
 from src.service.ingestor import DataIngestor
 from src.infra.db import db_manager
-import datetime
 
 class MockDoc:
     def __init__(self, doc_id):
@@ -69,7 +67,7 @@ def test_ingestion_to_db_full_verification(tmp_path, monkeypatch):
         # 4. Facts verification
         # Note: Depending on how the mock was set up, we check if facts exist.
         # Since I mocked iterrows loosely above, I'll just check if the table exists and was touched.
-        facts_count = conn.execute("SELECT count(*) FROM facts_db.company_facts WHERE doc_id='ID_001'").fetchone()[0]
+        conn.execute("SELECT count(*) FROM facts_db.company_facts WHERE doc_id='ID_001'").fetchone()[0]
         # In this mock setup, it might be 0 or more depending on strictness.
         # The key is we are ACTUALLY querying the DB.
         

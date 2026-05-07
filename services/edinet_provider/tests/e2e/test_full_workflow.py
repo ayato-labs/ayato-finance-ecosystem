@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 from src.engine import JPEDINETEngine
 from src.infra.db import db_manager
@@ -31,7 +30,6 @@ def test_full_user_workflow_sync(tmp_path, monkeypatch):
     
     # Mock dates
     today = datetime.date(2024, 5, 7)
-    yesterday = today - datetime.timedelta(days=1)
     
     # Mocking DataRepository.get_documents_with_cache to return document objects
     docs_today = [MockDoc("E2E_001", "2024-05-07")]
@@ -57,4 +55,4 @@ def test_full_user_workflow_sync(tmp_path, monkeypatch):
         # Check ingestion log
         logs = conn.execute("SELECT status FROM ingestion_log").fetchall()
         assert len(logs) == 2
-        assert all(l[0] == "SUCCESS" for l in logs)
+        assert all(log_entry[0] == "SUCCESS" for log_entry in logs)

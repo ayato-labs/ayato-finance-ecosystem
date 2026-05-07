@@ -1,7 +1,5 @@
 import concurrent.futures
-from src.infra.tracing import trace_execution, current_trace_id, with_context
-from src.engine import JPEDINETEngine
-
+from src.infra.tracing import trace_execution, current_trace_id, with_context  
 
 def test_trace_id_propagation_to_threads():
     """
