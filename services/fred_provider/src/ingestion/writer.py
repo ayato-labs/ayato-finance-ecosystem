@@ -69,8 +69,9 @@ class FredWriter:
                     )
                 elif data_type == "observations":
                     logger.debug(f"Writing observations for series: {data['series_id'].iloc[0]}")
-                    # DuckDB can directly query from pandas DataFrames in the local scope
-                    self.conn.execute("INSERT OR REPLACE INTO observations SELECT * FROM data")
+                    # Ensure column order matches schema: series_id, date, value
+                    df_to_write = data[["series_id", "date", "value"]]
+                    self.conn.execute("INSERT OR REPLACE INTO observations SELECT * FROM df_to_write")
 
                 logger.info(f"Successfully wrote {data_type} to DuckDB.")
             except Exception:

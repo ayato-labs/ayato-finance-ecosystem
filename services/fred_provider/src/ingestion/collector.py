@@ -15,10 +15,13 @@ class FredCollector:
 
         try:
             self.fred = Fred(api_key=self.api_key)
-            logger.debug("FredCollector initialized with API key.")
-        except Exception:
-            logger.exception("Failed to initialize Fred API client.")
+            # Validate API key immediately by making a lightweight call
+            self.fred.get_series_info("DFF")
+            logger.debug("FredCollector initialized and API key validated.")
+        except Exception as e:
+            logger.exception("Failed to initialize Fred API client or invalid API key.")
             raise
+
 
         self.data_queue = queue.Queue()
 
@@ -26,7 +29,7 @@ class FredCollector:
         """指定されたカテゴリー内のシリーズIDを探索する"""
         try:
             logger.info(f"Discovering series in category ID: {category_id}")
-            series_list = self.fred.get_series_in_category(category_id)
+            series_list = self.fred.search_by_category(category_id)
             if series_list is None or series_list.empty:
                 logger.warning(f"No series found in category {category_id}.")
                 return []
