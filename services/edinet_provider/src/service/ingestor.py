@@ -22,27 +22,30 @@ class DataIngestor:
 
     def process_docs_concurrently(self, docs, session_id, max_workers):
         if not docs:
+            logger.info("No documents provided for processing.")
             return
 
+        logger.debug(f"Querying existing filings from registry for {len(docs)} candidates...")
         with db_manager.connect_master(read_only=True) as conn:
             try:
                 existing_doc_ids = {
                     row[0]
                     for row in conn.execute("SELECT doc_id FROM registry_db.filings").fetchall()
                 }
+                logger.debug(f"Found {len(existing_doc_ids)} existing filings in DB.")
             except Exception as e:
                 logger.error(f"Failed to query existing filings: {e}", exc_info=True)
-                existing_doc_ids = set()
+                raise  # Do not swallow registry query failures
 
         docs_to_process = [
             doc for doc in docs if doc._data.get("docID") not in existing_doc_ids
         ]
 
         if not docs_to_process:
-            logger.info("All documents are up-to-date.")
+            logger.info("All documents are up-to-date. Skipping ingestion.")
             return
 
-        logger.info(f"Processing {len(docs_to_process)} new documents...")
+        logger.info(f"Processing {len(docs_to_process)} new documents (Session: {session_id})...")
         batch_size = 20
         results_batch = []
         log_batch = []
@@ -66,6 +69,9 @@ class DataIngestor:
                     result, status_info = future.result()
                     if result:
                         results_batch.append(result)
+                        logger.debug(f"Successfully processed {doc_id} with status {status_info['status']}")
+                    else:
+                        logger.warning(f"Processing returned empty for {doc_id}: {status_info}")
 
                     log_batch.append(
                         (
@@ -78,6 +84,7 @@ class DataIngestor:
                     processed_count += 1
 
                     if len(results_batch) >= batch_size or len(log_batch) >= batch_size:
+                        logger.info(f"Flushing batch of {len(results_batch)} results to DB...")
                         with db_manager.connect_master() as conn:
                             if results_batch:
                                 self._flush_results_to_db(conn, results_batch)
@@ -89,8 +96,10 @@ class DataIngestor:
                         logger.info(f"Progress: {processed_count}/{len(docs_to_process)}")
                 except Exception as e:
                     logger.error(f"Critical error processing doc {doc_id}: {e}", exc_info=True)
+                    # We continue with other docs but log the error
 
             if results_batch or log_batch:
+                logger.info("Flushing final batch to DB...")
                 with db_manager.connect_master() as conn:
                     if results_batch:
                         self._flush_results_to_db(conn, results_batch)

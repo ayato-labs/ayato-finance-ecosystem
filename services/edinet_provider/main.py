@@ -28,10 +28,14 @@ def main():
         # Forward to ingestion CLI
         from src.apps.ingestion.cli import main as ingestion_main
         sys.argv = [sys.argv[0]] + unknown
-        if args.ticker: sys.argv.extend(["--ticker", args.ticker])
-        if args.days: sys.argv.extend(["--days", str(args.days)])
-        if args.market: sys.argv.append("--market")
-        if args.backfill: sys.argv.append("--backfill")
+        if args.ticker:
+            sys.argv.extend(["--ticker", args.ticker])
+        if args.days:
+            sys.argv.extend(["--days", str(args.days)])
+        if args.market:
+            sys.argv.append("--market")
+        if args.backfill:
+            sys.argv.append("--backfill")
         ingestion_main()
 
     elif args.command == "api":

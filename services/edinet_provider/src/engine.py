@@ -25,11 +25,12 @@ class JPEDINETEngine:
         session_id: str = "market-sync",
         max_workers: int = 5,
     ):
-        logger.info(f"🚀 Launching Syncing market for the last {days} days...")
         if end_date is None:
             end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=days - 1)
 
+        logger.info(f"🚀 Launching Syncing market from {start_date} to {end_date} ({days} days)...")
+        
         all_docs = []
         current_date = start_date
         while current_date <= end_date:
@@ -37,17 +38,26 @@ class JPEDINETEngine:
                 docs = self.repo.get_documents_with_cache(current_date)
                 if docs:
                     all_docs.extend(docs)
+                    logger.debug(f"Found {len(docs)} docs for {current_date}")
             except Exception as e:
-                logger.error(f"❌ Failed to fetch list for {current_date}: {e}", exc_info=True)
+                logger.error(f"❌ Failed to fetch list for {current_date}: {e}")
+                # We log and continue to the next day to be resilient
             current_date += datetime.timedelta(days=1)
 
         if not all_docs:
-            logger.info("No documents found.")
+            logger.warning(f"No documents discovered in the range {start_date} to {end_date}.")
             return
 
-        # Delegate processing to the Ingestor
-        self.ingestor.process_docs_concurrently(all_docs, session_id, max_workers)
-        self._vacuum_db()
+        logger.info(f"Discovery phase complete. Total candidates: {len(all_docs)}")
+        
+        try:
+            # Delegate processing to the Ingestor
+            self.ingestor.process_docs_concurrently(all_docs, session_id, max_workers)
+        except Exception as e:
+            logger.critical(f"Market sync pipeline failed: {e}", exc_info=True)
+            raise
+        finally:
+            self._vacuum_db()
 
     def sync_company(
         self, ticker: str, days: int = 30, session_id: str = "manual", max_workers: int = 5
@@ -59,10 +69,13 @@ class JPEDINETEngine:
             if not docs:
                 logger.info(f"No documents found for {ticker}.")
                 return
+            logger.info(f"Found {len(docs)} filings for {ticker}. Starting ingestion...")
             self.ingestor.process_docs_concurrently(docs, session_id, max_workers)
         except Exception as e:
             logger.error(f"❌ Failed to sync {ticker}: {e}", exc_info=True)
-        self._vacuum_db()
+            raise
+        finally:
+            self._vacuum_db()
 
     def backfill_missing_data(self, max_workers: int = 5):
         self.ingestor.backfill_missing_data(max_workers=max_workers)
