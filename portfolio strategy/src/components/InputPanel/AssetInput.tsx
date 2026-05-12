@@ -8,7 +8,6 @@ interface AssetInputProps {
   currency: Currency;
   value: number;
   onChange: (value: number) => void;
-  baseCurrencyValue?: string; // 基準通貨換算額
 }
 
 export const AssetInput: React.FC<AssetInputProps> = ({
@@ -16,16 +15,17 @@ export const AssetInput: React.FC<AssetInputProps> = ({
   currency,
   value,
   onChange,
-  baseCurrencyValue,
 }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange(parseNumber(e.target.value));
   };
 
+  const currencySymbol = currency === 'JPY' ? '円' : '$';
+
   return (
     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
       <label className="block text-sm font-medium text-slate-600 mb-1">
-        {label} <span className="text-xs text-slate-400">[{currency}]</span>
+        {label}
       </label>
       <div className="relative">
         <input
@@ -36,12 +36,10 @@ export const AssetInput: React.FC<AssetInputProps> = ({
           onChange={handleChange}
           placeholder="0"
         />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+          {currencySymbol}
+        </div>
       </div>
-      {baseCurrencyValue && (
-        <p className="mt-1 text-xs text-slate-500 text-right">
-          {baseCurrencyValue}
-        </p>
-      )}
     </div>
   );
 };

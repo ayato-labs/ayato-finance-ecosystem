@@ -3,23 +3,28 @@
 export type AssetKey = 
   | 'sp500' | 'orkan' 
   | 'us_stock' | 'jp_stock' 
+  | 'jp_bond' | 'us_bond'
+  | 'physical_gold' | 'gold_etf'
   | 'usd_cash' | 'jpy_cash' 
   | 'btc';
 
-export type CategoryKey = 'INDEX' | 'STOCK' | 'CASH' | 'CRYPTO';
+export type CategoryKey = 'INDEX' | 'STOCK' | 'BOND' | 'GOLD' | 'CASH' | 'CRYPTO';
 
 export type Currency = 'JPY' | 'USD';
 
 // ユーザー入力
 export interface RawInputs {
-  sp500:    number;   // USD
-  orkan:    number;   // JPY
-  us_stock: number;   // USD
-  jp_stock: number;   // JPY
-  usd_cash: number;   // USD
-  jpy_cash: number;   // JPY
-  btc:      number;   // USD
-  fxRate:   number;   // USD/JPY レート (1 USD = ? JPY)
+  sp500:    number;   // BaseCurrency単位
+  orkan:    number;   // BaseCurrency単位
+  us_stock: number;   // BaseCurrency単位
+  jp_stock: number;   // BaseCurrency単位
+  jp_bond:  number;   // BaseCurrency単位
+  us_bond:  number;   // BaseCurrency単位
+  physical_gold: number; // BaseCurrency単位
+  gold_etf:      number; // BaseCurrency単位
+  usd_cash: number;   // BaseCurrency単位
+  jpy_cash: number;   // BaseCurrency単位
+  btc:      number;   // BaseCurrency単位
   baseCurrency: Currency;
   okThreshold: number; // ±% (例: 0.02)
 }
@@ -28,10 +33,9 @@ export interface RawInputs {
 export interface AssetResult {
   key:        AssetKey;
   label:      string;
-  inputValue: number;          // 入力値（元通貨）
-  valueInBase: number;         // 基準通貨換算額
+  inputValue: number;          // 入力値
+  valueInBase: number;         // 基準通貨額 (inputValueと同じ)
   category:   CategoryKey;
-  currency:   Currency;
 }
 
 // カテゴリ単位の計算結果
@@ -70,6 +74,12 @@ export interface RebalancePlan {
   targetTotal:     number;       // 全てを目標比率にするために必要な新合計額
   requiredInvestment: number;    // 追加で必要な投資総額
   buyActions:      RebalanceAction[];
+}
+
+export interface CategoryConfig {
+  ratio: number;
+  label: string;
+  color: string;
 }
 
 export interface CalculationResult {

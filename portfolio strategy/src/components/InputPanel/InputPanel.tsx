@@ -1,12 +1,11 @@
 import React from 'react';
 import { AssetInput } from './AssetInput';
-import { RawInputs, AssetKey, AssetResult } from '../../types/portfolio';
+import { RawInputs, AssetKey, Currency } from '../../types/portfolio';
 import { ASSET_CONFIG } from '../../constants/allocation';
-import { formatCurrency } from '../../utils/formatter';
 
 interface InputPanelProps {
   inputs: RawInputs;
-  assetResults: AssetResult[] | undefined;
+  currency: Currency;
   onUpdateAsset: (key: AssetKey, value: number) => void;
   onReset: () => void;
   onSample: () => void;
@@ -14,7 +13,7 @@ interface InputPanelProps {
 
 export const InputPanel: React.FC<InputPanelProps> = ({
   inputs,
-  assetResults,
+  currency,
   onUpdateAsset,
   onReset,
   onSample,
@@ -26,19 +25,15 @@ export const InputPanel: React.FC<InputPanelProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {assetKeys.map((key) => {
           const config = ASSET_CONFIG[key];
-          const result = assetResults?.find((r) => r.key === key);
           
           return (
             <AssetInput
               key={key}
               assetKey={key}
               label={config.label}
-              currency={config.currency}
+              currency={currency}
               value={inputs[key]}
               onChange={(val) => onUpdateAsset(key, val)}
-              baseCurrencyValue={
-                result ? formatCurrency(result.valueInBase, inputs.baseCurrency) : undefined
-              }
             />
           );
         })}

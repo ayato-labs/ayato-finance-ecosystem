@@ -5,10 +5,10 @@ import { TrendingUp } from 'lucide-react';
 
 interface RebalancePlanProps {
   plan: RebalancePlanType;
-  baseCurrency: Currency;
+  currency: Currency;
 }
 
-export const RebalancePlan: React.FC<RebalancePlanProps> = ({ plan, baseCurrency }) => {
+export const RebalancePlan: React.FC<RebalancePlanProps> = ({ plan, currency }) => {
   if (plan.buyActions.length === 0) {
     return (
       <section className="bg-slate-900 text-white rounded-2xl shadow-xl p-8 text-center border border-slate-800">
@@ -31,7 +31,7 @@ export const RebalancePlan: React.FC<RebalancePlanProps> = ({ plan, baseCurrency
         <div className="text-right">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">必要投資額 (追加分)</p>
           <p className="text-3xl font-black text-blue-400">
-            {formatCurrency(plan.requiredInvestment, baseCurrency)}
+            {formatCurrency(plan.requiredInvestment, currency)}
           </p>
         </div>
       </div>
@@ -48,14 +48,14 @@ export const RebalancePlan: React.FC<RebalancePlanProps> = ({ plan, baseCurrency
               <div key={action.category} className="bg-slate-800/50 p-5 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <span className="font-black text-lg text-slate-200 uppercase tracking-tight">{action.label}</span>
-                  <span className="font-black text-xl text-green-400">+{formatCurrency(action.amount, baseCurrency)}</span>
+                  <span className="font-black text-xl text-green-400">+{formatCurrency(action.amount, currency)}</span>
                 </div>
                 <div className="space-y-2">
                   {action.assetBreakdown.map(asset => (
                     <div key={asset.key} className="flex flex-col gap-1 py-2 border-t border-slate-700/50 first:border-0">
                       <div className="flex justify-between text-xs font-bold text-slate-400">
                         <span>{asset.label}</span>
-                        <span className="text-slate-300">{formatCurrency(asset.amount, baseCurrency)}</span>
+                        <span className="text-slate-300">{formatCurrency(asset.amount, currency)}</span>
                       </div>
                       <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
                         <div 
@@ -76,7 +76,7 @@ export const RebalancePlan: React.FC<RebalancePlanProps> = ({ plan, baseCurrency
         <div className="flex flex-col items-center md:items-start">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">リバランス後の総資産額</p>
           <p className="text-xl font-black text-slate-300">
-            {formatCurrency(plan.targetTotal, baseCurrency)}
+            {formatCurrency(plan.targetTotal, currency)}
           </p>
         </div>
         <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest text-center md:text-right max-w-md">

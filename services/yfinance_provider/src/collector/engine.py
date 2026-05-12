@@ -1,12 +1,14 @@
 import concurrent.futures
 import json
 import queue
+import random
 import threading
 import time
 from datetime import datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from ..core.db_manager import DatabaseManager
 from ..core.logger import setup_logger
@@ -21,6 +23,8 @@ class SyncEngine:
         self.max_workers = max_workers
         self.write_queue = queue.Queue()
         self.stop_event = threading.Event()
+        self._rate_limit_lock = threading.Lock()
+        self._backoff_until = 0.0  # Unix timestamp
 
     def _db_worker(self):
         """直列書き込み用ワーカー"""
@@ -43,6 +47,17 @@ class SyncEngine:
 
     def _fetch_task(self, ticker: str):
         """個別銘柄の取得とバリデーション (並列実行用)"""
+        # レートリミットによるバックオフ待機
+        while True:
+            wait_time = self._backoff_until - time.perf_counter()
+            if wait_time <= 0:
+                break
+            logger.warning(f"[{ticker}] Global backoff in effect. Waiting {wait_time:.1f}s...")
+            time.sleep(min(wait_time, 5.0))
+
+        # リクエストのゆらぎ (Jitter)
+        time.sleep(random.uniform(0.5, 2.0))
+
         start_time = time.perf_counter()
         logger.info(f"[{ticker}] Starting sync task...")
         try:
@@ -93,13 +108,22 @@ class SyncEngine:
             elapsed = time.perf_counter() - start_time
             logger.info(f"[{ticker}] Task queued in {elapsed:.2f}s")
 
+        except YFRateLimitError:
+            with self._rate_limit_lock:
+                # 誰かが既にバックオフを設定していなければ、1分待機を設定
+                if time.perf_counter() > self._backoff_until:
+                    logger.error(f"[{ticker}] HIT RATE LIMIT (429). Pausing engine for 60s...")
+                    self._backoff_until = time.perf_counter() + 60.0
+            # 失敗した銘柄はステータスを更新
+            self.write_queue.put((self._update_status_only, (ticker, "FAILED", "Rate limited")))
+
         except Exception as e:
             elapsed = time.perf_counter() - start_time
             logger.exception(f"[{ticker}] Unexpected Fetch/Validation error after {elapsed:.2f}s")
             # 予期せぬエラーもキュー経由でDB更新
             self.write_queue.put((self._update_status_only, (ticker, "FAILED", str(e))))
 
-    def _write_to_db(self, conn, ticker, info, financials, prices):
+    def _write_to_db(self, conn, ticker, info, financials, prices_df):
         """DBへの書き込み処理 (DBワーカーから呼ばれる)"""
         start_time = time.perf_counter()
         try:
@@ -114,12 +138,12 @@ class SyncEngine:
                     """
                     conn.execute(query)
 
-            if prices is not None and not prices.empty:
+            if prices_df is not None and not prices_df.empty:
                 query = """
                     INSERT INTO prices (ticker, date, open, high, low, close, volume,
                                         dividends, stock_splits)
                     SELECT ticker, date, open, high, low, close, volume,
-                           dividends, stock_splits FROM prices
+                           dividends, stock_splits FROM prices_df
                 """
                 conn.execute(query)
 
@@ -140,7 +164,7 @@ class SyncEngine:
         """全銘柄の同期実行 (差分更新対応)"""
         logger.info(f"Starting sync session for {len(tickers)} tickers (force={force})...")
         conn = self.db.get_connection()
-        synced_df = conn.execute("SELECT ticker, last_sync_at FROM sync_status").df()
+        synced_df = conn.execute("SELECT ticker, last_sync_at, last_status FROM sync_status").df()
         conn.close()
 
         to_fetch = []
@@ -148,11 +172,22 @@ class SyncEngine:
             if force:
                 to_fetch.append(t)
                 continue
+
             if not synced_df.empty and t in synced_df["ticker"].values:
-                last_sync = synced_df[synced_df["ticker"] == t]["last_sync_at"].iloc[0]
-                if datetime.now() - last_sync < timedelta(hours=24):
-                    logger.debug(f"[{t}] Skipping: Synced recently ({last_sync})")
+                row = synced_df[synced_df["ticker"] == t].iloc[0]
+                last_sync = row["last_sync_at"]
+                last_status = row["last_status"]
+
+                # 成功しており、かつ24時間以内であればスキップ
+                if last_status == "SUCCESS" and datetime.now() - last_sync < timedelta(hours=24):
+                    logger.debug(f"[{t}] Skipping: Synced successfully within 24h ({last_sync})")
                     continue
+                
+                # 失敗していても、直前すぎればスキップ（レートリミット回避のため）
+                if last_status == "FAILED" and datetime.now() - last_sync < timedelta(minutes=5):
+                    logger.debug(f"[{t}] Skipping: Failed recently, cooling down... ({last_sync})")
+                    continue
+
             to_fetch.append(t)
 
         if not to_fetch:

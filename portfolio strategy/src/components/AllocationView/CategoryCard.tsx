@@ -4,10 +4,10 @@ import { formatCurrency, formatPercent } from '../../utils/formatter';
 
 interface CategoryCardProps {
   result: CategoryResult;
-  baseCurrency: Currency;
+  currency: Currency;
 }
 
-export const CategoryCard: React.FC<CategoryCardProps> = ({ result, baseCurrency }) => {
+export const CategoryCard: React.FC<CategoryCardProps> = ({ result, currency }) => {
   const statusColors = {
     OVER: 'bg-red-100 text-red-700 border-red-200',
     UNDER: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -39,7 +39,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ result, baseCurrency
         <div>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Current</p>
           <p className="text-lg font-black text-slate-800">
-            {formatCurrency(result.currentTotal, baseCurrency)}
+            {formatCurrency(result.currentTotal, currency)}
           </p>
           <p className="text-xs font-medium text-slate-500">
             {formatPercent(result.currentRatio)}
@@ -48,7 +48,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ result, baseCurrency
         <div className="text-right">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Target</p>
           <p className="text-lg font-black text-slate-400">
-            {formatCurrency(result.targetTotal, baseCurrency)}
+            {formatCurrency(result.targetTotal, currency)}
           </p>
           <p className="text-xs font-medium text-slate-400">
             {formatPercent(result.targetRatio)}
@@ -61,7 +61,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ result, baseCurrency
           <span>Deviation</span>
           <span className={result.deviation > 0 ? 'text-red-500' : result.deviation < 0 ? 'text-amber-500' : 'text-green-500'}>
             {result.deviation > 0 ? '+' : ''}
-            {formatCurrency(result.deviation, baseCurrency)} ({formatPercent(result.deviationRatio)})
+            {formatCurrency(result.deviation, currency)} ({formatPercent(result.deviationRatio)})
           </span>
         </div>
         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -80,7 +80,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ result, baseCurrency
           <div key={asset.key} className="flex justify-between items-center text-xs mb-1">
             <span className="text-slate-500">{asset.label}</span>
             <span className="text-slate-700 font-medium">
-              {formatCurrency(asset.valueInBase, baseCurrency)}
+              {formatCurrency(asset.valueInBase, currency)}
             </span>
           </div>
         ))}

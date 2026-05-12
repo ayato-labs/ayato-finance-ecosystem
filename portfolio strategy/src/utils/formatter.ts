@@ -1,6 +1,10 @@
 // src/utils/formatter.ts
+
 import { Currency } from '../types/portfolio';
 
+/**
+ * 金額を指定された通貨形式でフォーマットする
+ */
 export function formatCurrency(value: number, currency: Currency): string {
   if (currency === 'JPY') {
     return new Intl.NumberFormat('ja-JP', {

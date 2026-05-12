@@ -14,7 +14,13 @@ def extract_tickers():
         conn = duckdb.connect(jquants_db)
         res = conn.execute("SELECT code FROM tickers").df()
         # 数値のみのコードを抽出して .T を付与
-        jp_tickers = [f"{str(code).strip()}.T" for code in res['code']]
+        # J-Quantsの5桁コード(末尾0)を4桁に変換する
+        jp_tickers = []
+        for code in res['code']:
+            code_str = str(code).strip()
+            if len(code_str) == 5 and code_str.endswith('0'):
+                code_str = code_str[:4]
+            jp_tickers.append(f"{code_str}.T")
         conn.close()
         print(f"Extracted {len(jp_tickers)} Japan tickers from J-Quants.")
     else:

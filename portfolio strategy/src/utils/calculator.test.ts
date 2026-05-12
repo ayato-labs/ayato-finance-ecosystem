@@ -1,114 +1,97 @@
 // src/utils/calculator.test.ts
 import { describe, it, expect } from 'vitest';
 import { 
-  toBase, 
   calcAssetResults, 
   calcCategoryResults, 
   generateRebalancePlan 
 } from './calculator';
 import { RawInputs } from '../types/portfolio';
-import { DEFAULT_INPUTS } from '../constants/allocation';
+import { DEFAULT_INPUTS, TARGET_ALLOCATION } from '../constants/allocation';
 
-describe('calculator logic', () => {
-  describe('toBase', () => {
-    it('should convert USD to JPY correctly', () => {
-      expect(toBase(100, 'USD', 'JPY', 150)).toBe(15000);
-    });
-
-    it('should convert JPY to USD correctly', () => {
-      expect(toBase(15000, 'JPY', 'USD', 150)).toBe(100);
-    });
-
-    it('should return same value if currencies match', () => {
-      expect(toBase(100, 'USD', 'USD', 150)).toBe(100);
-      expect(toBase(100, 'JPY', 'JPY', 150)).toBe(100);
-    });
-  });
-
-  describe('comprehensive calculation (No-Sell)', () => {
+describe('calculator logic (Dual Mode)', () => {
+  describe('JPY Mode', () => {
     const mockInputs: RawInputs = {
       ...DEFAULT_INPUTS,
-      sp500: 4000,     // USD -> 600,000 JPY (at 150)
-      orkan: 100000,   // JPY
-      us_stock: 1000,  // USD -> 150,000 JPY
-      jp_stock: 100000, // JPY
+      sp500: 600000,
+      orkan: 100000,
+      us_stock: 150000,
+      jp_stock: 100000,
+      jp_bond: 0,
+      us_bond: 0,
+      physical_gold: 0,
+      gold_etf: 0,
       usd_cash: 0,
-      jpy_cash: 50000, // JPY
+      jpy_cash: 50000,
       btc: 0,
-      fxRate: 150,
       baseCurrency: 'JPY',
       okThreshold: 0.02,
     };
 
-    // Total Portfolio = 600k + 100k + 150k + 100k + 50k = 1,000,000 JPY
-    // Current Allocation:
-    // INDEX: 700k (70%) -> Target 60%
-    // STOCK: 250k (25%) -> Target 25%
-    // CASH:  50k  (5%)  -> Target 10%
-    // CRYPTO: 0   (0%)  -> Target 5%
-
-    // No-Sell Strategy Calculation:
-    // Required Total to make INDEX 60%: 700k / 0.6 = 1,166,666.67
-    // Required Total to make STOCK 25%: 250k / 0.25 = 1,000,000
-    // Required Total to make CASH 10%:  50k / 0.1 = 500,000
-    // Max Required Total = 1,166,666.67
-    // Required Investment = 166,666.67
-
-    it('should calculate correct totals and status', () => {
+    it('should calculate correct totals in JPY', () => {
       const assetResults = calcAssetResults(mockInputs);
       const portfolioTotal = assetResults.reduce((sum, a) => sum + a.valueInBase, 0);
       expect(portfolioTotal).toBe(1000000);
-
-      const categoryResults = calcCategoryResults(assetResults, portfolioTotal, mockInputs.okThreshold);
-      
-      const index = categoryResults.find(c => c.key === 'INDEX')!;
-      expect(index.currentTotal).toBe(700000);
-      expect(index.status).toBe('OVER');
-
-      const stock = categoryResults.find(c => c.key === 'STOCK')!;
-      expect(stock.currentTotal).toBe(250000);
-      expect(stock.status).toBe('OK'); // 25% matches exactly
-
-      const cash = categoryResults.find(c => c.key === 'CASH')!;
-      expect(cash.currentTotal).toBe(50000);
-      expect(cash.status).toBe('UNDER');
-
-      const crypto = categoryResults.find(c => c.key === 'CRYPTO')!;
-      expect(crypto.currentTotal).toBe(0);
-      expect(crypto.status).toBe('UNDER');
     });
+  });
 
-    it('should generate buy-only rebalance plan correctly', () => {
+  describe('USD Mode', () => {
+    const mockInputs: RawInputs = {
+      ...DEFAULT_INPUTS,
+      sp500: 4000,
+      orkan: 1000,
+      us_stock: 2000,
+      jp_stock: 1000,
+      usd_cash: 1000,
+      jpy_cash: 500,
+      btc: 500,
+      baseCurrency: 'USD',
+      okThreshold: 0.02,
+    };
+
+    // Total = 4000+1000+2000+1000+1000+500+500 = 10,000 USD
+
+    it('should calculate correct totals in USD', () => {
       const assetResults = calcAssetResults(mockInputs);
       const portfolioTotal = assetResults.reduce((sum, a) => sum + a.valueInBase, 0);
-      const categoryResults = calcCategoryResults(assetResults, portfolioTotal, mockInputs.okThreshold);
+      expect(portfolioTotal).toBe(10000);
+
+      const categoryResults = calcCategoryResults(assetResults, portfolioTotal, mockInputs.okThreshold, TARGET_ALLOCATION);
       const plan = generateRebalancePlan(categoryResults, portfolioTotal);
 
-      // Verify overall plan
-      expect(plan.currentTotal).toBe(1000000);
-      expect(plan.targetTotal).toBeCloseTo(1166666.67, 1);
-      expect(plan.requiredInvestment).toBeCloseTo(166666.67, 1);
+      // Target INDEX is 60% = 6,000. Current INDEX = 4,000 + 1,000 = 5,000.
+      // Need +1,000 in INDEX if other categories are not over.
+      expect(plan.currentTotal).toBe(10000);
+    });
+  });
 
-      // Verify buy actions
-      // INDEX should have NO buy action because it is the "bottleneck"
-      const indexBuy = plan.buyActions.find(a => a.category === 'INDEX');
-      expect(indexBuy).toBeUndefined();
+  describe('Excess Cash Scenario', () => {
+    const mockInputs: RawInputs = {
+      ...DEFAULT_INPUTS,
+      sp500: 100000, // Target 60% (Floor: 166k)
+      orkan: 0,
+      us_stock: 0,
+      jp_stock: 0,
+      usd_cash: 900000, // Excess Cash
+      jpy_cash: 0,
+      btc: 0,
+      baseCurrency: 'JPY',
+      okThreshold: 0.02,
+    };
 
-      // STOCK: (1,166,666.67 * 0.25) - 250,000 = 41,666.67
-      const stockBuy = plan.buyActions.find(a => a.category === 'STOCK')!;
-      expect(stockBuy.amount).toBeCloseTo(41666.67, 1);
+    it('should use existing cash instead of asking for more investment', () => {
+      const assetResults = calcAssetResults(mockInputs);
+      const portfolioTotal = 1000000;
+      const categoryResults = calcCategoryResults(assetResults, portfolioTotal, 0.02, TARGET_ALLOCATION);
+      const plan = generateRebalancePlan(categoryResults, portfolioTotal);
 
-      // CASH: (1,166,666.67 * 0.1) - 50,000 = 66,666.67
-      const cashBuy = plan.buyActions.find(a => a.category === 'CASH')!;
-      expect(cashBuy.amount).toBeCloseTo(66666.67, 1);
-
-      // CRYPTO: (1,166,666.67 * 0.05) - 0 = 58,333.33
-      const cryptoBuy = plan.buyActions.find(a => a.category === 'CRYPTO')!;
-      expect(cryptoBuy.amount).toBeCloseTo(58333.33, 1);
-
-      // Sum of buy actions should equal required investment
-      const totalBuy = plan.buyActions.reduce((s, a) => s + a.amount, 0);
-      expect(totalBuy).toBeCloseTo(plan.requiredInvestment, 1);
+      // INDEX floor is 100k / 0.6 = 166k.
+      // Total is 1M. So NewTotal should be 1M (CurrentTotal).
+      expect(plan.targetTotal).toBe(1000000);
+      expect(plan.requiredInvestment).toBe(0);
+      
+      // Should suggest buying INDEX using the 900k cash.
+      const indexBuy = plan.buyActions.find(a => a.category === 'INDEX')!;
+      expect(indexBuy.amount).toBe(500000); // Target 60% of 1M = 600k. 600k - 100k = 500k.
     });
   });
 });

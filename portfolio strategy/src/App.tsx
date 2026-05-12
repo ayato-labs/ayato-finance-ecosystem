@@ -4,6 +4,8 @@ import { SummaryBar } from './components/SummaryBar/SummaryBar';
 import { CategoryCard } from './components/AllocationView/CategoryCard';
 import { DonutChart } from './components/AllocationView/DonutChart';
 import { RebalancePlan } from './components/RebalancePlan/RebalancePlan';
+import { AllocationEditor } from './components/AllocationEditor/AllocationEditor';
+import { ExportPanel } from './components/ExportPanel/ExportPanel';
 import { usePortfolioCalculator } from './hooks/usePortfolioCalculator';
 import { formatCurrency } from './utils/formatter';
 
@@ -11,7 +13,9 @@ function App() {
   const { 
     inputs, 
     result, 
+    targetAllocation,
     updateAsset, 
+    updateTargetRatio,
     updateSettings, 
     reset, 
     setSampleData 
@@ -22,20 +26,28 @@ function App() {
       <div className="max-w-5xl mx-auto pt-8">
         <Header 
           baseCurrency={inputs.baseCurrency}
-          fxRate={inputs.fxRate}
           okThreshold={inputs.okThreshold}
           onUpdateSettings={updateSettings}
+        />
+
+        <AllocationEditor 
+          allocation={targetAllocation}
+          onUpdateRatio={updateTargetRatio}
         />
         
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
           <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-lg font-bold text-slate-800">資産入力</h2>
-            <p className="text-sm text-slate-500">現在保有している資産の評価額を入力してください。</p>
+            <h2 className="text-lg font-bold text-slate-800">資産入力 ({inputs.baseCurrency}モード)</h2>
+            <p className="text-sm text-slate-500">
+              {inputs.baseCurrency === 'JPY' 
+                ? '現在保有している資産の評価額を入力してください。すべて日本円で入力します。'
+                : 'Enter the current value of your assets. Everything should be entered in USD.'}
+            </p>
           </div>
           <div className="p-6">
             <InputPanel 
               inputs={inputs}
-              assetResults={result?.assetResults}
+              currency={inputs.baseCurrency}
               onUpdateAsset={updateAsset}
               onReset={reset}
               onSample={setSampleData}
@@ -64,11 +76,16 @@ function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               {result.categoryResults.map(cat => (
-                <CategoryCard key={cat.key} result={cat} baseCurrency={inputs.baseCurrency} />
+                <CategoryCard key={cat.key} result={cat} currency={inputs.baseCurrency} />
               ))}
             </div>
 
-            <RebalancePlan plan={result.rebalancePlan} baseCurrency={inputs.baseCurrency} />
+            <RebalancePlan plan={result.rebalancePlan} currency={inputs.baseCurrency} />
+
+            <ExportPanel 
+              result={result} 
+              inputs={inputs} 
+            />
           </>
         )}
 

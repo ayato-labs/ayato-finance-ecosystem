@@ -1,16 +1,15 @@
 import React from 'react';
+
 import { Currency } from '../../types/portfolio';
 
 interface HeaderProps {
   baseCurrency: Currency;
-  fxRate: number;
   okThreshold: number;
-  onUpdateSettings: (settings: { baseCurrency?: Currency; fxRate?: number; okThreshold?: number }) => void;
+  onUpdateSettings: (settings: { baseCurrency?: Currency; okThreshold?: number }) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   baseCurrency,
-  fxRate,
   okThreshold,
   onUpdateSettings,
 }) => {
@@ -22,13 +21,13 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
         <div>
           <p className="text-slate-900 font-black text-lg leading-tight">Portfolio Rebalancer</p>
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">v1.0.0 • Stateless Tool</p>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">v1.0.0 • Professional</p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         {/* Threshold Slider */}
-        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-1 min-w-[160px]">
+        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-1 min-w-[180px]">
           <div className="flex justify-between items-center">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Tolerance</span>
             <span className="text-xs font-black text-blue-600">±{(okThreshold * 100).toFixed(1)}%</span>
@@ -44,33 +43,17 @@ export const Header: React.FC<HeaderProps> = ({
           />
         </div>
 
-        {/* Rate & Base */}
-        <div className="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-200">
-          <div className="flex items-center gap-2 px-3 border-r border-slate-100 py-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Rate</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-500">1$ =</span>
-              <input
-                type="number"
-                className="w-16 px-1.5 py-0.5 text-xs font-black bg-slate-50 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500 outline-none text-center"
-                value={fxRate}
-                onChange={(e) => onUpdateSettings({ fxRate: parseFloat(e.target.value) || 0 })}
-              />
-              <span className="text-xs font-bold text-slate-500">¥</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Base</span>
-            <select
-              className="bg-transparent text-xs font-black text-slate-800 outline-none cursor-pointer hover:text-blue-600 transition-colors"
-              value={baseCurrency}
-              onChange={(e) => onUpdateSettings({ baseCurrency: e.target.value as Currency })}
-            >
-              <option value="JPY">JPY (¥)</option>
-              <option value="USD">USD ($)</option>
-            </select>
-          </div>
+        {/* Base Currency Mode */}
+        <div className="flex items-center bg-white p-2.5 rounded-xl shadow-sm border border-slate-200 gap-3">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Display Mode</span>
+          <select
+            className="bg-transparent text-xs font-black text-slate-800 outline-none cursor-pointer hover:text-blue-600 transition-colors"
+            value={baseCurrency}
+            onChange={(e) => onUpdateSettings({ baseCurrency: e.target.value as Currency })}
+          >
+            <option value="JPY">JPY Only (¥)</option>
+            <option value="USD">USD Only ($)</option>
+          </select>
         </div>
       </div>
     </header>

@@ -6,20 +6,10 @@ import {
   RebalancePlan, 
   AssetKey, 
   CategoryKey, 
-  Currency,
   RebalanceAction,
   AssetBreakdown
 } from '../types/portfolio';
-import { TARGET_ALLOCATION, ASSET_CONFIG } from '../constants/allocation';
-
-/**
- * 通貨を基準通貨に換算する (1 USD = fxRate JPY)
- */
-export function toBase(value: number, inputCurrency: Currency, baseCurrency: Currency, fxRate: number): number {
-  if (inputCurrency === baseCurrency) return value;
-  if (baseCurrency === 'JPY') return value * fxRate; // USD -> JPY
-  return value / fxRate; // JPY -> USD
-}
+import { ASSET_CONFIG } from '../constants/allocation';
 
 /**
  * アセットごとの計算結果を生成
@@ -28,15 +18,13 @@ export function calcAssetResults(inputs: RawInputs): AssetResult[] {
   return (Object.keys(ASSET_CONFIG) as AssetKey[]).map(key => {
     const config = ASSET_CONFIG[key];
     const inputValue = inputs[key];
-    const valueInBase = toBase(inputValue, config.currency, inputs.baseCurrency, inputs.fxRate);
     
     return {
       key,
       label: config.label,
       inputValue,
-      valueInBase,
+      valueInBase: inputValue, // すべてJPY前提
       category: config.category,
-      currency: config.currency,
     };
   });
 }
@@ -44,11 +32,16 @@ export function calcAssetResults(inputs: RawInputs): AssetResult[] {
 /**
  * カテゴリごとの集計と目標額算出
  */
-export function calcCategoryResults(assetResults: AssetResult[], portfolioTotal: number, okThreshold: number): CategoryResult[] {
-  const categories = Object.keys(TARGET_ALLOCATION) as CategoryKey[];
+export function calcCategoryResults(
+  assetResults: AssetResult[], 
+  portfolioTotal: number, 
+  okThreshold: number,
+  targetAllocation: Record<CategoryKey, { ratio: number; label: string; color: string }>
+): CategoryResult[] {
+  const categories = Object.keys(targetAllocation) as CategoryKey[];
   
   return categories.map(key => {
-    const config = TARGET_ALLOCATION[key];
+    const config = targetAllocation[key];
     const assets = assetResults.filter(a => a.category === key);
     const currentTotal = assets.reduce((sum, a) => sum + a.valueInBase, 0);
     const targetTotal = portfolioTotal * config.ratio;
@@ -103,14 +96,18 @@ export function generateRebalancePlan(
   portfolioTotal: number
 ): RebalancePlan {
   // 1. 各カテゴリについて「現在の保有額が目標比率以下になるために必要な最小のポートフォリオ合計額」を算出
-  // NewTotal >= CurrentTotal_i / TargetRatio_i
-  const requiredTotals = categoryResults.map(cat => 
-    cat.targetRatio > 0 ? cat.currentTotal / cat.targetRatio : 0
-  );
+  // ただし、CASHカテゴリは「売却（使用）」可能とするため、フロア計算からは除外する。
+  // これにより、余剰現金がある場合はそれを先に使い切る提案になる。
+  const requiredTotals = categoryResults
+    .filter(cat => cat.key !== 'CASH') // 現金は使い切って良いため、目標比率維持のための強制力を持たせない
+    .map(cat => 
+      cat.targetRatio > 0 ? cat.currentTotal / cat.targetRatio : 0
+    );
   
-  // 2. それらの最大値が、誰も売却せずに目標比率を達成できる最小の合計額
+  // 2. それらの最大値が、証券を売却せずに目標比率を達成できる最小の合計額
+  // ただし、現在の総資産額を下回ることはない（現金を使い切るだけで済む場合もあるため）
   const newTotal = Math.max(...requiredTotals, portfolioTotal);
-  const requiredInvestment = newTotal - portfolioTotal;
+  const requiredInvestment = Math.max(0, newTotal - portfolioTotal);
 
   // 3. 各カテゴリの不足分（新目標額 - 現在額）を購入アクションとする
   const buyActions: RebalanceAction[] = categoryResults.map(cat => {
