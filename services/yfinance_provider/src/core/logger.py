@@ -7,10 +7,11 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 
+_initialized = False
+
 def setup_logger(service_name: str):
-    # すでに設定済みの場合は既存のロガーを返す
-    # loguruの内部状態をチェックし、ハンドラーが追加済みならスキップ
-    if len(logger._core.handlers) > 0:
+    global _initialized
+    if _initialized:
         return logger
 
     logger.remove()
@@ -43,4 +44,5 @@ def setup_logger(service_name: str):
         diagnose=True,
     )
 
+    _initialized = True
     return logger

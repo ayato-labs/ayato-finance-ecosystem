@@ -38,4 +38,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.exception("Fatal error in collector main entry point")
+        # ユーザーがエラーを確認できるよう、少し待機するかメッセージを出す
+        print("\n[FATAL ERROR] Check logs/error.log for details.")
+        input("Press Enter to exit...")
+        raise

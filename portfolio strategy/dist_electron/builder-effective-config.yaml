@@ -1,0 +1,13 @@
+directories:
+  output: dist_electron
+  buildResources: build
+appId: com.alloc.rebalancer
+productName: Alloc
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+win:
+  target: portable
+  icon: public/vite.svg
+electronVersion: 42.0.1
