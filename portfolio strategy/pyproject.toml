@@ -1,0 +1,15 @@
+[project]
+name = "portfolio-rebalancer"
+version = "0.1.0"
+description = "A stateless portfolio rebalancing tool"
+authors = [
+    { name = "ayato-labs", email = "ayato-labs@example.com" }
+]
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
