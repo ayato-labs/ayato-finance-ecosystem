@@ -53,15 +53,25 @@ class DuckDBManager:
                 DuckDBManager._memory_conn.close()
                 DuckDBManager._memory_conn = None
 
-    def _setup_connection_params(self, conn):
-        """Sets memory limits and temp directory."""
+    def _setup_connection_params(self, conn, read_only: bool):
+        """Sets memory limits, threading, and performance pragmas."""
         total_ram = get_system_ram_bytes()
         limit_bytes = int(total_ram * settings.MEM_LIMIT_RATIO)
-        limit_gb = limit_bytes / (1024**3)
-
+        
+        # Core settings
         conn.execute(f"SET memory_limit = '{limit_bytes}B'")
         conn.execute(f"SET temp_directory = '{settings.DATA_DIR}/tmp'")
-        logger.debug(f"DuckDB memory limit set to {limit_gb:.2f} GB ({settings.MEM_LIMIT_RATIO}%)")
+        conn.execute(f"SET threads = {os.cpu_count() or 4}")
+        
+        # Write optimization (only if not read_only)
+        if not read_only:
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+            except Exception as e:
+                logger.debug(f"Could not set WAL/Synchronous (expected on read-only): {e}")
+
+        logger.debug(f"DuckDB tuned: memory={limit_bytes/(1024**3):.1f}GB, threads={os.cpu_count()}")
 
     def _attach_databases(self, conn, read_only: bool):
         """Attaches registry, facts, and narrative databases."""
@@ -100,7 +110,8 @@ class DuckDBManager:
                     else:
                         conn = duckdb.connect(master_path, read_only=read_only)
                         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
-                        manager._setup_connection_params(conn)
+                        (settings.DATA_DIR / "tmp").mkdir(parents=True, exist_ok=True)
+                        manager._setup_connection_params(conn, read_only)
                         manager._attach_databases(conn, read_only)
                 break
             except (duckdb.IOException, duckdb.ConnectionException, OSError) as e:

@@ -88,53 +88,53 @@ def main():
 
         logger.info(f"Identified {len(missing_dates)} dates requiring ingestion.")
 
-        # Process from newest to oldest
+        # Process from newest to oldest in chunks to reduce startup/shutdown overhead
+        CHUNK_SIZE = 7
+        missing_dates = sorted(missing_dates, reverse=True)
         processed_in_session = 0
-        for target_date in reversed(missing_dates):
-            logger.info(f"--- Processing Date: {target_date} ---")
 
-            session_id = f"hist-{target_date.isoformat()}"
+        for i in range(0, len(missing_dates), CHUNK_SIZE):
+            chunk = missing_dates[i : i + CHUNK_SIZE]
+            start_chunk_dt = chunk[-1]
+            end_chunk_dt = chunk[0]
+            logger.info(f"--- Processing Chunk: {end_chunk_dt} back to {start_chunk_dt} ({len(chunk)} days) ---")
+
             try:
-                # Sync exactly this day, skip vacuum to avoid lock contention in loop
+                # Sync the whole chunk at once
+                # Note: sync_market handles the range internally
+                days_in_range = (end_chunk_dt - start_chunk_dt).days + 1
+                session_id = f"hist-chunk-{end_chunk_dt.isoformat()}"
+                
                 engine.sync_market(
-                    days=1, end_date=target_date, session_id=session_id, run_vacuum=False
+                    days=days_in_range, 
+                    end_date=end_chunk_dt, 
+                    session_id=session_id, 
+                    run_vacuum=False
                 )
 
-                # Record success
+                # Record success for each day in the chunk that was actually processed
                 with db_manager.connect_master() as conn:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO ingestion_progress (target_date, status, updated_at)
-                        VALUES (?, 'completed', CURRENT_TIMESTAMP)
-                        """,
-                        [target_date],
-                    )
+                    for target_date in chunk:
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO ingestion_progress (target_date, status, updated_at)
+                            VALUES (?, 'completed', CURRENT_TIMESTAMP)
+                            """,
+                            [target_date],
+                        )
+                
+                logger.info(f"✅ Successfully completed chunk ending at {end_chunk_dt}")
+                processed_in_session += len(chunk)
 
-                logger.info(f"✅ Successfully completed ingestion for {target_date}")
-                processed_in_session += 1
-
-                # Every 50 days, run a vacuum to reclaim space without being too aggressive
-                if processed_in_session % 50 == 0:
+                if processed_in_session % 50 <= CHUNK_SIZE and processed_in_session >= 50:
                     logger.info("Periodic maintenance: running VACUUM...")
                     engine._vacuum_db()
 
             except Exception as e:
-                logger.error(f"❌ Failed to process {target_date}: {e}", exc_info=True)
-                try:
-                    with db_manager.connect_master() as conn:
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO ingestion_progress
-                            (target_date, status, updated_at)
-                            VALUES (?, 'failed', CURRENT_TIMESTAMP)
-                            """,
-                            [target_date],
-                        )
-                except Exception as db_err:
-                    logger.critical(f"Could not even record failure to DB: {db_err}")
-
-                # Wait longer on error to let API rate limits reset
-                time.sleep(10)
+                logger.error(f"❌ Failed to process chunk ending at {end_chunk_dt}: {e}", exc_info=True)
+                # On failure, we don't mark individual dates as failed here to allow retry on next run
+                # But we wait to avoid spamming the API
+                time.sleep(20)
 
         logger.info("Historical ingestion pipeline finished execution.")
 

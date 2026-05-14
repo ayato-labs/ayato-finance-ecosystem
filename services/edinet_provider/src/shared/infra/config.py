@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     MEM_CHECK_INTERVAL: int = 5  # Seconds between memory pressure checks
     ZSTD_COMPRESSION_LEVEL: int = 10
 
+    @property
+    def DUCKDB_THREADS(self) -> int:
+        return os.cpu_count() or 4
+
     model_config = {
         "env_file": ".env",
         "extra": "ignore",
