@@ -21,7 +21,7 @@ class DatabaseWriter:
     at a specific time, and analysis happens outside the lock.
     """
 
-    def __init__(self, batch_size=20):
+    def __init__(self, batch_size=100):
         self.queue = queue.Queue()
         self.batch_size = batch_size
         self._stop_event = threading.Event()
