@@ -279,7 +279,29 @@ class DataIngestor:
                 return None
 
             csv_data = parse_edinet_csv(content)
-            filed_date = pd.to_datetime(data.get("submitDateTime")).date()
+            
+            # Extract fiscal year from internal metadata (DEI)
+            fiscal_year = None
+            for file_name, df in csv_data.items():
+                if "jpdei" in file_name.lower() and not df.empty:
+                    # Look for CurrentFiscalYearEndDateDEI
+                    # Column 0 is the Element ID, Column 8 is the Value
+                    matches = df[df.iloc[:, 0].astype(str).str.contains("CurrentFiscalYearEndDateDEI", na=False)]
+                    if not matches.empty:
+                        val = str(matches.iloc[0, 8])
+                        try:
+                            # Handle various date formats (YYYY-MM-DD or YYYYMMDD)
+                            fiscal_year = pd.to_datetime(val).year
+                            logger.debug(f"Derived fiscal year {fiscal_year} from DEI for {data.get('docID')}")
+                            break
+                        except Exception:
+                            continue
+            
+            if fiscal_year is None:
+                filed_date = pd.to_datetime(data.get("submitDateTime")).date()
+                fiscal_year = filed_date.year
+                logger.debug(f"Fallback to submission year {fiscal_year} for {data.get('docID')}")
+
             results = []
 
             for file_name, df in csv_data.items():
@@ -307,7 +329,7 @@ class DataIngestor:
                                 if unit_col_idx is not None
                                 else "pure",
                                 "context_id": str(row[cols[2]]) if len(cols) >= 3 else file_name,
-                                "fiscal_year": filed_date.year,
+                                "fiscal_year": fiscal_year,
                                 "fiscal_period": "FY",
                                 "session_id": session_id,
                             }

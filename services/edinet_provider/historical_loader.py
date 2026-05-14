@@ -28,9 +28,10 @@ def setup_progress_table():
         raise
 
 
-def get_missing_dates(total_days=1825):
+def get_missing_dates(total_days=1825, end_date=None):
     """Finds all dates within the lookback period that are not marked as completed."""
-    end_date = datetime.date.today()
+    if end_date is None:
+        end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=total_days - 1)
 
     logger.info(f"Checking missing dates from {start_date} to {end_date}...")
@@ -59,6 +60,7 @@ def get_missing_dates(total_days=1825):
 
 
 def main():
+    print("DEBUG: Entered main")
     setup_logging()
     logger.info("Starting Resilient Historical Fetch Service...")
 
@@ -67,11 +69,19 @@ def main():
         setup_progress_table()
 
         # Configuration
-        LOOKBACK_DAYS = 1825  # 5 years
-        missing_dates = get_missing_dates(LOOKBACK_DAYS)
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--days", type=int, default=1825)
+        parser.add_argument("--end-date", type=str, default=None)
+        args = parser.parse_args()
+
+        LOOKBACK_DAYS = args.days
+        end_date = datetime.date.fromisoformat(args.end_date) if args.end_date else datetime.date.today()
+        
+        missing_dates = get_missing_dates(LOOKBACK_DAYS, end_date)
 
         if not missing_dates:
-            logger.info("All dates within the lookback period are already completed.")
+            logger.info("No dates to process.")
             return
 
         logger.info(f"Identified {len(missing_dates)} dates requiring ingestion.")
