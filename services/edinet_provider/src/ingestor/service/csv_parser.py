@@ -8,10 +8,7 @@ import pandas as pd
 import zstandard as zstd
 from loguru import logger
 
-from src.infra.config import settings
-
-
-
+from src.shared.infra.config import settings
 
 
 def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
@@ -31,7 +28,9 @@ def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
                 dctx = zstd.ZstdDecompressor()
                 return dctx.decompress(f.read())
         except Exception as e:
-            logger.warning(f"Failed to read cache for {doc_id}, falling back to API: {e}")
+            logger.warning(
+                f"Failed to read cache for {doc_id}, falling back to API: {e}", exc_info=True
+            )
 
     url = (
         f"https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}?type=5&Subscription-Key={api_key}"
@@ -44,7 +43,7 @@ def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
             with urllib.request.urlopen(url, timeout=30) as response:
                 content = response.read()
                 logger.debug(f"Successfully fetched CSV for {doc_id}, size: {len(content)} bytes")
-                
+
                 # Cache the raw content with zstd asynchronously if writer is provided
                 if cache_writer is not None:
                     cache_writer.put(doc_id, content)
@@ -55,15 +54,14 @@ def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
                         with open(cache_path, "wb") as f:
                             f.write(cctx.compress(content))
                         logger.debug(
-                            "Cached raw CSV for {doc_id} to {cache_path} "
-                            "(level {level})",
+                            "Cached raw CSV for {doc_id} to {cache_path} (level {level})",
                             doc_id=doc_id,
                             cache_path=cache_path,
                             level=settings.ZSTD_COMPRESSION_LEVEL,
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to cache raw CSV for {doc_id}: {e}")
-                
+                        logger.warning(f"Failed to cache raw CSV for {doc_id}: {e}", exc_info=True)
+
                 return content
         except urllib.error.HTTPError as e:
             if e.code == 429:
@@ -73,7 +71,7 @@ def get_csv_from_edinet(doc_id: str, api_key: str, cache_writer=None):
                 )
                 time.sleep(wait)
                 continue
-            logger.error(f"HTTP Error {e.code} for {doc_id}: {e.reason}")
+            logger.error(f"HTTP Error {e.code} for {doc_id}: {e.reason}", exc_info=True)
             return None
         except Exception as e:
             logger.error(
@@ -137,6 +135,7 @@ def parse_edinet_csv(content: bytes):
                             "Failed to parse CSV {filename}: {error}",
                             filename=file_name,
                             error=str(e),
+                            exc_info=True,
                             extra={"file_name": file_name},
                         )
         return results
@@ -144,5 +143,5 @@ def parse_edinet_csv(content: bytes):
         logger.error("Failed to unzip: Not a valid ZIP file.")
         return {}
     except Exception as e:
-        logger.error(f"Unexpected error in parse_edinet_csv: {e}")
+        logger.error(f"Unexpected error in parse_edinet_csv: {e}", exc_info=True)
         return {}

@@ -17,7 +17,7 @@ def test_heavy_contention_resilience(tmp_path, monkeypatch):
     monkeypatch.setenv("REGISTRY_DB_PATH", str(tmp_path / "reg.db"))
     monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts.db"))
     monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narr.db"))
-    
+
     # Initialize DB
     with db_manager.connect_master() as conn:
         conn.execute("CREATE TABLE counter (v INTEGER)")
@@ -27,14 +27,14 @@ def test_heavy_contention_resilience(tmp_path, monkeypatch):
         # Hold a connection for a long time to block others
         try:
             with db_manager.connect_master() as conn:
-                time.sleep(2) # Hold the lock
+                time.sleep(2)  # Hold the lock
                 conn.execute("UPDATE counter SET v = v + 1")
         except Exception as e:
             pytest.fail(f"Slow write failed: {e}")
 
     def fast_retry_write():
         # Try to write while slow_write holds the lock
-        time.sleep(0.5) # Wait for slow_write to start
+        time.sleep(0.5)  # Wait for slow_write to start
         try:
             with db_manager.connect_master(timeout_seconds=10) as conn:
                 conn.execute("UPDATE counter SET v = v + 1")
@@ -43,16 +43,17 @@ def test_heavy_contention_resilience(tmp_path, monkeypatch):
 
     t1 = threading.Thread(target=slow_write)
     t2 = threading.Thread(target=fast_retry_write)
-    
+
     t1.start()
     t2.start()
-    
+
     t1.join()
     t2.join()
-    
+
     with db_manager.connect_master(read_only=True) as conn:
         val = conn.execute("SELECT v FROM counter").fetchone()[0]
-        assert val == 2 # Both should have succeeded eventually
+        assert val == 2  # Both should have succeeded eventually
+
 
 def test_invalid_sql_not_suppressed():
     """

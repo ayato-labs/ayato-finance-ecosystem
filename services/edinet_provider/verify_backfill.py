@@ -7,8 +7,6 @@ from src.engine import JPEDINETEngine
 from src.infra.db import db_manager
 
 
-
-
 def test_backfill_single():
     engine = JPEDINETEngine()
     doc_id = "S100LBVH"  # Nitori

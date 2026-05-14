@@ -3,7 +3,6 @@ import threading
 from src.infra.db import db_manager
 
 
-
 def test_db_manager_connection_sharing(tmp_path, monkeypatch):
     """
     Unit: Verify that the DB manager correctly shares the in-memory connection

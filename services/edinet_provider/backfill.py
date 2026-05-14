@@ -7,10 +7,6 @@ from src.infra.logging_config import setup_logging
 from src.infra.tracing import trace_execution
 
 
-
-
-
-
 @trace_execution
 def main():
     setup_logging()

@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 from src.service.csv_parser import get_csv_from_edinet
 
 
-
-
 def test_retry_on_429():
     """
     Boundary Test: Verify exponential backoff when hitting 429 Rate Limit.

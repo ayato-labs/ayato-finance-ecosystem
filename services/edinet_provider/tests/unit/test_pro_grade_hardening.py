@@ -35,7 +35,7 @@ def test_engine_batch_partial_success(tmp_path, monkeypatch):
     Severe Test (Architect): Verify that 1 bad record doesn't roll back the whole batch.
     """
     monkeypatch.setenv("MASTER_DB_PATH", ":memory:")
-    
+
     # Run migrations first
     MigrationManager.apply_migrations()
 

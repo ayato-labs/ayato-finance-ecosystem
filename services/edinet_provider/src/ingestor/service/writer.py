@@ -4,13 +4,8 @@ import threading
 import zstandard as zstd
 from loguru import logger
 
-from src.infra.config import settings
-from src.infra.db import db_manager
-
-
-
-
-
+from src.shared.infra.config import settings
+from src.shared.infra.db import db_manager
 
 
 class DatabaseWriter:
@@ -21,7 +16,7 @@ class DatabaseWriter:
     at a specific time, and analysis happens outside the lock.
     """
 
-    def __init__(self, batch_size=100):
+    def __init__(self, batch_size=250):
         self.queue = queue.Queue()
         self.batch_size = batch_size
         self._stop_event = threading.Event()
@@ -52,52 +47,61 @@ class DatabaseWriter:
         results_batch = []
         logs_batch = []
 
-        while not self._stop_event.is_set() or not self.queue.empty():
-            try:
-                # Wait for data with a timeout to check stop_event
-                item = self.queue.get(timeout=1.0)
-                res_type, data = item
+        logger.debug("Opening persistent connection for DatabaseWriter...")
+        try:
+            with db_manager.connect_master() as conn:
+                while not self._stop_event.is_set() or not self.queue.empty():
+                    try:
+                        # Wait for data with a timeout to check stop_event
+                        item = self.queue.get(timeout=1.0)
+                        res_type, data = item
 
-                if res_type == "ingest":
-                    results_batch.append(data)
-                elif res_type == "log":
-                    logs_batch.append(data)
+                        if res_type == "ingest":
+                            results_batch.append(data)
+                        elif res_type == "log":
+                            logs_batch.append(data)
 
-                # Flush if batch size reached
-                if len(results_batch) >= self.batch_size or len(logs_batch) >= self.batch_size:
-                    self._flush(results_batch, logs_batch)
-                    results_batch.clear()
-                    logs_batch.clear()
+                        # Flush if batch size reached
+                        if (
+                            len(results_batch) >= self.batch_size
+                            or len(logs_batch) >= self.batch_size
+                        ):
+                            self._flush_internal(conn, results_batch, logs_batch)
+                            results_batch.clear()
+                            logs_batch.clear()
 
-                self.queue.task_done()
-            except queue.Empty:
-                # Flush remaining if empty for a while
+                        self.queue.task_done()
+                    except queue.Empty:
+                        # Flush remaining if empty for a while
+                        if results_batch or logs_batch:
+                            self._flush_internal(conn, results_batch, logs_batch)
+                            results_batch.clear()
+                            logs_batch.clear()
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error in DB Writer item processing: {e}", exc_info=True)
+
+                # Final flush
                 if results_batch or logs_batch:
-                    self._flush(results_batch, logs_batch)
-                    results_batch.clear()
-                    logs_batch.clear()
-                continue
-            except Exception as e:
-                logger.error(f"Error in DB Writer thread: {e}", exc_info=True)
+                    self._flush_internal(conn, results_batch, logs_batch)
+        except Exception as e:
+            logger.critical(
+                f"Fatal error in DB Writer thread (connection lost): {e}", exc_info=True
+            )
 
-        # Final flush
-        if results_batch or logs_batch:
-            self._flush(results_batch, logs_batch)
-
-    def _flush(self, results, logs):
+    def _flush_internal(self, conn, results, logs):
         if not results and not logs:
             return
 
         logger.info(f"Writer flushing {len(results)} results and {len(logs)} logs to DB...")
         try:
-            with db_manager.connect_master() as conn:
-                if results:
-                    self._flush_results_to_db(conn, results)
-                if logs:
-                    self._update_ingestion_logs(conn, logs)
+            if results:
+                self._flush_results_to_db(conn, results)
+            if logs:
+                self._update_ingestion_logs(conn, logs)
         except Exception as e:
-            logger.error(f"Critical failure during DB flush: {e}", exc_info=True)
-            raise
+            logger.error(f"Failure during internal DB flush: {e}", exc_info=True)
+            # We don't raise here to keep the writer thread alive if possible
 
     def _flush_results_to_db(self, conn, results):
         # Implementation moved from DataIngestor to centralize write logic
@@ -115,7 +119,7 @@ class DatabaseWriter:
             )
             for r in results
         ]
-        
+
         logger.debug(f"Inserting {len(metadata_batch)} metadata records.")
         self._batch_insert_resilient(
             conn,
@@ -125,14 +129,18 @@ class DatabaseWriter:
             metadata_batch,
         )
 
-        narrative_batch = [
-            (n["doc_id"], n["section_name"], n["content_md"], n["session_id"])
-            for r in results
-            for n in r["narratives"]
-        ]
+        narrative_batch = []
+        cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
+
+        for r in results:
+            for n in r["narratives"]:
+                compressed_content = cctx.compress(n["content_md"].encode("utf-8"))
+                narrative_batch.append(
+                    (n["doc_id"], n["section_name"], compressed_content, n["session_id"])
+                )
 
         if narrative_batch:
-            logger.debug(f"Inserting {len(narrative_batch)} narrative records.")
+            logger.debug(f"Inserting {len(narrative_batch)} compressed narrative records.")
             self._batch_insert_resilient(
                 conn,
                 "INSERT OR REPLACE INTO narr_db.narratives (doc_id, section_name, content_md, "
@@ -191,12 +199,14 @@ class DatabaseWriter:
         """
         conn.executemany(sql, logs)
 
+
 class RawCacheWriter:
     """
     Asynchronous Writer for Zstandard raw data compression.
     Consumes raw bytes from a queue and compresses/writes them to disk.
     This prevents CPU-intensive compression from blocking the main ingestion threads.
     """
+
     def __init__(self):
         self.queue = queue.Queue()
         self._stop_event = threading.Event()
@@ -225,7 +235,7 @@ class RawCacheWriter:
             try:
                 item = self.queue.get(timeout=1.0)
                 doc_id, content = item
-                
+
                 cache_path = settings.RAW_DATA_DIR / f"{doc_id}_csv.zip.zst"
                 try:
                     cctx = zstd.ZstdCompressor(level=settings.ZSTD_COMPRESSION_LEVEL)
@@ -237,7 +247,7 @@ class RawCacheWriter:
                     )
                 except Exception as e:
                     logger.warning(f"Failed to async cache raw CSV for {doc_id}: {e}")
-                
+
                 self.queue.task_done()
             except queue.Empty:
                 continue

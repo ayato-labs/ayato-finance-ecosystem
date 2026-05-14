@@ -7,10 +7,10 @@ import edinet_tools
 import pandas as pd
 from loguru import logger
 
-from src.domain.contracts import CompanyFact, FilingMetadata, NarrativeBlock
-from src.infra.config import settings
-from src.infra.db import db_manager
-from src.infra.tracing import with_context
+from src.shared.domain.contracts import CompanyFact, FilingMetadata, NarrativeBlock
+from src.shared.infra.config import settings
+from src.shared.infra.db import db_manager
+from src.shared.infra.tracing import with_context
 
 from .csv_parser import get_csv_from_edinet, parse_edinet_csv
 from .writer import DatabaseWriter, RawCacheWriter
@@ -80,7 +80,7 @@ class DataIngestor:
                             self.writer.put("ingest", result)
                             logger.debug(f"Queued {doc_id} for DB write.")
                         else:
-                            logger.warning(f"Processing returned empty for {doc_id}: {status_info}")
+                            logger.warning(f"Processing empty for {doc_id}: {status_info}")
 
                         # Queue log update
                         log_data = (
@@ -101,9 +101,7 @@ class DataIngestor:
 
         finally:
             # Wait for all writes to finish and stop the writers
-            logger.info(
-                "Finishing ingestion. Waiting for background writers to flush remaining data..."
-            )
+            logger.info("Finishing ingestion. Waiting for background writers...")
             self.writer.stop()
             self.cache_writer.stop()
             gc.collect()
@@ -121,10 +119,10 @@ class DataIngestor:
                     SELECT doc_id FROM facts_db.company_facts GROUP BY doc_id
                 ) c ON f.doc_id = c.doc_id
                 WHERE
-                    (n.doc_id IS NULL AND (f.form_code LIKE '030000%' 
+                    (n.doc_id IS NULL AND (f.form_code LIKE '030000%'
                      OR f.form_code LIKE '043000%'))
                     OR
-                    (c.doc_id IS NULL AND (f.form_code LIKE '030000%' 
+                    (c.doc_id IS NULL AND (f.form_code LIKE '030000%'
                      OR f.form_code LIKE '043000%'
                      OR f.form_code = '030001'))
             """
@@ -136,6 +134,7 @@ class DataIngestor:
 
         logger.info(f"Identified {len(missing)} documents requiring backfill.")
 
+        # Group by date to minimize API calls
         by_date = {}
         for did, sc, dt in missing:
             d = pd.to_datetime(dt).date()
@@ -153,16 +152,18 @@ class DataIngestor:
                         sc = next(sc for did, sc in items if did == doc._data.get("docID"))
                         docs_to_process.append((doc, sc))
             except Exception as e:
-                logger.error(f"Failed to fetch documents for backfill on {d}: {e}")
+                logger.error(f"Failed to fetch docs for backfill on {d}: {e}", exc_info=True)
 
         if not docs_to_process:
             logger.warning("Could not retrieve any document objects for backfill.")
             return
 
+        self._execute_backfill_queue(docs_to_process, max_workers)
+
+    def _execute_backfill_queue(self, docs_to_process, max_workers):
         processed_count = 0
         self.writer.start()
         self.cache_writer.start()
-
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_info = {
@@ -175,18 +176,16 @@ class DataIngestor:
                         if result:
                             self.writer.put("ingest", result)
                             processed_count += 1
-
                         if processed_count % 10 == 0:
                             logger.info(
-                                f"Backfill Progress: {processed_count}/{len(docs_to_process)} (Queued)"
+                                f"Backfill Progress: {processed_count}/{len(docs_to_process)}"
                             )
                     except Exception as e:
-                        logger.error(f"Backfill processing error: {e}")
+                        logger.error(f"Backfill processing error: {e}", exc_info=True)
         finally:
             self.writer.stop()
             self.cache_writer.stop()
             gc.collect()
-
         logger.info(f"Backfill completed. Processed {processed_count} documents.")
 
     def _process_single_doc(self, doc, ticker, session_id):
@@ -205,7 +204,7 @@ class DataIngestor:
                 ("030000", "043000")
             ):
                 status_info["status"] = "PARTIAL_FAIL"
-                status_info["error"] = "No narrative blocks extracted (possible 404 or empty)"
+                status_info["error"] = "No narrative blocks extracted"
 
             valid_meta = FilingMetadata(**metadata)
             valid_facts = [CompanyFact(**f) for f in facts or []]
@@ -218,7 +217,7 @@ class DataIngestor:
             }
             return result, status_info
         except Exception as e:
-            logger.error(f"Contract validation failed for {doc_id}: {e}")
+            logger.error(f"Contract validation failed for {doc_id}: {e}", exc_info=True)
             status_info = {"status": "PARTIAL_FAIL", "error": str(e)}
             return None, status_info
 
@@ -254,19 +253,9 @@ class DataIngestor:
         except Exception as e:
             error_msg = str(e).lower()
             if "not found" in error_msg or "404" in error_msg:
-                logger.warning(
-                    "Narrative unavailable (404/Not Found) for {doc_id}: {error}",
-                    doc_id=doc._data.get("docID"),
-                    error=str(e),
-                    extra={"doc_id": doc._data.get("docID")},
-                )
+                logger.warning(f"Narrative unavailable (404) for {doc._data.get('docID')}")
             else:
-                logger.error(
-                    "Narrative extraction failed for {doc_id}: {error}",
-                    doc_id=doc._data.get("docID"),
-                    error=str(e),
-                    extra={"doc_id": doc._data.get("docID")},
-                )
+                logger.error(f"Narrative extraction failed for {doc._data.get('docID')}: {e}")
             return []
 
     def _extract_facts(self, doc, ticker, session_id):
@@ -274,34 +263,14 @@ class DataIngestor:
             data = doc._data
             if data.get("csvFlag") != "1":
                 return []
-            content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY, self.cache_writer)
+            content = get_csv_from_edinet(
+                data.get("docID"), settings.EDINET_API_KEY, self.cache_writer
+            )
             if content is None:
                 return None
 
             csv_data = parse_edinet_csv(content)
-            
-            # Extract fiscal year from internal metadata (DEI)
-            fiscal_year = None
-            for file_name, df in csv_data.items():
-                if "jpdei" in file_name.lower() and not df.empty:
-                    # Look for CurrentFiscalYearEndDateDEI
-                    # Column 0 is the Element ID, Column 8 is the Value
-                    matches = df[df.iloc[:, 0].astype(str).str.contains("CurrentFiscalYearEndDateDEI", na=False)]
-                    if not matches.empty:
-                        val = str(matches.iloc[0, 8])
-                        try:
-                            # Handle various date formats (YYYY-MM-DD or YYYYMMDD)
-                            fiscal_year = pd.to_datetime(val).year
-                            logger.debug(f"Derived fiscal year {fiscal_year} from DEI for {data.get('docID')}")
-                            break
-                        except Exception:
-                            continue
-            
-            if fiscal_year is None:
-                filed_date = pd.to_datetime(data.get("submitDateTime")).date()
-                fiscal_year = filed_date.year
-                logger.debug(f"Fallback to submission year {fiscal_year} for {data.get('docID')}")
-
+            fiscal_year = self._derive_fiscal_year(csv_data, data)
             results = []
 
             for file_name, df in csv_data.items():
@@ -338,10 +307,23 @@ class DataIngestor:
                         continue
             return results
         except Exception as e:
-            logger.error(
-                "Fact extraction failed for {doc_id}: {error}",
-                doc_id=doc._data.get("docID"),
-                error=str(e),
-                extra={"session_id": session_id},
-            )
+            logger.error(f"Fact extraction failed for {doc._data.get('docID')}: {e}")
             return []
+
+    def _derive_fiscal_year(self, csv_data, data):
+        # Extract fiscal year from internal metadata (DEI)
+        for file_name, df in csv_data.items():
+            if "jpdei" in file_name.lower() and not df.empty:
+                # Column 0 is the Element ID, Column 8 is the Value
+                matches = df[
+                    df.iloc[:, 0].astype(str).str.contains("CurrentFiscalYearEndDateDEI", na=False)
+                ]
+                if not matches.empty:
+                    val = str(matches.iloc[0, 8])
+                    try:
+                        return pd.to_datetime(val).year
+                    except Exception:
+                        continue
+        # Fallback
+        filed_date = pd.to_datetime(data.get("submitDateTime")).date()
+        return filed_date.year

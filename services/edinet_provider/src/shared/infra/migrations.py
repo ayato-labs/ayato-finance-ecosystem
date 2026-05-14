@@ -3,13 +3,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from src.infra.db import db_manager
-
-
-
-
-
-
+from src.shared.infra.db import db_manager
 
 
 class MigrationManager:
@@ -18,7 +12,7 @@ class MigrationManager:
         migration_dir = Path("migrations")
         if not migration_dir.exists():
             return []
-        return sorted(list(migration_dir.glob("*.sql")))
+        return sorted(migration_dir.glob("*.sql"))
 
     @staticmethod
     def apply_migrations():

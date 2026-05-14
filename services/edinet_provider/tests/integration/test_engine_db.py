@@ -5,9 +5,6 @@ from src.infra.db import db_manager
 from src.service.ingestor import DataIngestor
 
 
-
-
-
 class MockDoc:
     def __init__(self, doc_id, edinet_code="E12345", sec_code="0000"):
         self._data = {
@@ -45,7 +42,6 @@ def test_engine_init_and_sync_skips_existing(tmp_path, monkeypatch):
 
     # Verify insertion
     with db_manager.connect_master(read_only=True) as conn:
-
         count = conn.execute(
             "SELECT count(*) FROM registry_db.filings WHERE doc_id='DOC001'"
         ).fetchone()[0]

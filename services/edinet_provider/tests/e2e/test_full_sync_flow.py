@@ -4,8 +4,6 @@ from src.infra.db import db_manager
 from src.infra.migrations import MigrationManager
 
 
-
-
 class MockDoc:
     def __init__(self, doc_id, edinet_code="E12345", sec_code="0000"):
         self._data = {

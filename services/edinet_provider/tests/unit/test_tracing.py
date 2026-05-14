@@ -5,7 +5,6 @@ import pytest
 from src.infra.tracing import current_trace_id, trace_execution
 
 
-
 def test_trace_execution_generates_id():
     """Unit: trace_execution should generate a TraceID and set it in ContextVar."""
 

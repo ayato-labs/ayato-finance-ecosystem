@@ -2,12 +2,14 @@ import datetime
 import json
 import os
 import time
+from typing import Any
 
 import edinet_tools
+from edinet_tools.document import Document
 from loguru import logger
 
-from src.infra.config import settings
-from src.infra.db import db_manager
+from src.shared.infra.config import settings
+from src.shared.infra.db import db_manager
 
 
 class DataRepository:
@@ -17,25 +19,22 @@ class DataRepository:
     """
 
     @staticmethod
-    def get_documents_with_cache(target_date: datetime.date):
+    def get_documents_with_cache(target_date: datetime.date) -> list[Document]:
         """Fetches document list with local JSON caching (24h validity)."""
         cache_dir = settings.DATA_DIR / "manifests"
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{target_date.isoformat()}.json"
 
         if cache_file.exists():
-            mtime = os.path.getmtime(cache_file)
+            mtime = os.getmtime(cache_file)
             if (time.time() - mtime) < 86400:
                 try:
                     logger.debug(f"Cache HIT for documents on {target_date}")
-                    with open(cache_file, "r", encoding="utf-8") as f:
+                    with open(cache_file, encoding="utf-8") as f:
                         cached_data = json.load(f)
-                    from edinet_tools.document import Document
-
                     return [Document(data) for data in cached_data]
                 except Exception as e:
                     logger.warning(f"Failed to load cache {cache_file}: {e}")
-                    # Fallback to API if cache load fails
 
         logger.debug(f"Cache MISS for documents on {target_date}. Fetching from EDINET...")
         try:
@@ -60,12 +59,12 @@ class DataRepository:
 
     @staticmethod
     def search_filings(
-        edinet_code: str = None,
-        ticker: str = None,
-        company_name: str = None,
-        start_date: str = None,
-        end_date: str = None,
-    ):
+        edinet_code: str | None = None,
+        ticker: str | None = None,
+        company_name: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
         logger.debug(
             f"Searching filings: edinet_code={edinet_code}, ticker={ticker}, "
             f"company_name={company_name}, start={start_date}, end={end_date}"
@@ -97,19 +96,22 @@ class DataRepository:
                 columns = [desc[0] for desc in rel.description]
                 rows = rel.fetchall()
                 logger.debug(f"Query executed successfully, fetched {len(rows)} rows")
-                
+
                 results = []
                 for row in rows:
                     d = {}
-                    for col, val in zip(columns, row):
+                    for col, val in zip(columns, row, strict=False):
                         if isinstance(val, (datetime.datetime, datetime.date)):
-                            val = val.isoformat()
+                            serialized_val = val.isoformat()
                         elif isinstance(val, str):
-                            val = "".join(c for c in val if c.isprintable() or c in "\t\n\r")
-                        d[col] = val
+                            serialized_val = "".join(
+                                c for c in val if c.isprintable() or c in "\t\n\r"
+                            )
+                        else:
+                            serialized_val = val
+                        d[col] = serialized_val
                     results.append(d)
                 return results
             except Exception as e:
-                logger.error(f"Search filings failed: {e}")
-                logger.exception("Search filings error details")
-                return []
+                logger.error(f"Search filings failed: {e}", exc_info=True)
+                raise

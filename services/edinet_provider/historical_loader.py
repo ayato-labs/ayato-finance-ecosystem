@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import sys
 import time
@@ -5,8 +6,8 @@ import time
 from loguru import logger
 
 from src.engine import JPEDINETEngine
-from src.infra.db import db_manager
-from src.infra.logging_config import setup_logging
+from src.shared.infra.db import db_manager
+from src.shared.infra.logging_config import setup_logging
 
 
 def setup_progress_table():
@@ -60,25 +61,26 @@ def get_missing_dates(total_days=1825, end_date=None):
 
 
 def main():
-    print("DEBUG: Entered main")
     setup_logging()
     logger.info("Starting Resilient Historical Fetch Service...")
 
     try:
-        engine = JPEDINETEngine()
-        setup_progress_table()
-
-        # Configuration
-        import argparse
         parser = argparse.ArgumentParser()
         parser.add_argument("--days", type=int, default=1825)
         parser.add_argument("--end-date", type=str, default=None)
         args = parser.parse_args()
 
-        LOOKBACK_DAYS = args.days
-        end_date = datetime.date.fromisoformat(args.end_date) if args.end_date else datetime.date.today()
-        
-        missing_dates = get_missing_dates(LOOKBACK_DAYS, end_date)
+        engine = JPEDINETEngine()
+        setup_progress_table()
+
+        lookback = args.days
+        end_dt = (
+            datetime.date.fromisoformat(args.end_date)
+            if args.end_date
+            else datetime.date.today()
+        )
+
+        missing_dates = get_missing_dates(lookback, end_dt)
 
         if not missing_dates:
             logger.info("No dates to process.")

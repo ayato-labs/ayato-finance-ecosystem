@@ -6,11 +6,6 @@ import uuid
 from loguru import logger
 
 
-
-
-
-
-
 # ContextVar to hold the current trace ID
 current_trace_id = contextvars.ContextVar("trace_id", default="root")
 
@@ -55,6 +50,7 @@ def trace_execution(func):
                     func=func_name,
                     duration=duration,
                     error=e,
+                    exc_info=True,
                 )
                 raise
             finally:

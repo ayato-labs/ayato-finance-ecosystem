@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -12,9 +13,9 @@ def setup_logging(log_dir="logs", service_name="edinet_provider"):
     """
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
-    
+
     logger.remove()
-    
+
     main_log = log_path / f"{service_name}.jsonl"
     error_log = log_path / "error.log"
 
@@ -24,31 +25,45 @@ def setup_logging(log_dir="logs", service_name="edinet_provider"):
             if target_path.exists():
                 suffix = ".prev.jsonl" if target_path.suffix == ".jsonl" else ".prev.log"
                 prev_log = target_path.with_suffix(suffix)
-                if prev_log.exists():
-                    prev_log.unlink()
-                target_path.rename(prev_log)
+
+                # Retry loop for Windows file locks
+                for _ in range(3):
+                    try:
+                        if prev_log.exists():
+                            prev_log.unlink()
+                        target_path.rename(prev_log)
+                        break
+                    except PermissionError:
+                        time.sleep(0.5)
         except Exception as e:
+            # Fallback to stderr if logging setup fails
             print(f"Warning: Failed to rotate {target_path.name}: {e}", file=sys.stderr)
 
     rotate_log_cycle(main_log)
     rotate_log_cycle(error_log)
 
-    # 1. Main JSON Log (DEBUG and above)
+    # 1. Main JSON Log (DEBUG and above) - Structured for machines
     logger.add(
         str(main_log),
         serialize=True,
         level="DEBUG",
         backtrace=True,
         diagnose=True,
+        encoding="utf-8",
     )
 
-    # 2. Isolated Error Log (ERROR and above)
+    # 2. Isolated Error Log (ERROR and above) - Human readable + Traceback for quick fix
+    error_format = (
+        "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}\n"
+        "{exception}"
+    )
     logger.add(
         str(error_log),
-        serialize=True,
+        format=error_format,
         level="ERROR",
         backtrace=True,
         diagnose=True,
+        encoding="utf-8",
     )
 
     # 3. Console (Human readable)
@@ -63,6 +78,6 @@ def setup_logging(log_dir="logs", service_name="edinet_provider"):
         level="INFO",
         colorize=True,
     )
-    
+
     logger.info("Logging initialized: JSON structured and error isolation active (Retention=2).")
     return logger

@@ -4,9 +4,6 @@ import zipfile
 from src.service.csv_parser import parse_edinet_csv
 
 
-
-
-
 def test_parse_edinet_csv_valid():
     """Unit: Parse a valid ZIP with a CSV file."""
     zip_buffer = io.BytesIO()

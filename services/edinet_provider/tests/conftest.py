@@ -6,7 +6,6 @@ from src.infra.config import settings
 from src.infra.db import db_manager
 
 
-
 # Ensure testing environment variable is set before any config imports
 os.environ["TESTING"] = "true"
 
@@ -20,12 +19,12 @@ def setup_test_env(tmp_path):
     original_data_dir = settings.DATA_DIR
     settings.DATA_DIR = tmp_path / "data"
     settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     if os.getenv("MASTER_DB_PATH", ":memory:") == ":memory:":
         db_manager._reset_memory_db()
-        
+
     yield
-    
+
     settings.DATA_DIR = original_data_dir
 
 

@@ -1,68 +1,58 @@
 import datetime
 import logging
 
-import edinet_tools
 from loguru import logger
 
-from src.infra.db import db_manager
-from src.infra.migrations import MigrationManager
-from src.queries.repository import DataRepository
-from src.service.ingestor import DataIngestor
+from src.ingestor.service.ingestor import DataIngestor
+from src.shared.infra.db import db_manager
+from src.shared.infra.migrations import MigrationManager
+from src.shared.queries.repository import DataRepository
 
 # Suppress edinet_tools LLM warning before it gets imported
 logging.getLogger().setLevel(logging.ERROR)
 
 
-
-
 class JPEDINETEngine:
     """
-    Orchestration layer that coordinates Ingestion and Repository services.
+    Japanese Market Data Engine using EDINET API v2.
+    Orchestrates discovery, ingestion, and repository access.
     """
 
     def __init__(self):
+        logger.info("Initializing database and checking migrations...")
+        MigrationManager.apply_migrations()
         self.ingestor = DataIngestor()
-        self.repo = DataRepository()
-        self._db_initialized = False
-
-    def _ensure_db_initialized(self):
-        """Lazy initialization: only runs migrations when a write action is requested."""
-        if not self._db_initialized:
-            logger.info("Initializing database and checking migrations...")
-            try:
-                MigrationManager.apply_migrations()
-                self._db_initialized = True
-            except Exception as e:
-                logger.critical(f"Failed to initialize database: {e}")
-                raise
+        self.repository = DataRepository()
 
     def sync_market(
         self,
         days: int = 30,
-        end_date: datetime.date = None,
+        end_date: datetime.date | None = None,
         session_id: str = "market-sync",
         max_workers: int = 5,
-        run_vacuum: bool = False,
+        run_vacuum: bool = True,
     ):
-        self._ensure_db_initialized()
+        """
+        Synchronizes market data from EDINET for a specified period.
+        - Checks local registry to avoid redundant downloads.
+        - Parallel ingestion for speed.
+        """
         if end_date is None:
             end_date = datetime.date.today()
-        start_date = end_date - datetime.timedelta(days=days - 1)
 
+        start_date = end_date - datetime.timedelta(days=days - 1)
         logger.info(f"🚀 Launching Syncing market from {start_date} to {end_date} ({days} days)...")
 
         all_docs = []
-        current_date = start_date
-        while current_date <= end_date:
+        curr = start_date
+        while curr <= end_date:
             try:
-                docs = self.repo.get_documents_with_cache(current_date)
+                docs = self.repository.get_documents_with_cache(curr)
                 if docs:
                     all_docs.extend(docs)
-                    logger.debug(f"Found {len(docs)} docs for {current_date}")
             except Exception as e:
-                logger.error(f"❌ Failed to fetch list for {current_date}: {e}")
-                # We log and continue to the next day to be resilient
-            current_date += datetime.timedelta(days=1)
+                logger.error(f"Failed to fetch documents for {curr}: {e}")
+            curr += datetime.timedelta(days=1)
 
         if not all_docs:
             logger.warning(f"No documents discovered in the range {start_date} to {end_date}.")
@@ -70,50 +60,25 @@ class JPEDINETEngine:
 
         logger.info(f"Discovery phase complete. Total candidates: {len(all_docs)}")
 
-        try:
-            # Delegate processing to the Ingestor
-            self.ingestor.process_docs_concurrently(all_docs, session_id, max_workers)
-        except Exception as e:
-            logger.critical(f"Market sync pipeline failed: {e}", exc_info=True)
-            raise
-        finally:
-            if run_vacuum:
-                self._vacuum_db()
+        # Process discovery results
+        self.ingestor.process_docs_concurrently(all_docs, session_id, max_workers)
 
-    def sync_company(
-        self,
-        ticker: str,
-        days: int = 30,
-        session_id: str = "manual",
-        max_workers: int = 5,
-        run_vacuum: bool = False,
-    ):
-        logger.info(f"🔍 Syncing JP Company {ticker} (Last {days} days)...")
-        try:
-            entity = edinet_tools.entity(ticker)
-            docs = entity.documents(days=days)
-            if not docs:
-                logger.info(f"No documents found for {ticker}.")
-                return
-            logger.info(f"Found {len(docs)} filings for {ticker}. Starting ingestion...")
-            self.ingestor.process_docs_concurrently(docs, session_id, max_workers)
-        except Exception as e:
-            logger.error(f"❌ Failed to sync {ticker}: {e}", exc_info=True)
-            raise
-        finally:
-            if run_vacuum:
-                self._vacuum_db()
+        if run_vacuum:
+            self._vacuum_db()
 
-    def backfill_missing_data(self, max_workers: int = 5):
-        self._ensure_db_initialized()
-        self.ingestor.backfill_missing_data(max_workers=max_workers)
-        self._vacuum_db()
+        logger.info("✅ Market synchronization complete.")
 
     def _vacuum_db(self):
-        logger.info("Running DB VACUUM to reclaim storage space...")
+        """Maintenance: Reclaim space and optimize indexes."""
+        logger.info("Running database maintenance (VACUUM)...")
         try:
             with db_manager.connect_master() as conn:
-                conn.execute("VACUUM;")
-            logger.info("VACUUM completed successfully.")
+                conn.execute("VACUUM")
+                conn.execute("ANALYZE")
+            logger.info("✅ Database maintenance complete.")
         except Exception as e:
-            logger.error(f"Failed to execute VACUUM: {e}")
+            logger.warning(f"Maintenance failed (possible lock contention): {e}")
+
+    def backfill_missing(self, max_workers: int = 5):
+        """Public entry point for identifying gaps and filling them."""
+        self.ingestor.backfill_missing_data(max_workers=max_workers)
