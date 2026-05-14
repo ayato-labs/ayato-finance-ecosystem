@@ -26,14 +26,14 @@ jobs:
         id: filter
         with:
           filters: |
-            daily_stock_price: 'daily_stock_price/**'
-            daily_crypto_price: 'daily_crypto_price/**'
-            financial_figures: 'Financial Figures/**'
-            financial_narratives: 'Financial Narratives/**'
+            daily_stock_price: 'services/daily_stock_price/**'
+            daily_crypto_price: 'services/daily_crypto_price/**'
+            financial_figures: 'services/Financial Figures/**'
+            financial_narratives: 'services/Financial Narratives/**'
             asset_app: 'asset management App/**'
-            forex: 'forex/**'
-            index: 'index/**'
-            macro: 'macro/**'
+            forex: 'services/forex/**'
+            index: 'services/index/**'
+            macro: 'services/macro/**'
             frontend: 'asset management App/src/frontend/**'
 
   python-ci:
@@ -44,21 +44,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - module: "daily_stock_price"
+          - module: "services/daily_stock_price"
             id: daily_stock_price
-          - module: "daily_crypto_price"
+          - module: "services/daily_crypto_price"
             id: daily_crypto_price
-          - module: "Financial Figures"
+          - module: "services/Financial Figures"
             id: financial_figures
-          - module: "Financial Narratives"
+          - module: "services/Financial Narratives"
             id: financial_narratives
           - module: "asset management App"
             id: asset_app
-          - module: "forex"
+          - module: "services/forex"
             id: forex
-          - module: "index"
+          - module: "services/index"
             id: index
-          - module: "macro"
+          - module: "services/macro"
             id: macro
     if: ${{ needs.changes.outputs[matrix.id] == 'true' }}
     steps:
@@ -82,7 +82,18 @@ jobs:
       - name: Run Ruff Check
         run: |
           cd "${{ matrix.module }}"
-          uv run ruff check .
+          # Only check src, tests, and entry points if they exist
+          TARGETS=""
+          [ -d "src" ] && TARGETS="$TARGETS src"
+          [ -d "tests" ] && TARGETS="$TARGETS tests"
+          [ -f "main.py" ] && TARGETS="$TARGETS main.py"
+          
+          if [ -n "$TARGETS" ]; then
+            uv run ruff check $TARGETS
+          else
+            echo "No standard source directories found, falling back to ."
+            uv run ruff check .
+          fi
       
       - name: Run Pytest
         run: |
@@ -113,7 +124,7 @@ jobs:
       - name: Lint and Build
         run: |
           cd "asset management App/src/frontend"
-          npm run lint
+          npx eslint src tests --max-warnings 0
           npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1

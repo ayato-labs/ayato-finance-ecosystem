@@ -4,15 +4,17 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-env/
-build/
-dist/
-*.egg-info/
+**/.venv/
+**/env/
+**/build/
+**/dist*/
+**/*.egg-info/
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+*.exe
+*.bin
 
 # A. Generated Artifacts
 *.pdf
@@ -42,10 +44,12 @@ htmlcov/
 *.ckpt
 *.gguf
 *.duckdb
-*.db
+**/*.db*
 data/
 **/data/
 **/logs/
+.vite/
+**/.vite/
 
 # C. Environment & Secrets
 .env
@@ -71,3 +75,5 @@ Desktop.ini
 
 # Projects & Private Data
 Intrinsic Value/
+portfolio strategy/dist_electron/
+portfolio strategy/dist_package/

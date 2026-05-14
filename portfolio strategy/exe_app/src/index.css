@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+:root {
+  --color-index: #3B82F6;
+  --color-stock: #10B981;
+  --color-cash: #F59E0B;
+  --color-crypto: #F97316;
+
+  --status-over: #EF4444;
+  --status-under: #FBBF24;
+  --status-ok: #22C55E;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-sans;
+}
