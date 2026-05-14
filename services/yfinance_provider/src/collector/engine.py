@@ -98,7 +98,7 @@ class SyncEngine:
                 (get_long_df(yt.quarterly_cashflow, "Quarterly"), "cashflow"),
             ]
 
-            prices_df = yt.history(period="5y")
+            prices_df = yt.history(period="max")
             if not prices_df.empty:
                 prices_df = prices_df.reset_index()
                 prices_df["ticker"] = ticker
