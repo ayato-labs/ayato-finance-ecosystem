@@ -1,0 +1,3 @@
+"""
+edgar_core package
+"""
