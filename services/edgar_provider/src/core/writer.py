@@ -41,6 +41,7 @@ class EdgarWriter:
             CREATE TABLE IF NOT EXISTS narratives_dedup (
                 ticker VARCHAR,
                 accession_number VARCHAR,
+                filing_date VARCHAR,
                 section_name VARCHAR,
                 chunk_hashes TEXT,
                 UNIQUE(ticker, accession_number, section_name)
@@ -86,11 +87,11 @@ class EdgarWriter:
             
             try:
                 con.execute("""
-                    INSERT INTO narratives_dedup (ticker, accession_number, section_name, chunk_hashes)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO narratives_dedup (ticker, accession_number, filing_date, section_name, chunk_hashes)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT (ticker, accession_number, section_name) 
-                    DO UPDATE SET chunk_hashes = excluded.chunk_hashes
-                """, (filing["ticker"], filing["accession_number"], section_name, hashes_str))
+                    DO UPDATE SET chunk_hashes = excluded.chunk_hashes, filing_date = excluded.filing_date
+                """, (filing["ticker"], filing["accession_number"], filing["filing_date"], section_name, hashes_str))
                 logger.info(f"Saved deduplicated {section_name} for {filing['ticker']}")
             except Exception as e:
                 logger.error(f"Failed to save deduplicated {section_name} for {filing['ticker']}: {e}")
