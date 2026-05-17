@@ -17,7 +17,7 @@ class EdgarPipeline:
         """
         Run the pipeline for a list of CIKs.
         """
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers={"User-Agent": "AyatoLabs/1.0 (cwblog69@gmail.com)"}) as session:
             # 1. Initialize queues
             download_queue = asyncio.Queue()
             parse_queue = asyncio.Queue()

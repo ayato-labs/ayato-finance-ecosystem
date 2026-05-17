@@ -16,6 +16,19 @@ class EdgarWriter:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.compressor = ZstdCompressor()
+        
+        # Ensure table exists
+        con = duckdb.connect(self.db_path)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS narratives (
+                ticker VARCHAR,
+                accession_number VARCHAR,
+                section_name VARCHAR,
+                content_md_zstd BLOB,
+                UNIQUE(ticker, accession_number, section_name)
+            )
+        """)
+        con.close()
 
     def write_result(self, result: Dict[str, Any]):
         """
