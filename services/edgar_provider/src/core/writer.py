@@ -2,6 +2,8 @@ import asyncio
 import duckdb
 from typing import Dict, Any
 from loguru import logger
+from .dict_manager import DictManager
+from .deduplicator import Deduplicator
 
 try:
     from edgar_core.compression import ZstdCompressor
@@ -15,7 +17,7 @@ except ImportError:
 class EdgarWriter:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.compressor = ZstdCompressor()
+        self.dict_manager = DictManager()
         
         # Ensure table exists
         con = duckdb.connect(self.db_path)
@@ -28,6 +30,23 @@ class EdgarWriter:
                 UNIQUE(ticker, accession_number, section_name)
             )
         """)
+        # New tables for deduplication
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS text_chunks (
+                hash VARCHAR PRIMARY KEY,
+                content_zstd BLOB
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS narratives_dedup (
+                ticker VARCHAR,
+                accession_number VARCHAR,
+                filing_date VARCHAR,
+                section_name VARCHAR,
+                chunk_hashes TEXT,
+                UNIQUE(ticker, accession_number, section_name)
+            )
+        """)
         con.close()
 
     def write_result(self, result: Dict[str, Any]):
@@ -36,25 +55,46 @@ class EdgarWriter:
         """
         filing = result["filing"]
         sections = result["sections"]
+        sic = filing.get("sic")
+        compressor = self.dict_manager.get_compressor(sic)
+        deduplicator = Deduplicator()
         
         con = duckdb.connect(self.db_path)
         
         for section_name, content_text in sections.items():
-            # Compress text
-            raw_bytes = content_text.encode("utf-8")
-            compressed_bytes = self.compressor.compress(raw_bytes)
+            # Deduplicate text
+            chunk_hashes, unique_chunks = deduplicator.deduplicate(content_text)
             
-            # Upsert into narratives
+            # Save unique chunks
+            for h, chunk_content in unique_chunks.items():
+                # Check if chunk exists
+                exists = con.execute("SELECT 1 FROM text_chunks WHERE hash = ?", (h,)).fetchone()
+                if not exists:
+                    # Compress chunk
+                    raw_bytes = chunk_content.encode("utf-8")
+                    compressed_bytes = compressor.compress(raw_bytes)
+                    
+                    try:
+                        con.execute("""
+                            INSERT INTO text_chunks (hash, content_zstd)
+                            VALUES (?, ?)
+                        """, (h, compressed_bytes))
+                    except Exception as e:
+                        logger.error(f"Failed to save chunk {h}: {e}")
+            
+            # Save narrative with chunk hashes
+            hashes_str = ",".join(chunk_hashes)
+            
             try:
                 con.execute("""
-                    INSERT INTO narratives (ticker, accession_number, section_name, content_md_zstd)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO narratives_dedup (ticker, accession_number, filing_date, section_name, chunk_hashes)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT (ticker, accession_number, section_name) 
-                    DO UPDATE SET content_md_zstd = excluded.content_md_zstd
-                """, (filing["ticker"], filing["accession_number"], section_name, compressed_bytes))
-                logger.info(f"Saved {section_name} for {filing['ticker']}")
+                    DO UPDATE SET chunk_hashes = excluded.chunk_hashes, filing_date = excluded.filing_date
+                """, (filing["ticker"], filing["accession_number"], filing["filing_date"], section_name, hashes_str))
+                logger.info(f"Saved deduplicated {section_name} for {filing['ticker']}")
             except Exception as e:
-                logger.error(f"Failed to save {section_name} for {filing['ticker']}: {e}")
+                logger.error(f"Failed to save deduplicated {section_name} for {filing['ticker']}: {e}")
                 
         con.close()
 

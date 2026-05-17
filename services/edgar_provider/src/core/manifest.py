@@ -39,6 +39,7 @@ class ManifestLoader:
             results.append({
                 "ticker": data.get("tickers", [None])[0],
                 "cik": cik,
+                "sic": data.get("sic"),
                 "accession_number": filings["accessionNumber"][i],
                 "filing_date": filings["filingDate"][i],
                 "form": form,
