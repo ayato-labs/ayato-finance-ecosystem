@@ -2,6 +2,7 @@ import asyncio
 import duckdb
 from typing import Dict, Any
 from loguru import logger
+from .dict_manager import DictManager
 
 try:
     from edgar_core.compression import ZstdCompressor
@@ -15,7 +16,7 @@ except ImportError:
 class EdgarWriter:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.compressor = ZstdCompressor()
+        self.dict_manager = DictManager()
         
         # Ensure table exists
         con = duckdb.connect(self.db_path)
@@ -36,13 +37,15 @@ class EdgarWriter:
         """
         filing = result["filing"]
         sections = result["sections"]
+        sic = filing.get("sic")
+        compressor = self.dict_manager.get_compressor(sic)
         
         con = duckdb.connect(self.db_path)
         
         for section_name, content_text in sections.items():
             # Compress text
             raw_bytes = content_text.encode("utf-8")
-            compressed_bytes = self.compressor.compress(raw_bytes)
+            compressed_bytes = compressor.compress(raw_bytes)
             
             # Upsert into narratives
             try:
