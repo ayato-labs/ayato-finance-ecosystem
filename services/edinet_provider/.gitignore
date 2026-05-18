@@ -1,0 +1,12 @@
+.env
+DataLake/
+DataBase/
+venv/
+.venv/
+.venv312/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+downloads/
+data/
+logs/
