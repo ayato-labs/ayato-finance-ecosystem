@@ -57,7 +57,7 @@ def get_sync_status():
 if __name__ == "__main__":
     try:
         uvicorn.run(app, host="0.0.0.0", port=5015)
-    except Exception as e:
+    except Exception:
         logger.exception("Fatal error in API server entry point")
         print("\n[FATAL ERROR] Check logs/error.log for details.")
         input("Press Enter to exit...")
