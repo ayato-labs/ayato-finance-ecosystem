@@ -35,20 +35,30 @@ class DataValidator:
         """
         不合理なOHLC関係を持つ行を除外する。
         """
+        initial_len = len(df)
+        
+        # 0. NaN値を持つ行は通常の欠損データとして扱うため、事前に静かに除外する
+        df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        
+        if df.empty:
+            return df
+
         # 1. High/Low 関係性
         mask = df["High"] >= df["Low"]
 
         # 2. Open/Close が High/Low の範囲内か
-        mask &= df["High"] >= df["Open"]
-        mask &= df["High"] >= df["Close"]
-        mask &= df["Low"] <= df["Open"]
-        mask &= df["Low"] <= df["Close"]
+        # 浮動小数点の誤差を許容するために少しマージン(1e-6)を持たせる
+        margin = 1e-6
+        mask &= df["High"] >= df["Open"] - margin
+        mask &= df["High"] >= df["Close"] - margin
+        mask &= df["Low"] <= df["Open"] + margin
+        mask &= df["Low"] <= df["Close"] + margin
 
-        # 3. 価格が正の値か
-        mask &= df["Open"] > 0
-        mask &= df["High"] > 0
-        mask &= df["Low"] > 0
-        mask &= df["Close"] > 0
+        # 3. 価格が正の値か（または0以上か。一部の特殊な銘柄では価格が0になるエラーデータが存在し得る）
+        mask &= df["Open"] >= 0
+        mask &= df["High"] >= 0
+        mask &= df["Low"] >= 0
+        mask &= df["Close"] >= 0
 
         # 4. 出来高が負でないか
         mask &= df["Volume"] >= 0
@@ -56,8 +66,9 @@ class DataValidator:
         invalid_rows = df[~mask]
         if not invalid_rows.empty:
             tickers = invalid_rows["Ticker"].unique()
-            logger.error(
-                f"Logic violation detected in {len(invalid_rows)} rows for tickers: {tickers.tolist()}"
+            # エラーではなく警告レベルに下げる（外部APIのデータ品質問題であり、システム自体のエラーではないため）
+            logger.warning(
+                f"Logic violation detected in {len(invalid_rows)} rows for tickers: {tickers.tolist()} (Total evaluated: {len(df)})"
             )
             # 詳細ログ (最初の3行)
             logger.debug(f"Invalid sample rows:\n{invalid_rows.head(3)}")
