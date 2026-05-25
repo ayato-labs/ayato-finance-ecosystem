@@ -36,12 +36,14 @@ def test_forex_engine_concurrent_writes(temp_forex_dir):
     engine = ForexEngine(temp_forex_dir)
 
     def writer(i):
-        df = pd.DataFrame({
-            "Date": [pd.Timestamp("2024-01-01") + pd.Timedelta(days=i)],
-            "Symbol": ["JPY"],
-            "Rate": [0.007],
-            "LoadTimestamp": [pd.Timestamp.now()]
-        })
+        df = pd.DataFrame(
+            {
+                "Date": [pd.Timestamp("2024-01-01") + pd.Timedelta(days=i)],
+                "Symbol": ["JPY"],
+                "Rate": [0.007],
+                "LoadTimestamp": [pd.Timestamp.now()],
+            }
+        )
         engine.save_data("JPY", df)
 
     num_threads = 10

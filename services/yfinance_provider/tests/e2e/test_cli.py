@@ -14,7 +14,7 @@ def test_cli_sync_success():
             capture_output=True,
             text=True,
             timeout=30,
-            stdin=subprocess.DEVNULL
+            stdin=subprocess.DEVNULL,
         )
         output = result.stdout + result.stderr
         assert "Sync session finished" in output or "Skipping" in output or result.returncode == 0
@@ -28,7 +28,7 @@ def test_cli_invalid_arg():
         [sys.executable, "-m", "src.collector.main", "--invalid-arg"],
         capture_output=True,
         text=True,
-        stdin=subprocess.DEVNULL
+        stdin=subprocess.DEVNULL,
     )
     assert result.returncode != 0
 
@@ -37,7 +37,7 @@ def test_cli_db_locked():
     """DBがロックされている場合のエラーハンドリング"""
     db_path = os.path.join("data", "yfinance.duckdb")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
+
     conn = duckdb.connect(db_path)
     try:
         result = subprocess.run(
@@ -45,7 +45,7 @@ def test_cli_db_locked():
             capture_output=True,
             text=True,
             timeout=15,
-            stdin=subprocess.DEVNULL
+            stdin=subprocess.DEVNULL,
         )
         output = result.stdout + result.stderr
         assert result.returncode != 0

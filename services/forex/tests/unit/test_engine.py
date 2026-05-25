@@ -8,12 +8,14 @@ def test_forex_engine_save_and_get_latest(temp_forex_dir):
 
     # テストデータの作成
     expected_latest_rate = 0.0071
-    df = pd.DataFrame({
-        "Date": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
-        "Symbol": ["JPY", "JPY"],
-        "Rate": [0.007, expected_latest_rate],
-        "LoadTimestamp": [pd.Timestamp.now(), pd.Timestamp.now()]
-    })
+    df = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+            "Symbol": ["JPY", "JPY"],
+            "Rate": [0.007, expected_latest_rate],
+            "LoadTimestamp": [pd.Timestamp.now(), pd.Timestamp.now()],
+        }
+    )
 
     engine.save_data("JPY", df)
 
@@ -33,21 +35,25 @@ def test_forex_engine_deduplication(temp_forex_dir):
     t1 = pd.Timestamp("2024-05-01 10:00:00")
     t2 = pd.Timestamp("2024-05-01 11:00:00")
 
-    df1 = pd.DataFrame({
-        "Date": [pd.Timestamp("2024-01-01")],
-        "Symbol": ["JPY"],
-        "Rate": [0.007],
-        "LoadTimestamp": [t1]
-    })
+    df1 = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2024-01-01")],
+            "Symbol": ["JPY"],
+            "Rate": [0.007],
+            "LoadTimestamp": [t1],
+        }
+    )
     engine.save_data("JPY", df1)
 
     new_rate = 0.008
-    df2 = pd.DataFrame({
-        "Date": [pd.Timestamp("2024-01-01")],
-        "Symbol": ["JPY"],
-        "Rate": [new_rate],  # レートが変わったとする
-        "LoadTimestamp": [t2]
-    })
+    df2 = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2024-01-01")],
+            "Symbol": ["JPY"],
+            "Rate": [new_rate],  # レートが変わったとする
+            "LoadTimestamp": [t2],
+        }
+    )
     engine.save_data("JPY", df2)
 
     rates = engine.get_rates("JPY")

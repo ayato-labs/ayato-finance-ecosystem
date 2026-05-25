@@ -9,13 +9,15 @@ def test_index_engine_robustness(tmp_path):
     engine = IndexEngine(str(db_path))
 
     # 1. 巨大データの保存
-    large_df = pd.DataFrame({
-        "Date": pd.date_range("2000-01-01", periods=10000),
-        "Ticker": ["LARGE"] * 10000,
-        "Close": [100.0] * 10000,
-        "Source": ["test"] * 10000,
-        "LoadTimestamp": [pd.Timestamp.now()] * 10000
-    })
+    large_df = pd.DataFrame(
+        {
+            "Date": pd.date_range("2000-01-01", periods=10000),
+            "Ticker": ["LARGE"] * 10000,
+            "Close": [100.0] * 10000,
+            "Source": ["test"] * 10000,
+            "LoadTimestamp": [pd.Timestamp.now()] * 10000,
+        }
+    )
     engine.save_data("LARGE", large_df)
 
     res = engine.get_latest_date("LARGE")

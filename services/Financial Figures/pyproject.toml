@@ -35,10 +35,27 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF"]
-ignore = ["PLR0913", "PLR0912", "PLR0915", "PLR2004", "PLC0415", "E402", "RUF001", "RUF002", "RUF003"] # Allow complex financial functions and AI mapping logic
+ignore = [
+    "PLR0913", # Too many arguments
+    "PLR0912", # Too many branches
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLC0415", # Import should be at top of file
+    "E402",    # Module level import not at top of file
+    "RUF001",  # String contains ambiguous unicode character
+    "RUF002", 
+    "RUF003",
+    "E501",    # Line too long
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**/*" = ["T201", "C901", "PLR0912", "PLR0915"]
+"scratch/**/*" = ["T201", "C901", "PLR0912", "PLR0915"]
+"tests/**/*" = ["T201"]
 
 [tool.ruff.format]
 quote-style = "double"

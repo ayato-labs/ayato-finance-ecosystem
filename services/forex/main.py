@@ -4,17 +4,15 @@ import sys
 import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
+from src.core.logging import setup_logger
 
 # .env ファイルの読み込み
 load_dotenv()
 
 from src.api.app import app, engine, fetcher
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("data/forex_error.log", level="ERROR", rotation="10 MB")
-logger.add("data/forex.log", level="INFO", rotation="10 MB")
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="forex")
 
 
 def run_sync(symbol: str):

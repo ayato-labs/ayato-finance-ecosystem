@@ -1,4 +1,3 @@
-
 print("Starting granular debug...")
 
 print("duckdb imported")

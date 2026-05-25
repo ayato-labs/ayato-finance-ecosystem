@@ -16,19 +16,19 @@ def test_calculate_profile_hash(sync_engine):
         "longName": "Apple Inc.",
         "sector": "Technology",
         "industry": "Consumer Electronics",
-        "longBusinessSummary": "Summary 1"
+        "longBusinessSummary": "Summary 1",
     }
     info2 = {
         "longName": "Apple Inc.",
         "sector": "Technology",
         "industry": "Consumer Electronics",
-        "longBusinessSummary": "Summary 1"
+        "longBusinessSummary": "Summary 1",
     }
     info3 = {
         "longName": "Apple Inc.",
         "sector": "Technology",
         "industry": "Consumer Electronics",
-        "longBusinessSummary": "Summary 2"  # 変更あり
+        "longBusinessSummary": "Summary 2",  # 変更あり
     }
 
     hash1 = sync_engine._calculate_profile_hash(info1)
@@ -41,10 +41,7 @@ def test_calculate_profile_hash(sync_engine):
 
 def test_update_profile_history_new_file(sync_engine, tmp_path):
     profile_path = os.path.join(tmp_path, "AAPL.json")
-    info = {
-        "longName": "Apple Inc.",
-        "sector": "Technology"
-    }
+    info = {"longName": "Apple Inc.", "sector": "Technology"}
     current_hash = "hash1"
 
     # 新規作成
@@ -61,15 +58,12 @@ def test_update_profile_history_new_file(sync_engine, tmp_path):
 
 def test_update_profile_history_no_change(sync_engine, tmp_path):
     profile_path = os.path.join(tmp_path, "AAPL.json")
-    info = {
-        "longName": "Apple Inc.",
-        "sector": "Technology"
-    }
+    info = {"longName": "Apple Inc.", "sector": "Technology"}
     current_hash = "hash1"
 
     # 1回目の書き込み
     sync_engine._update_profile_history(profile_path, info, current_hash)
-    
+
     # 2回目の書き込み（変更なし）
     updated = sync_engine._update_profile_history(profile_path, info, current_hash)
     assert updated is False
@@ -82,19 +76,12 @@ def test_update_profile_history_no_change(sync_engine, tmp_path):
 
 def test_update_profile_history_with_change(sync_engine, tmp_path):
     profile_path = os.path.join(tmp_path, "AAPL.json")
-    info1 = {
-        "longName": "Apple Inc.",
-        "sector": "Technology"
-    }
-    info2 = {
-        "longName": "Apple Inc.",
-        "sector": "Technology",
-        "industry": "New Industry"
-    }
-    
+    info1 = {"longName": "Apple Inc.", "sector": "Technology"}
+    info2 = {"longName": "Apple Inc.", "sector": "Technology", "industry": "New Industry"}
+
     # 1回目の書き込み
     sync_engine._update_profile_history(profile_path, info1, "hash1")
-    
+
     # 2回目の書き込み（変更あり）
     updated = sync_engine._update_profile_history(profile_path, info2, "hash2")
     assert updated is True

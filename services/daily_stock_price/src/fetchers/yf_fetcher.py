@@ -20,6 +20,7 @@ except ImportError:
     class YFRateLimitError(Exception):
         pass
 
+
 class YFinanceFetcher(BaseFetcher):
     """
     Implementation of BaseFetcher using the yfinance library.
@@ -55,7 +56,7 @@ class YFinanceFetcher(BaseFetcher):
         try:
             start_date_str = start_date.strftime("%Y-%m-%d")
             df = self._download_with_retry(ticker, start_date_str, actions=True)
-            
+
             if df.empty:
                 logger.warning(f"yfinance returned empty data for {ticker}")
                 return pd.DataFrame()
@@ -95,12 +96,7 @@ class YFinanceFetcher(BaseFetcher):
         )
         try:
             start_date_str = start_date.strftime("%Y-%m-%d")
-            df = self._download_with_retry(
-                tickers, 
-                start_date_str, 
-                group_by="column",
-                actions=True
-            )
+            df = self._download_with_retry(tickers, start_date_str, group_by="column", actions=True)
 
             if df.empty:
                 logger.warning(f"yfinance returned empty data for batch: {tickers[:5]}...")

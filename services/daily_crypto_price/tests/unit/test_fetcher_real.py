@@ -12,12 +12,14 @@ def test_crypto_fetcher_real_btc():
     # BTC価格が1000ドル以上であること（極端な異常値でないこと）
     assert df.iloc[-1]["Close"] > 1000
 
+
 def test_crypto_fetcher_metadata_real():
     """メタデータを実際に取得"""
     fetcher = CryptoPriceFetcher()
     info = fetcher.fetch_metadata("BTC")
     assert info != {}
     assert "market_cap" in info
+
 
 def test_crypto_fetcher_invalid_symbol():
     """存在しない暗号資産シンボル"""

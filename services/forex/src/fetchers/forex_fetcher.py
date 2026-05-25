@@ -19,6 +19,7 @@ except ImportError:
     class YFRateLimitError(Exception):
         pass
 
+
 class ForexFetcher:
     """
     yfinanceを使用して為替レートを取得し、USDを基準に正規化するフェッチャー。

@@ -6,9 +6,13 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from src.core.logging import setup_logger
 
 from src.engine.db_engine import CryptoDBEngine
 from src.fetchers.crypto_fetcher import CryptoPriceFetcher
+
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="daily_crypto_price")
 
 app = FastAPI(title="Daily Crypto Price API")
 
@@ -75,12 +79,13 @@ async def get_prices(ticker: str, sync: bool = Query(False)):
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Daily Crypto Price API")
     parser.add_argument("--api", action="store_true", help="Start the API server")
     parser.add_argument("--sync", nargs="*", help="Sync specific tickers (e.g., BTC, ETH)")
     parser.add_argument("--host", default="127.0.0.1", help="Host for the API server")
     parser.add_argument("--port", type=int, default=5012, help="Port for the API server")
-    
+
     args = parser.parse_args()
 
     if args.sync is not None:
@@ -100,7 +105,7 @@ if __name__ == "__main__":
             except Exception as e:
                 logger.error(f"Failed to sync {t}: {e}")
         print("Crypto sync complete.")
-        
+
     elif args.api or (not args.sync and not args.api):
         logger.info(f"Starting Crypto Price API on {args.host}:{args.port}...")
         uvicorn.run(app, host=args.host, port=args.port)

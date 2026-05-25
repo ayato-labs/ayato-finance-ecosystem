@@ -7,6 +7,7 @@ from loguru import logger
 
 _db_lock = threading.Lock()
 
+
 class CryptoDBEngine:
     def __init__(self, db_path: str = "data/crypto_prices.duckdb"):
         self.db_path = db_path

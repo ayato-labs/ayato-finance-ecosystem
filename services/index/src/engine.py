@@ -7,6 +7,7 @@ from loguru import logger
 
 _file_lock = threading.Lock()
 
+
 class IndexEngine:
     """
     指数データの保存 (Parquet) と抽出 (DuckDB) を担当するエンジン。

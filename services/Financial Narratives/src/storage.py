@@ -24,7 +24,7 @@ class FinancialNarrativeStorage:
             # RAM使用効率の向上のため制限を設定
             conn.execute(f"SET memory_limit='{DUCKDB_MEMORY_LIMIT}'")
             conn.execute("SET threads=4")
-            
+
             # 並列書き込み時のパフォーマンスと整合性のための設定
             # DuckDBはデフォルトでWAL形式に近い動作をするが、チェックポイントの頻度を調整
             conn.execute("SET checkpoint_threshold='1GB'")
@@ -115,8 +115,6 @@ class FinancialNarrativeStorage:
                 return json.loads(res[0])
             return None
 
-
-
     def filing_exists(self, accession_number: str) -> bool:
         """
         指定された書類が既にDBに存在するか確認する
@@ -144,8 +142,6 @@ class FinancialNarrativeStorage:
             """
             res = conn.execute(query, (ticker.upper(),)).fetchall()
             return res
-
-
 
     def get_stats(self):
         """データベース全体の統計情報を取得"""

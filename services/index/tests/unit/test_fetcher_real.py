@@ -16,6 +16,7 @@ def test_yf_fetcher_real_sp500():
     assert "Ticker" in df.columns
     assert (df["Ticker"] == "^GSPC").all()
 
+
 def test_yf_fetcher_invalid_ticker():
     """不正なティッカーでの挙動"""
     fetcher = YFinanceFetcher()

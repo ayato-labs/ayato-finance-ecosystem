@@ -1,4 +1,3 @@
-
 from src.edgar_fetcher import EdgarFetcher
 
 USER_AGENT = "SampleAgent test@example.com"

@@ -19,6 +19,7 @@ except ImportError:
     class YFRateLimitError(Exception):
         pass
 
+
 class YFinanceFetcher:
     """
     Yahoo Finance (yfinance) を使用して指数データを取得するフェッチャー。
@@ -49,7 +50,7 @@ class YFinanceFetcher:
         try:
             start_date_str = start_date.strftime("%Y-%m-%d")
             df = self._download_with_retry(ticker, start_date_str)
-            
+
             if df.empty:
                 logger.warning(f"yfinance returned empty data for {ticker}")
                 return pd.DataFrame()

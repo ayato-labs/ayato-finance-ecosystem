@@ -21,6 +21,7 @@ def test_us_universe_fallback_no_key(temp_data_dir):
         assert "AAPL" in tickers
         assert (temp_data_dir / "universe" / "us_tickers_full.csv").exists()
 
+
 def test_us_universe_fmp_integration(temp_data_dir):
     """Verify that UniverseManager uses FMP when a key is provided."""
     manager = UniverseManager(cache_dir=str(temp_data_dir / "universe"), fmp_api_key="fake_key")
@@ -57,7 +58,7 @@ def test_us_universe_fmp_failure_fallback(temp_data_dir):
         # 2 & 3. Nasdaq calls (should return empty/invalid for this test
         # to trigger Wikipedia fallback)
         mock_resp_nasdaq = MagicMock()
-        mock_resp_nasdaq.text = "Symbol|Security\n" # Empty data
+        mock_resp_nasdaq.text = "Symbol|Security\n"  # Empty data
         mock_resp_nasdaq.status_code = 200
 
         # 4. Wikipedia call succeeds

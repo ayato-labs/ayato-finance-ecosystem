@@ -6,6 +6,7 @@ import sys
 import httpx
 import uvicorn
 from loguru import logger
+from src.core.logging import setup_logger
 
 from src.core.config import settings
 from src.edinet.sync_worker import EDINETSyncWorker
@@ -14,11 +15,8 @@ from src.services.market_sync import BatchSyncService
 # Constants
 HTTP_OK = 200
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("logs/financial_figures_error.log", level="ERROR", rotation="10 MB")
-logger.add("logs/financial_figures.log", level="INFO", rotation="10 MB")
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="financial_figures")
 
 # Silence noisy libraries
 std_logging.getLogger("httpx").setLevel(std_logging.WARNING)
@@ -62,9 +60,7 @@ def run_api_server(args):
     if args.read_only:
         os.environ["DB_READ_ONLY"] = "true"
 
-    logger.info(
-        f"Starting Unified API Server on {args.host}:{args.port} (reload={args.reload})..."
-    )
+    logger.info(f"Starting Unified API Server on {args.host}:{args.port} (reload={args.reload})...")
 
     worker_count = 1
     logger.info(f"Using {worker_count} worker (DuckDB requires a single process lock).")

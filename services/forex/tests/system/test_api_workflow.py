@@ -19,12 +19,14 @@ def test_forex_api_workflow(temp_forex_dir):
 
     # 1. データの準備 (Engineを直接叩いて投入)
     expected_rate = 0.0065
-    df = pd.DataFrame({
-        "Date": [pd.Timestamp("2024-05-01")],
-        "Symbol": ["JPY"],
-        "Rate": [expected_rate],
-        "LoadTimestamp": [pd.Timestamp.now()]
-    })
+    df = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2024-05-01")],
+            "Symbol": ["JPY"],
+            "Rate": [expected_rate],
+            "LoadTimestamp": [pd.Timestamp.now()],
+        }
+    )
     test_engine.save_data("JPY", df)
 
     # 2. APIで最新レート取得

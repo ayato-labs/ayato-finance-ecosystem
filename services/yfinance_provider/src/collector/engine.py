@@ -54,7 +54,7 @@ class SyncEngine:
             "industry",
             "longBusinessSummary",
             "website",
-            "fullTimeEmployees"
+            "fullTimeEmployees",
         ]
         text_data = ""
         for field in qualitative_fields:
@@ -88,14 +88,14 @@ class SyncEngine:
             "industry": info_raw.get("industry"),
             "longBusinessSummary": info_raw.get("longBusinessSummary"),
             "website": info_raw.get("website"),
-            "fullTimeEmployees": info_raw.get("fullTimeEmployees")
+            "fullTimeEmployees": info_raw.get("fullTimeEmployees"),
         }
-        
+
         history.append(entry)
-        
+
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
-            
+
         return True
 
     def _fetch_task(self, ticker: str, force: bool = False):
@@ -111,7 +111,7 @@ class SyncEngine:
 
         start_time = time.perf_counter()
         logger.info(f"[{ticker}] Starting sync task...")
-        
+
         try:
             profile_dir = os.path.join("data", "profiles")
             profile_path = os.path.join(profile_dir, f"{ticker}.json")
@@ -135,14 +135,18 @@ class SyncEngine:
                         need_fetch_info = True
 
             yt = yf.Ticker(ticker)
-            
+
             if need_fetch_info:
                 info_raw = yt.info
 
             if not info_raw or "longName" not in info_raw:
                 elapsed = time.perf_counter() - start_time
-                logger.warning(f"[{ticker}] Crucial data missing (possibly invalid). Skipping. ({elapsed:.2f}s)")
-                self.write_queue.put((self._update_status_only, (ticker, "FAILED", "Crucial data missing")))
+                logger.warning(
+                    f"[{ticker}] Crucial data missing (possibly invalid). Skipping. ({elapsed:.2f}s)"
+                )
+                self.write_queue.put(
+                    (self._update_status_only, (ticker, "FAILED", "Crucial data missing"))
+                )
                 return
 
             def get_long_df(df, p_type):
@@ -196,17 +200,17 @@ class SyncEngine:
             profile_dir = os.path.join("data", "profiles")
             os.makedirs(profile_dir, exist_ok=True)
             profile_path = os.path.join(profile_dir, f"{ticker}.json")
-            
+
             current_hash = self._calculate_profile_hash(info_raw)
             if self._update_profile_history(profile_path, info_raw, current_hash):
                 logger.info(f"[{ticker}] Updated profile history with hash {current_hash[:8]}")
 
             # 2. 数値データをDBに保存
             conn.execute(
-                "INSERT OR REPLACE INTO info (ticker, data) VALUES (?, ?)", 
-                [ticker, json.dumps(info_raw, ensure_ascii=False)]
+                "INSERT OR REPLACE INTO info (ticker, data) VALUES (?, ?)",
+                [ticker, json.dumps(info_raw, ensure_ascii=False)],
             )
-            
+
             for df, table in financials:
                 if df is not None:
                     query = f"""
@@ -258,7 +262,7 @@ class SyncEngine:
                 if last_status == "SUCCESS" and datetime.now() - last_sync < timedelta(hours=24):
                     logger.debug(f"[{t}] Skipping: Synced successfully within 24h ({last_sync})")
                     continue
-                
+
                 if last_status == "FAILED" and datetime.now() - last_sync < timedelta(minutes=5):
                     logger.debug(f"[{t}] Skipping: Failed recently, cooling down... ({last_sync})")
                     continue

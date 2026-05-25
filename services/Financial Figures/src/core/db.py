@@ -12,6 +12,7 @@ class DuckDBManager:
     Manages DuckDB connections with a focus on handling file locks and
     serializing access across threads within the same process.
     """
+
     _local_lock = threading.Lock()
 
     @staticmethod
@@ -54,5 +55,6 @@ class DuckDBManager:
         finally:
             if conn:
                 conn.close()
+
 
 db_manager = DuckDBManager()

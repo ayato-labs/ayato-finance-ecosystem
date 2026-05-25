@@ -2,6 +2,7 @@ import pytest
 from src.edgar_parser import EdgarParser
 from src.edinet_parser import EdinetParser
 
+
 def test_edgar_parser_extract_sections():
     """EdgarParserの抽出ロジック（Markdownベース）の単体テスト"""
     parser = EdgarParser()
@@ -20,10 +21,12 @@ def test_edgar_parser_extract_sections():
     assert "risk_factors" in sections
     assert "Our business is great." in sections["business"]
 
+
 def test_edgar_parser_invalid_form():
     """未対応のフォームタイプに対する挙動"""
     parser = EdgarParser()
     assert parser.extract_all_sections("<html></html>", "INVALID") == {}
+
 
 def test_edinet_parser_parse_ixbrl():
     """EdinetParserのiXBRLタグ抽出の単体テスト"""
@@ -46,6 +49,7 @@ def test_edinet_parser_parse_ixbrl():
     assert "rd" in results
     assert "リスク1: 競合他社" in results["risk_factors"]
     assert "R&D投資を強化します" in results["rd"]
+
 
 def test_edinet_parser_empty_ixbrl():
     """iXBRLタグが見つからない場合"""

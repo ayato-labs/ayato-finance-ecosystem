@@ -5,9 +5,9 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 
 from ..core.db_manager import DatabaseManager
-from ..core.logger import setup_logger
+from ..core.logging import setup_logger
 
-logger = setup_logger("api_server")
+setup_logger(log_dir="logs", app_name="yfinance_api")
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "yfinance.duckdb")
 
 app = FastAPI(title="yfinance Local Mirror API")

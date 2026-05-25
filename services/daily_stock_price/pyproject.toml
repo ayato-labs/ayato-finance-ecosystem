@@ -37,10 +37,30 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Target only src and tests for major logic checks
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF"]
-ignore = ["PLR0913", "PLR0912", "PLR0915", "PLR2004", "PLC0415", "E402", "RUF001", "RUF002", "RUF003"]
+ignore = [
+    "PLR0913", # Too many arguments
+    "PLR0912", # Too many branches
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLC0415", # Import should be at top of file
+    "E402",    # Module level import not at top of file
+    "RUF001",  # String contains ambiguous unicode character
+    "RUF002", 
+    "RUF003",
+    "E501",    # Line too long (handled by formatter, but sometimes we want to ignore)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore print and complexity for scripts and scratch files
+"scripts/**/*" = ["T201", "C901", "PLR0912", "PLR0915"]
+"scratch/**/*" = ["T201", "C901", "PLR0912", "PLR0915"]
+# Allow print in tests
+"tests/**/*" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

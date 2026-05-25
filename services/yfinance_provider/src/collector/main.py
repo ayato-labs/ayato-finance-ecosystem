@@ -3,10 +3,10 @@ import json
 import os
 
 from ..core.db_manager import DatabaseManager
-from ..core.logger import setup_logger
+from ..core.logging import setup_logger
 from .engine import SyncEngine
 
-logger = setup_logger("collector_main")
+setup_logger(log_dir="logs", app_name="yfinance_collector")
 
 
 def main():

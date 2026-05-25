@@ -4,17 +4,15 @@ import sys
 import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
+from src.core.logging import setup_logger
 
 # .env ファイルの読み込み(インポートより前に行う)
 load_dotenv()
 
 from src.api.app import app, engine, fetcher
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("data/macro_error.log", level="ERROR", rotation="10 MB")
-logger.add("data/macro.log", level="INFO", rotation="10 MB")
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="macro")
 
 
 def run_sync(symbol: str):

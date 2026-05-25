@@ -4,15 +4,13 @@ import sys
 import duckdb
 from loguru import logger
 
+from src.core.logging import setup_logger
 from src.engine import MarketDataEngine
 from src.fetchers.yf_fetcher import YFinanceFetcher
 from src.universe import UniverseManager
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("data/logs/stock_price_error.log", level="ERROR", rotation="10 MB")
-logger.add("data/logs/stock_price.log", level="INFO", rotation="10 MB")
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="daily_stock_price")
 
 
 def check_api_health(port: int) -> str:
@@ -32,8 +30,12 @@ def check_api_health(port: int) -> str:
                 return "running"
             return "blocked"
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        logger.debug(
+            f"API health check: Connection failed or timed out on port {port} (expected if not running)"
+        )
         return "free"
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Unexpected error during API health check on port {port}: {e}")
         return "blocked"
     return "free"
 

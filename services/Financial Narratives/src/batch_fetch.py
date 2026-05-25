@@ -58,18 +58,22 @@ async def batch_fetch(
         else:
             # 2. 自動同期 (全上場企業対象)
             logger.info(f"Starting automated parallel sync | lookback_days={days}")
-            
+
             # 日米の市場を並列で同期する (専門家の提言: レート制限は市場ごとに独立しているため)
             # asyncio.gather により、JPとUSのパイプラインを同時に走らせる
             tasks = [
                 sync_recent_jp_filings(
-                    edinet_fetcher, edinet_parser, storage, days=days, run_structuring=run_structuring
+                    edinet_fetcher,
+                    edinet_parser,
+                    storage,
+                    days=days,
+                    run_structuring=run_structuring,
                 ),
                 sync_recent_us_filings(
                     edgar_fetcher, edgar_parser, storage, days=days, run_structuring=run_structuring
-                )
+                ),
             ]
-            
+
             try:
                 await asyncio.gather(*tasks)
             except Exception:
@@ -88,7 +92,7 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
     for i in range(days):
         target_date = today - timedelta(days=i)
         logger.info(f"Syncing JP filings | date={target_date}")
-        
+
         try:
             docs = await asyncio.to_thread(fetcher.list_documents, target_date)
             # 有報(120), 四半期(140) 等を抽出
@@ -104,7 +108,9 @@ async def sync_recent_jp_filings(fetcher, parser, storage, days=7, run_structuri
 
                     logger.info(f"Downloading JP filing | ticker={ticker} | doc_id={doc_id}")
                     # ブロッキングなI/Oを別スレッドで実行
-                    zip_bytes = await asyncio.to_thread(fetcher.download_document, doc_id, doc_type=1)
+                    zip_bytes = await asyncio.to_thread(
+                        fetcher.download_document, doc_id, doc_type=1
+                    )
                     if zip_bytes:
                         sections = parser.parse_zip(zip_bytes)
                         if sections:
@@ -137,7 +143,9 @@ async def sync_recent_us_filings(fetcher, parser, storage, days=7, run_structuri
 
         for ticker in all_tickers:
             try:
-                await process_us_ticker(ticker, fetcher, parser, storage, run_structuring, days=days)
+                await process_us_ticker(
+                    ticker, fetcher, parser, storage, run_structuring, days=days
+                )
                 # SEC Rate Limit (10 requests/second) を遵守しつつ非同期で譲る
                 await asyncio.sleep(0.11)
             except Exception:
@@ -179,11 +187,15 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                     f"Downloading US filing | ticker={ticker} | acc_no={acc_no} | "
                     f"date={filing['filingDate']}"
                 )
-                resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+                resp = await asyncio.to_thread(
+                    requests.get, url, headers=fetcher.headers, timeout=30
+                )
                 await asyncio.sleep(0.1)
 
                 if resp.status_code != 200:
-                    logger.error(f"Failed to download US filing | ticker={ticker} | status={resp.status_code}")
+                    logger.error(
+                        f"Failed to download US filing | ticker={ticker} | status={resp.status_code}"
+                    )
                     continue
 
                 # 4. パース
@@ -199,7 +211,9 @@ async def process_us_ticker(ticker, fetcher, parser, storage, run_structuring=Fa
                 del resp
                 gc.collect()
             except Exception:
-                logger.exception(f"Error processing US filing | ticker={ticker} | acc_no={filing.get('accessionNumber')}")
+                logger.exception(
+                    f"Error processing US filing | ticker={ticker} | acc_no={filing.get('accessionNumber')}"
+                )
 
     except Exception:
         logger.exception(f"Failed to process US ticker | ticker={ticker}")
@@ -271,6 +285,7 @@ async def run_structuring_for_filing(ticker, acc_no, sections, storage):
 
     try:
         from src.structurer import FilingStructurer
+
         structurer = FilingStructurer(api_key=api_key)
         facts = await structurer.extract_facts(sections)
         if facts:
@@ -286,16 +301,12 @@ if __name__ == "__main__":
     from src.logging_utils import setup_logging
 
     setup_logging("batch")
-    
+
     parser = argparse.ArgumentParser(description="Financial Narratives Batch Fetcher")
     parser.add_argument("--days", type=int, default=7, help="Number of days to look back")
     parser.add_argument("--tickers", nargs="+", help="Specific tickers to fetch")
     parser.add_argument("--structure", action="store_true", help="Run AI structuring after fetch")
-    
+
     args = parser.parse_args()
 
-    asyncio.run(batch_fetch(
-        tickers=args.tickers, 
-        run_structuring=args.structure, 
-        days=args.days
-    ))
+    asyncio.run(batch_fetch(tickers=args.tickers, run_structuring=args.structure, days=args.days))

@@ -5,17 +5,17 @@ import sys
 import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
+from src.core.logging import setup_logger
 
 load_dotenv()
 
 from src.batch_fetch import batch_fetch
 from src.config import DEFAULT_PORT
-from src.logging_utils import setup_logging
 from src.storage import FinancialNarrativeStorage
 
 # 初期化
 load_dotenv()
-logger = setup_logging("financial_narratives")
+setup_logger(log_dir="logs", app_name="financial_narratives")
 
 
 def run_diagnostics():
