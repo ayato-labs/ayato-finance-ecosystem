@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 
+from loguru import logger
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger
 from .engine import SyncEngine

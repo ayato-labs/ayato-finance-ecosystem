@@ -19,6 +19,7 @@ dependencies = [
     "coloredlogs>=15.0.1",
     "pyarrow>=15.0.1",
     "loguru>=0.7.3",
+    "python-dotenv>=1.2.2",
 ]
 
 [build-system]

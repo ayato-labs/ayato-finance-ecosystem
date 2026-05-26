@@ -1,10 +1,14 @@
 import re
+import sys
 import warnings
 from typing import ClassVar
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from loguru import logger
 from markdownify import markdownify as md
+
+# Increase recursion limit for complex SEC documents
+sys.setrecursionlimit(5000)
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -102,10 +106,27 @@ class EdgarParser:
 
     def _preprocess_html(self, html_content: str) -> BeautifulSoup:
         soup = BeautifulSoup(html_content, "lxml")
-        # 不要なタグのunwrap
+        # 不要なタグのunwrapまたは削除
+        # スタイル指定がない、またはテキストのみのコンテナを優先的に処理
         for tag in soup(["span", "font", "div"]):
-            if not tag.attrs:  # スタイル指定がないもののみunwrap
+            if not tag.attrs:
                 tag.unwrap()
+
+        # 不要な属性の削除（変換に影響しないもの。Markdown変換時の負荷を下げる）
+        for tag in soup.find_all(True):
+            for attr in [
+                "style",
+                "class",
+                "id",
+                "width",
+                "height",
+                "border",
+                "cellspacing",
+                "cellpadding",
+            ]:
+                if attr in tag.attrs:
+                    del tag.attrs[attr]
+
         for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
             ix_tag.unwrap()
         return soup

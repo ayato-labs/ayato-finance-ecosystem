@@ -1,8 +1,8 @@
 import duckdb
 
-from .logger import setup_logger
+from .logging import setup_logger
 
-logger = setup_logger("db_manager")
+logger = setup_logger(app_name="db_manager")
 
 
 class DatabaseManager:

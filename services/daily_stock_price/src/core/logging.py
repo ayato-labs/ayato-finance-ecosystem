@@ -55,3 +55,5 @@ def setup_logger(log_dir: str = "logs", app_name: str = "app"):
     )
 
     logger.debug(f"Logging initialized. App: {app_name}, Dir: {log_dir}")
+  
+    return logger 

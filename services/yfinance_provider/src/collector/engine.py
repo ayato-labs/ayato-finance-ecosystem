@@ -13,9 +13,9 @@ import yfinance as yf
 from yfinance.exceptions import YFRateLimitError
 
 from ..core.db_manager import DatabaseManager
-from ..core.logger import setup_logger
+from ..core.logging import setup_logger
 
-logger = setup_logger("collector_engine")
+logger = setup_logger(app_name="collector_engine")
 
 
 class SyncEngine:

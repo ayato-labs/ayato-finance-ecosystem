@@ -3,6 +3,7 @@ import os
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from loguru import logger
 
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger

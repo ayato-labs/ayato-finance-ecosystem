@@ -1,5 +1,6 @@
 import random
 import time
+from datetime import date
 
 import requests
 from loguru import logger
@@ -18,6 +19,7 @@ class EdgarFetcher:
         # User-Agent 例: "YourName yourname@example.com"
         self.headers = {"User-Agent": user_agent}
         self.ticker_to_cik_map = {}
+        self.cik_to_ticker_map = {}
         self.max_retries = max_retries
 
     def _request_with_retry(self, url: str) -> requests.Response | None:
@@ -75,6 +77,7 @@ class EdgarFetcher:
                     ticker = entry["ticker"].upper()
                     cik = str(entry["cik_str"]).zfill(10)
                     self.ticker_to_cik_map[ticker] = cik
+                    self.cik_to_ticker_map[cik] = ticker
                 logger.info(f"Ticker map refreshed | count={len(self.ticker_to_cik_map)}")
             else:
                 status = response.status_code if response else "N/A"
@@ -94,6 +97,97 @@ class EdgarFetcher:
         if not self.ticker_to_cik_map:
             self._refresh_ticker_map()
         return self.ticker_to_cik_map.get(ticker)
+
+    def get_ticker_from_cik(self, cik: str) -> str | None:
+        """CIKからティッカーを取得"""
+        if not self.cik_to_ticker_map:
+            self._refresh_ticker_map()
+        # 10桁にパディングして検索
+        return self.cik_to_ticker_map.get(str(cik).zfill(10))
+
+    def list_daily_filings(
+        self, target_date: date, target_forms: list[str] | None = None
+    ) -> list[dict]:
+        """
+        SEC Daily Index (master.idx) を使用して、指定日の提出書類一覧を取得
+        """
+        if target_forms is None:
+            target_forms = ["10-K", "10-Q"]
+
+        year = target_date.year
+        quarter = (target_date.month - 1) // 3 + 1
+        date_str = target_date.strftime("%Y%m%d")
+
+        url = (
+            f"https://www.sec.gov/Archives/edgar/daily-index/"
+            f"{year}/QTR{quarter}/master.{date_str}.idx"
+        )
+
+        logger.info(f"Fetching SEC Daily Index | date={target_date} | url={url}")
+        response = self._request_with_retry(url)
+
+        if not response or response.status_code != 200:
+            logger.warning(
+                f"No SEC index found for {target_date} (Weekend, holiday, or late update)"
+            )
+            return []
+
+        lines = response.text.splitlines()
+        data_start = 0
+        for i, line in enumerate(lines):
+            if line.startswith("---"):
+                data_start = i + 1
+                break
+
+        if data_start == 0:
+            logger.error(f"Malformed SEC index file for {target_date}")
+            return []
+
+        results = []
+        for line in lines[data_start:]:
+            parts = line.split("|")
+            if len(parts) >= 5:
+                cik = parts[0].zfill(10)
+                form_type = parts[2]
+                if form_type in target_forms:
+                    # Filename format: edgar/data/1023731/0001023731-26-000041.txt
+                    filename = parts[4]
+                    acc_no = filename.split("/")[-1].replace(".txt", "")
+                    doc_name = filename.split("/")[-1]  # Fallback primary document name
+
+                    results.append(
+                        {
+                            "cik": cik,
+                            "ticker": self.get_ticker_from_cik(cik),
+                            "form": form_type,
+                            "filingDate": parts[3],
+                            "accessionNumber": acc_no,
+                            "primaryDocument": doc_name,
+                        }
+                    )
+
+        logger.info(f"Found {len(results)} relevant filings in daily index")
+        return results
+
+    def resolve_filing_metadata(self, ticker: str, accession_number: str) -> dict | None:
+        """
+        accessionNumber から正確な primaryDocument 名や説明を取得する
+        """
+        subs = self.get_latest_submissions(ticker)
+        if not subs or "filings" not in subs:
+            return None
+
+        recent = subs["filings"]["recent"]
+        for i in range(len(recent["accessionNumber"])):
+            if recent["accessionNumber"][i] == accession_number:
+                return {
+                    "accessionNumber": recent["accessionNumber"][i],
+                    "filingDate": recent["filingDate"][i],
+                    "form": recent["form"][i],
+                    "primaryDocument": recent["primaryDocument"][i],
+                    "primaryDocDescription": recent["primaryDocDescription"][i],
+                }
+        return None
 
     def get_latest_submissions(self, ticker: str) -> dict | None:
         """特定の企業の最新の提出書類リストを取得"""
