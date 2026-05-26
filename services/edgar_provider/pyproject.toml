@@ -1,0 +1,22 @@
+[project]
+name = "edgar_provider"
+version = "0.1.0"
+description = "SEC EDGAR Data Provider"
+authors = [
+    { name = "ayato-labs", email = "ayato-labs@example.com" }
+]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "duckdb",
+    "loguru",
+    "markdownify",
+    "lxml",
+]
+
+[project.scripts]
+edgar-provider = "main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

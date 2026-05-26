@@ -14,6 +14,7 @@ from yfinance.exceptions import YFRateLimitError
 
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger
+from ..core.validator import DataValidator
 
 logger = setup_logger(app_name="collector_engine")
 
@@ -22,6 +23,7 @@ class SyncEngine:
     def __init__(self, db_manager: DatabaseManager, max_workers: int = 4):
         self.db = db_manager
         self.max_workers = max_workers
+        self.validator = DataValidator()
         self.write_queue = queue.Queue()
         self.stop_event = threading.Event()
         self._rate_limit_lock = threading.Lock()
@@ -175,6 +177,16 @@ class SyncEngine:
                 prices_df = prices_df.reset_index()
                 prices_df["ticker"] = ticker
                 prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
+                
+                # Apply logical validation (OHLC relations, NaN handling)
+                prices_df = self.validator.check_logical(prices_df)
+
+            if prices_df.empty:
+                logger.warning(f"[{ticker}] No valid price data after validation. Skipping.")
+                self.write_queue.put(
+                    (self._update_status_only, (ticker, "FAILED", "No valid price data"))
+                )
+                return
 
             self.write_queue.put((self._write_to_db, (ticker, info_raw, financials, prices_df)))
             elapsed = time.perf_counter() - start_time

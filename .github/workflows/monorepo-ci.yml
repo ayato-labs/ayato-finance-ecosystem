@@ -11,14 +11,15 @@ jobs:
     name: Check for Changes
     runs-on: ubuntu-latest
     outputs:
-      daily_stock_price: ${{ steps.filter.outputs.daily_stock_price }}
+      edgar_provider: ${{ steps.filter.outputs.edgar_provider }}
+      edinet_provider: ${{ steps.filter.outputs.edinet_provider }}
+      jquants_provider: ${{ steps.filter.outputs.jquants_provider }}
+      yfinance_provider: ${{ steps.filter.outputs.yfinance_provider }}
       daily_crypto_price: ${{ steps.filter.outputs.daily_crypto_price }}
-      financial_figures: ${{ steps.filter.outputs.financial_figures }}
-      financial_narratives: ${{ steps.filter.outputs.financial_narratives }}
-      asset_app: ${{ steps.filter.outputs.asset_app }}
       forex: ${{ steps.filter.outputs.forex }}
       index: ${{ steps.filter.outputs.index }}
       macro: ${{ steps.filter.outputs.macro }}
+      asset_app: ${{ steps.filter.outputs.asset_app }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
@@ -26,14 +27,15 @@ jobs:
         id: filter
         with:
           filters: |
-            daily_stock_price: 'services/daily_stock_price/**'
+            edgar_provider: 'services/edgar_provider/**'
+            edinet_provider: 'services/edinet_provider/**'
+            jquants_provider: 'services/jquants_provider/**'
+            yfinance_provider: 'services/yfinance_provider/**'
             daily_crypto_price: 'services/daily_crypto_price/**'
-            financial_figures: 'services/Financial Figures/**'
-            financial_narratives: 'services/Financial Narratives/**'
-            asset_app: 'asset management App/**'
             forex: 'services/forex/**'
             index: 'services/index/**'
             macro: 'services/macro/**'
+            asset_app: 'asset management App/**'
             frontend: 'asset management App/src/frontend/**'
 
   python-ci:
@@ -44,64 +46,65 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - module: "services/daily_stock_price"
-            id: daily_stock_price
-          - module: "services/daily_crypto_price"
+          - module: \"services/edgar_provider\"
+            id: edgar_provider
+          - module: \"services/edinet_provider\"
+            id: edinet_provider
+          - module: \"services/jquants_provider\"
+            id: jquants_provider
+          - module: \"services/yfinance_provider\"
+            id: yfinance_provider
+          - module: \"services/daily_crypto_price\"
             id: daily_crypto_price
-          - module: "services/Financial Figures"
-            id: financial_figures
-          - module: "services/Financial Narratives"
-            id: financial_narratives
-          - module: "asset management App"
-            id: asset_app
-          - module: "services/forex"
+          - module: \"services/forex\"
             id: forex
-          - module: "services/index"
+          - module: \"services/index\"
             id: index
-          - module: "services/macro"
+          - module: \"services/macro\"
             id: macro
+          - module: \"asset management App\"
+            id: asset_app
     if: ${{ needs.changes.outputs[matrix.id] == 'true' }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-      
+          python-version: \"3.13\"
+
       - name: Install dependencies
         run: |
-          cd "${{ matrix.module }}"
+          cd \"${{ matrix.module }}\"
           uv sync
-      
+
       - name: Run Ruff Check
         run: |
-          cd "${{ matrix.module }}"
-          # Only check src, tests, and entry points if they exist
-          TARGETS=""
-          [ -d "src" ] && TARGETS="$TARGETS src"
-          [ -d "tests" ] && TARGETS="$TARGETS tests"
-          [ -f "main.py" ] && TARGETS="$TARGETS main.py"
-          
-          if [ -n "$TARGETS" ]; then
+          cd \"${{ matrix.module }}\"
+          TARGETS=\"\"
+          [ -d \"src\" ] && TARGETS=\"$TARGETS src\"
+          [ -d \"tests\" ] && TARGETS=\"$TARGETS tests\"
+          [ -f \"main.py\" ] && TARGETS=\"$TARGETS main.py\"
+
+          if [ -n \"$TARGETS\" ]; then
             uv run ruff check $TARGETS
           else
-            echo "No standard source directories found, falling back to ."
+            echo \"No standard source directories found, falling back to .\"
             uv run ruff check .
           fi
-      
+
       - name: Run Pytest
         run: |
-          cd "${{ matrix.module }}"
-          if [ -d "tests" ]; then
+          cd \"${{ matrix.module }}\"
+          if [ -d \"tests\" ]; then
             uv run pytest tests
           else
-            echo "No tests directory found, skipping pytest."
+            echo \"No tests directory found, skipping pytest.\"
           fi
 
   frontend-ci:
@@ -119,11 +122,11 @@ jobs:
           cache-dependency-path: 'asset management App/src/frontend/package-lock.json'
       - name: Install dependencies
         run: |
-          cd "asset management App/src/frontend"
+          cd \"asset management App/src/frontend\"
           npm ci
       - name: Lint and Build
         run: |
-          cd "asset management App/src/frontend"
+          cd \"asset management App/src/frontend\"
           npx eslint src tests --max-warnings 0
           npm run build
         env:
@@ -137,15 +140,15 @@ jobs:
     steps:
       - name: Check overall status
         run: |
-          # Job result can be 'success', 'failure', 'cancelled', or 'skipped'
-          # We treat 'success' and 'skipped' as passing for the monorepo logic
-          PYTHON_RES="${{ needs.python-ci.result }}"
-          FRONTEND_RES="${{ needs.frontend-ci.result }}"
-          
-          if [[ ($PYTHON_RES == "success" || $PYTHON_RES == "skipped") && ($FRONTEND_RES == "success" || $FRONTEND_RES == "skipped") ]]; then
-            echo "CI Passed."
+          PYTHON_RES=\"${{ needs.python-ci.result }}\"
+          FRONTEND_RES=\"${{ needs.frontend-ci.result }}\"
+
+          if [[ ($PYTHON_RES == \"success\" || $PYTHON_RES == \"skipped\") && ($FRONTEND_RES == \"success\" || $FRONTEND_RES == \"skipped\") ]]; then
+            echo \"CI Passed.\"
             exit 0
           else
-            echo "CI Failed. Python: $PYTHON_RES, Frontend: $FRONTEND_RES"
+            echo \"CI Failed. Python: $PYTHON_RES, Frontend: $FRONTEND_RES\"
             exit 1
           fi
+
+

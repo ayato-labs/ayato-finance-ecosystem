@@ -6,6 +6,7 @@ from loguru import logger
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger
 from .engine import SyncEngine
+from ..universe.manager import UniverseManager
 
 setup_logger(log_dir="logs", app_name="yfinance_collector")
 
@@ -13,6 +14,9 @@ setup_logger(log_dir="logs", app_name="yfinance_collector")
 def main():
     parser = argparse.ArgumentParser(description="yfinance Collector CLI")
     parser.add_argument("--tickers", type=str, help="Comma separated tickers")
+    parser.add_argument(
+        "--sync-market", choices=["us", "jp", "all"], help="Sync entire US or JP market"
+    )
     parser.add_argument("--force", action="store_true", help="Force sync")
     parser.add_argument("--workers", type=int, default=4, help="Max parallel workers")
 
@@ -22,8 +26,16 @@ def main():
     db_manager = DatabaseManager(db_path)
     engine = SyncEngine(db_manager, max_workers=args.workers)
 
+    tickers = []
     if args.tickers:
         tickers = [t.strip() for t in args.tickers.split(",")]
+    elif args.sync_market:
+        um = UniverseManager(cache_dir="data/universe")
+        if args.sync_market in ["us", "all"]:
+            tickers.extend(um.get_us_universe())
+        if args.sync_market in ["jp", "all"]:
+            tickers.extend(um.get_jp_universe())
+        logger.info(f"Discovered {len(tickers)} tickers for market {args.sync_market}")
     else:
         # JSONファイルがあれば読み込む、なければデフォルト
         ticker_file = os.path.join("data", "tickers_to_sync.json")
@@ -34,6 +46,10 @@ def main():
         else:
             # デフォルトの銘柄リスト
             tickers = ["AAPL", "MSFT", "GOOGL", "TSLA", "9119.T", "7203.T"]
+
+    if not tickers:
+        logger.warning("No tickers to sync.")
+        return
 
     engine.run_sync(tickers, force=args.force)
 
