@@ -11,3 +11,4 @@ This directory contains records of significant architectural decisions made in t
 | [ADR-0003](ADR-0003-efficient-edgar-discovery.md) | Efficient EDGAR Incremental Sync via Daily Index | 2026-05-26 | Accepted |
 | [ADR-0004](ADR-0004-consolidation-plan.md) | Consolidation of Legacy Services into Providers | 2026-05-26 | Proposed |
 | [ADR-0005](ADR-0005-stock-data-consolidation.md) | Consolidation of Stock Data into yfinance_provider | 2026-05-26 | Accepted |
+| [ADR-0006](ADR-0006-edinet-ingestion-resilience.md) | EDINET Ingestion Resilience and Rate Limiting | 2026-05-26 | Accepted |

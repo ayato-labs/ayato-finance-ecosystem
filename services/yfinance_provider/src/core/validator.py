@@ -38,34 +38,34 @@ class DataValidator:
         initial_len = len(df)
         
         # 0. NaN値を持つ行は通常の欠損データとして扱うため、事前に静かに除外する
-        df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        df = df.dropna(subset=["open", "high", "low", "close", "volume"])
         
         if df.empty:
             return df
 
         # 1. High/Low 関係性
-        mask = df["High"] >= df["Low"]
+        mask = df["high"] >= df["low"]
 
         # 2. Open/Close が High/Low の範囲内か
         # 浮動小数点の誤差を許容するために少しマージン(1e-6)を持たせる
         margin = 1e-6
-        mask &= df["High"] >= df["Open"] - margin
-        mask &= df["High"] >= df["Close"] - margin
-        mask &= df["Low"] <= df["Open"] + margin
-        mask &= df["Low"] <= df["Close"] + margin
+        mask &= df["high"] >= df["open"] - margin
+        mask &= df["high"] >= df["close"] - margin
+        mask &= df["low"] <= df["open"] + margin
+        mask &= df["low"] <= df["close"] + margin
 
         # 3. 価格が正の値か（または0以上か。一部の特殊な銘柄では価格が0になるエラーデータが存在し得る）
-        mask &= df["Open"] >= 0
-        mask &= df["High"] >= 0
-        mask &= df["Low"] >= 0
-        mask &= df["Close"] >= 0
+        mask &= df["open"] >= 0
+        mask &= df["high"] >= 0
+        mask &= df["low"] >= 0
+        mask &= df["close"] >= 0
 
         # 4. 出来高が負でないか
-        mask &= df["Volume"] >= 0
+        mask &= df["volume"] >= 0
 
         invalid_rows = df[~mask]
         if not invalid_rows.empty:
-            tickers = invalid_rows["Ticker"].unique()
+            tickers = invalid_rows["ticker"].unique()
             # エラーではなく警告レベルに下げる（外部APIのデータ品質問題であり、システム自体のエラーではないため）
             logger.warning(
                 f"Logic violation detected in {len(invalid_rows)} rows for tickers: {tickers.tolist()} (Total evaluated: {len(df)})"
@@ -83,34 +83,35 @@ class DataValidator:
             return
 
         # 銘柄ごとにソートして計算
-        df_sorted = df.sort_values(["Ticker", "Date"])
+        df_sorted = df.sort_values(["ticker", "date"])
 
-        for ticker, group in df_sorted.groupby("Ticker"):
+        for ticker, group in df_sorted.groupby("ticker"):
             if len(group) < 2:
                 continue
 
             # 変化率の計算 (Closeベース)
             # Note: Tickerごとに独立して計算するためにgroup内でpct_changeを実行
-            pct_change = group["Close"].pct_change().abs()
+            pct_change = group["close"].pct_change().abs()
             spikes = group[pct_change > self.spike_threshold]
 
             for idx, row in spikes.iterrows():
                 # 以前の行のインデックスを取得
                 loc = group.index.get_loc(idx)
                 prev_row = group.iloc[loc - 1]
-                prev_price = prev_row["Close"]
-                change = (row["Close"] - prev_price) / prev_price
+                prev_price = prev_row["close"]
+                change = (row["close"] - prev_price) / prev_price
 
                 # 分割情報があるかチェック (0は分割なし、1.0も実質なし)
-                split = row.get("StockSplits", 0)
+                split = row.get("stock_splits", 0)
                 if pd.isna(split) or split == 0 or split == 1.0:
                     logger.warning(
-                        f"Price spike detected for {ticker} on {row['Date'].date()}: "
-                        f"{change:+.2%} (Prev: {prev_price:.2f}, Curr: {row['Close']:.2f}) "
+                        f"Price spike detected for {ticker} on {row['date'].date()}: "
+                        f"{change:+.2%} (Prev: {prev_price:.2f}, Curr: {row['close']:.2f}) "
                         f"WITHOUT split info."
                     )
                 else:
                     logger.info(
-                        f"Price change for {ticker} on {row['Date'].date()}: "
+                        f"Price change for {ticker} on {row['date'].date()}: "
                         f"{change:+.2%} WITH split info ({split})."
                     )
+

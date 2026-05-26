@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "beautifulsoup4>=4.12.0",
     "requests>=2.32.0",
+    "edinet-mcp",
 ]
 
 [build-system]
@@ -62,6 +63,9 @@ ignore = [
 # Ensure no auto-fix is used by the tool itself during check
 fixable = []
 unfixable = ["ALL"]
+
+[tool.uv.sources]
+edinet-mcp = { git = "https://github.com/ajtgjmdjp/edinet-mcp.git" }
 
 [dependency-groups]
 dev = [

@@ -232,12 +232,12 @@ class JPEngine:
         with DuckDBManager.connect(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO company_facts (
+                INSERT OR REPLACE INTO company_facts (
                     fact_id, code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id
                 )
                 SELECT
-                    md5(concat_ws('|', code, disclosed_date, tag, accession_number)) as fact_id,
+                    md5(concat_ws('|', code, disclosed_date, fiscal_year, fiscal_period, tag)) as fact_id,
                     code, disclosed_date, fiscal_year, fiscal_period,
                     taxonomy, tag, label, value, unit, accession_number, session_id
                 FROM melted
