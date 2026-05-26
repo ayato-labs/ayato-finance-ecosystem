@@ -226,14 +226,14 @@ class SyncEngine:
             for df, table in financials:
                 if df is not None:
                     query = f"""
-                        INSERT INTO {table} (ticker, date, item, value, period_type)
+                        INSERT OR REPLACE INTO {table} (ticker, date, item, value, period_type)
                         SELECT ticker, date, item, value, period_type FROM df
                     """
                     conn.execute(query)
 
             if prices_df is not None and not prices_df.empty:
                 query = """
-                    INSERT INTO prices (ticker, date, open, high, low, close, volume,
+                    INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume,
                                         dividends, stock_splits)
                     SELECT ticker, date, open, high, low, close, volume,
                            dividends, stock_splits FROM prices_df

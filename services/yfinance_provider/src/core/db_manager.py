@@ -41,7 +41,8 @@ class DatabaseManager:
                     item VARCHAR,
                     value DOUBLE,
                     period_type VARCHAR,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (ticker, date, item, period_type)
                 );
                 CREATE TABLE IF NOT EXISTS balance_sheet (
                     ticker VARCHAR,
@@ -49,7 +50,8 @@ class DatabaseManager:
                     item VARCHAR,
                     value DOUBLE,
                     period_type VARCHAR,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (ticker, date, item, period_type)
                 );
                 CREATE TABLE IF NOT EXISTS cashflow (
                     ticker VARCHAR,
@@ -57,14 +59,16 @@ class DatabaseManager:
                     item VARCHAR,
                     value DOUBLE,
                     period_type VARCHAR,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (ticker, date, item, period_type)
                 );
                 CREATE TABLE IF NOT EXISTS prices (
                     ticker VARCHAR,
                     date TIMESTAMP,
                     open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE,
                     volume BIGINT, dividends DOUBLE, stock_splits DOUBLE,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (ticker, date)
                 );
             """)
             conn.close()
