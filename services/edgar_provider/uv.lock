@@ -161,6 +161,7 @@ dependencies = [
     { name = "loguru" },
     { name = "lxml" },
     { name = "markdownify" },
+    { name = "pandas" },
     { name = "requests" },
 ]
 
@@ -172,6 +173,7 @@ requires-dist = [
     { name = "loguru" },
     { name = "lxml" },
     { name = "markdownify" },
+    { name = "pandas" },
     { name = "requests" },
 ]
 
