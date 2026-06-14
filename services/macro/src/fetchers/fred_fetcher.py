@@ -7,10 +7,12 @@ from loguru import logger
 
 from ..schema import enforce_schema
 
+
 class FredFetcher:
     """
     FRED (Federal Reserve Economic Data) からマクロ指標を取得するフェッチャー。
     """
+
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("FRED_API_KEY")
         if not self.api_key:
@@ -32,10 +34,7 @@ class FredFetcher:
         logger.info(f"Fetching {symbol} from FRED starting from {start_date.date()}...")
         try:
             # Seriesが返ってくる
-            series = self.fred.get_series(
-                symbol,
-                observation_start=start_date.strftime("%Y-%m-%d")
-            )
+            series = self.fred.get_series(symbol, observation_start=start_date.strftime("%Y-%m-%d"))
 
             if series.empty:
                 logger.warning(f"FRED returned no data for {symbol}")

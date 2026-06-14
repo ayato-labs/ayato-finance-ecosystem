@@ -1,19 +1,18 @@
 import argparse
 import sys
-import uvicorn
-from loguru import logger
+
 from dotenv import load_dotenv
+from loguru import logger
+from src.core.logging import setup_logger
 
 # .env ファイルの読み込み(インポートより前に行う)
 load_dotenv()
 
 from src.api.app import app, engine, fetcher
 
-# Configure loguru
-logger.remove()
-logger.add(sys.stderr, level="INFO")
-logger.add("data/macro_error.log", level="ERROR", rotation="10 MB")
-logger.add("data/macro.log", level="INFO", rotation="10 MB")
+# Configure structured logging
+setup_logger(log_dir="logs", app_name="macro")
+
 
 def run_sync(symbol: str):
     """
@@ -22,20 +21,21 @@ def run_sync(symbol: str):
     logger.info(f"Starting sync for {symbol}...")
     last_date = engine.get_latest_date(symbol)
     df = fetcher.fetch(symbol, last_date)
-    
+
     if df.empty:
         logger.info(f"No new data to sync for {symbol}.")
         return
-        
+
     engine.save_data(symbol, df)
     logger.info(f"Sync completed for {symbol}.")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Macro Economic Service")
     parser.add_argument("command", choices=["sync", "server"], help="Command to run")
     parser.add_argument("--symbol", help="Indicator symbol (e.g., DFF, DGS10)")
     parser.add_argument("--port", type=int, default=5010, help="Server port (default: 5010)")
-    
+
     args = parser.parse_args()
 
     if args.command == "sync":
@@ -46,8 +46,10 @@ def main():
             for s in ["DFF", "DGS10"]:
                 run_sync(s)
     elif args.command == "server":
+        import uvicorn
         logger.info(f"Starting server on port {args.port}...")
         uvicorn.run(app, host="127.0.0.1", port=args.port)
+
 
 if __name__ == "__main__":
     main()
