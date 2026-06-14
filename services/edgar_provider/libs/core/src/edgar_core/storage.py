@@ -14,7 +14,9 @@ class EdgarStorage:
     def __init__(self, db_path: str | None = None):
         if db_path is None:
             # Resolve project root and set database path
-            project_root = Path(__file__).resolve().parents[3]
+            # Now inside libs/core/src/edgar_core/storage.py
+            # 5 levels up: edgar_core -> src -> core -> libs -> root
+            project_root = Path(__file__).resolve().parents[4]
             self.db_path = str(project_root / "data" / "edgar" / "edgar.duckdb")
         else:
             self.db_path = db_path

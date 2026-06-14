@@ -1,47 +1,44 @@
-# シーケンス図 - EDGAR Data Pipeline
+# シーケンス図 - EDGAR Data Pipeline (Completeness-Aware)
 
-この図は、一つの提出書類（Filing）が発見されてから、定性・定量データとして保存されるまでの流れを示します。
+この図は、一つの提出書類（Filing）が発見されてから、定性・定量データの「完全性」を考慮して保存・修復されるまでの流れを示します。
 
 ```mermaid
 sequenceDiagram
     participant CLI as main.py
     participant F as EdgarFetcher
-    participant P as EdgarParser
     participant Q as EdgarQuantitative (edgartools)
     participant S as EdgarStorage (DuckDB)
     participant SEC as SEC API (EDGAR)
 
     CLI->>F: list_daily_filings(date)
-    F->>SEC: GET Daily Index (.idx)
+    F->>SEC: GET Daily Index
     SEC-->>F: Index Content
-    F-->>CLI: List of Filings (acc_no, ticker)
+    F-->>CLI: Filings (acc_no, ticker)
 
     loop Each Filing
         CLI->>S: filing_exists(acc_no)
-        S-->>CLI: Boolean
+        S-->>CLI: exists (Boolean)
+        CLI->>S: facts_exist(acc_no)
+        S-->>CLI: facts_present (Boolean)
 
-        alt is new filing
-            CLI->>F: resolve_metadata(ticker, acc_no)
-            F->>SEC: GET Submissions JSON
-            SEC-->>F: Metadata
-            F-->>CLI: Filing Details (primaryDoc)
-
-            CLI->>SEC: GET HTML Document
-            SEC-->>CLI: HTML content
-
-            par 定性データ抽出
-                CLI->>P: extract_all_sections(html)
-                P-->>CLI: Sections JSON (Markdown)
-            and 定量データ抽出
+        rect rgb(240, 240, 240)
+            Note over CLI, SEC: Smart Repair Logic
+            
+            alt exists == False
+                Note right of CLI: 書類自体がない（新規）
+                CLI->>SEC: GET HTML Document
+                SEC-->>CLI: HTML content
+                CLI->>S: save_filing (定性)
                 CLI->>Q: extract_facts(acc_no)
-                Q->>SEC: GET XBRL/Facts
-                SEC-->>Q: XBRL Data
-                Q-->>CLI: Facts DataFrame
+                Q->>S: save_facts (定量)
+            else alt exists == True AND facts_present == False
+                Note right of CLI: 書類はあるが数値が欠けている（修復）
+                CLI->>Q: extract_facts(acc_no)
+                Q->>S: save_facts (定量)
+            else
+                Note right of CLI: 既に完全なデータがある
+                CLI->>CLI: スキップ
             end
-
-            CLI->>S: save_filing(metadata, sections)
-            CLI->>S: save_facts(ticker, acc_no, facts)
-            S-->>CLI: Success
         end
     end
 ```

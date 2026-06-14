@@ -13,10 +13,18 @@ dependencies = [
     "markdownify",
     "lxml",
     "edgartools",
+    "pandas",
 ]
 
 [project.scripts]
-edgar-provider = "main:main"
+edgar-provider = "edgar_provider.cli:main"
+
+[tool.setuptools.package-dir]
+"edgar_core" = "libs/core/src/edgar_core"
+"edgar_provider" = "apps/provider/src/edgar_provider"
+
+[tool.setuptools.packages.find]
+where = ["libs/core/src", "apps/provider/src"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
