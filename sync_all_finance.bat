@@ -1,18 +1,110 @@
 @echo off
-setlocal
-title Ayato Finance Ecosystem - Market Sync Master
+setlocal enabledelayedexpansion
 
-echo [Step 1/1] Starting Market Sync for all services in Windows Terminal...
+REM ===================================================================
+REM   Ayato Finance Ecosystem - Sequential Market Sync Master
+REM   Synchronizes all financial data services in a serial order.
+REM   Parallelization is handled internally by each service.
+REM ===================================================================
 
-wt --title "Sync: Stock Price" -d "services\daily_stock_price" cmd /k "uv run python main.py --sync-market all" ^; ^
-new-tab --title "Sync: Financial Figures" -d "services\Financial Figures" cmd /k "uv run python main.py --sync-market all" ^; ^
-new-tab --title "Sync: Narratives" -d "services\Financial Narratives" cmd /k "uv run python main.py --sync" ^; ^
-new-tab --title "Sync: Index" -d "services\index" cmd /k "uv run python main.py sync" ^; ^
-new-tab --title "Sync: Macro" -d "services\macro" cmd /k "uv run python main.py sync" ^; ^
-new-tab --title "Sync: Forex" -d "services\forex" cmd /k "uv run python main.py sync" ^; ^
-new-tab --title "Sync: Crypto" -d "services\daily_crypto_price" cmd /k "uv run python main.py --sync"
-
+echo [START] Workspace-wide Database Synchronization
+echo Date: %DATE% %TIME%
 echo.
-echo All sync processes requested.
-echo Please check individual tabs for progress.
+
+pushd "services"
+
+REM 1. J-Quants Provider (JP Market Tickers & Statements)
+echo [1/8] Syncing J-Quants API Data...
+if exist "jquants_provider" (
+    pushd "jquants_provider"
+    uv run python main.py --sync-tickers
+    popd
+) else (
+    echo [SKIP] jquants_provider not found.
+)
+echo.
+
+REM 2. EDINET Provider (JP Financial Datalake)
+echo [2/8] Syncing EDINET Datalake...
+if exist "edinet_provider" (
+    pushd "edinet_provider"
+    uv run python -m src.datalake.cli --market --days 7
+    popd
+) else (
+    echo [SKIP] edinet_provider not found.
+)
+echo.
+
+REM 3. EDGAR Provider (US Filing Data)
+echo [3/8] Syncing SEC EDGAR Data...
+if exist "edgar_provider" (
+    pushd "edgar_provider"
+    uv run python main.py sync --days 7
+    popd
+) else (
+    echo [SKIP] edgar_provider not found.
+)
+echo.
+
+REM 4. yfinance Provider (Global Stock Prices & Financials)
+echo [4/8] Syncing yfinance Data (US/JP Market)...
+if exist "yfinance_provider" (
+    pushd "yfinance_provider"
+    set PYTHONPATH=.
+    uv run python -m src.collector.main --sync-market all --workers 8
+    popd
+) else (
+    echo [SKIP] yfinance_provider not found.
+)
+echo.
+
+REM 5. Crypto Price Data
+echo [5/8] Syncing Crypto Price Data (BTC, ETH, etc.)...
+if exist "daily_crypto_price" (
+    pushd "daily_crypto_price"
+    uv run python main.py --sync
+    popd
+) else (
+    echo [SKIP] daily_crypto_price not found.
+)
+echo.
+
+REM 6. Forex Data (Currency Rates)
+echo [6/8] Syncing Forex Data (JPY, EUR, etc.)...
+if exist "forex" (
+    pushd "forex"
+    uv run python main.py sync
+    popd
+) else (
+    echo [SKIP] forex not found.
+)
+echo.
+
+REM 7. Macro Economic Data (FRED)
+echo [7/8] Syncing Macro Economic Data (DFF, DGS10)...
+if exist "macro" (
+    pushd "macro"
+    uv run python main.py sync
+    popd
+) else (
+    echo [SKIP] macro not found.
+)
+echo.
+
+REM 8. Market Index Data
+echo [8/8] Syncing Market Index Data (^GSPC)...
+if exist "index" (
+    pushd "index"
+    uv run python main.py sync
+    popd
+) else (
+    echo [SKIP] index not found.
+)
+
+popd
+
+echo ===================================================================
+echo [COMPLETE] All databases synchronized.
+echo All data centralized in root /data directory.
+echo ===================================================================
 pause
