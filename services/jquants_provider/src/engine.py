@@ -173,10 +173,15 @@ class JPEngine:
         """財務諸表データの取得"""
         df = pd.DataFrame()
         try:
+            # ClientV2 (API Key) の場合
             if hasattr(self.cli, "get_fin_details"):
                 df = self.cli.get_fin_details(code=code)
-            else:
+            # ClientV1 (Refresh Token) の場合
+            elif hasattr(self.cli, "get_statements"):
                 df = self.cli.get_statements(code=code)
+            else:
+                # Fallback to summary
+                df = self.cli.get_fin_summary(code=code)
         except Exception as e:
             if any(err in str(e) for err in ["403", "400", "429"]):
                 logger.info(f"Fallback to summary for {code}. (Error: {e})")
@@ -191,15 +196,17 @@ class JPEngine:
         if df is None or df.empty:
             return
 
+        # V2の get_fin_details は 'Date' カラムを返すことがある
         date_options = ["DisclosedDate", "Date", "DiscDate"]
         date_col = next((c for c in date_options if c in df.columns), None)
         if not date_col:
+            logger.warning(f"Could not find date column in data for {code}. Columns: {df.columns.tolist()}")
             return
 
         ignore_cols = [
             "LocalCode", "DisclosedDate", "FiscalYear", "FiscalPeriod", "DocType",
             "CurPerType", "CurPerSt", "CurPerEn", "CurFYSt", "CurFYEn", "NxtFYSt", "NxtFYEn",
-            "DEPS", "REPS", "Type", "Code",
+            "DEPS", "REPS", "Type", "Code", "Date",
         ]
 
         id_vars = [
@@ -251,26 +258,46 @@ class JPEngine:
         """
         指定された日の全銘柄の財務諸表を一括取得・同期する。
         """
-        date_str = target_date if isinstance(target_date, str) else target_date.strftime("%Y-%m-%d")
-        logger.info(f"Fetching statements for all companies on {date_str}...")
+        if isinstance(target_date, str):
+            # yyyy-mm-dd を想定
+            date_obj = pd.to_datetime(target_date).date()
+        else:
+            date_obj = target_date
+
+        date_hyphen = date_obj.strftime("%Y-%m-%d")
+        date_raw = date_obj.strftime("%Y%m%d")
+        
+        logger.info(f"Fetching statements for all companies on {date_hyphen}...")
         
         try:
-            # J-Quants API allows fetching all statements for a date by omitting 'code'
-            df = self.cli.get_statements(date=date_str)
+            # ClientV2 (API Key) の場合は get_fin_summary または get_fin_details を使用
+            if hasattr(self.cli, "get_fin_summary"):
+                # V2では引数名が 'date_yyyymmdd' となる
+                df = self.cli.get_fin_summary(date_yyyymmdd=date_raw)
+            else:
+                # V1の場合 (get_statements は 'date' を受け取る)
+                df = self.cli.get_statements(date=date_hyphen)
+            
             if df.empty:
-                logger.info(f"No statements released on {date_str}.")
+                logger.info(f"No statements released on {date_hyphen}.")
                 return
             
+            # カラム名の正規化 (Code または LocalCode)
+            code_col = "LocalCode" if "LocalCode" in df.columns else "Code"
+            if code_col not in df.columns:
+                logger.error(f"Required code column missing in batch for {date_hyphen}. Columns: {df.columns.tolist()}")
+                return
+
             # Unique codes in this batch
-            codes = df["LocalCode"].unique()
-            logger.info(f"Discovered statements for {len(codes)} companies on {date_str}.")
+            codes = df[code_col].unique()
+            logger.info(f"Discovered statements for {len(codes)} companies on {date_hyphen}.")
             
             for code in codes:
-                company_df = df[df["LocalCode"] == code]
+                company_df = df[df[code_col] == code]
                 self.ingest_facts(str(code), company_df, session_id)
                 
         except Exception as e:
-            logger.error(f"Failed to sync statements for {date_str}: {e}")
+            logger.error(f"Failed to sync statements for {date_hyphen}: {e}")
             raise
 
     def sync_recent_statements(self, days: int = 7):
