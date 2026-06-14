@@ -9,6 +9,7 @@ from loguru import logger
 from src.core.logging import setup_logger
 from src.edgar_fetcher import EdgarFetcher
 from src.edgar_parser import EdgarParser
+from src.edgar_quantitative import EdgarQuantitative
 from src.storage import EdgarStorage
 
 
@@ -33,7 +34,7 @@ async def sync_recent_us_filings(fetcher, parser, storage, days=7):
                     acc_no = entry["accessionNumber"]
                     ticker = entry.get("ticker")
 
-                    # 2. 既に存在するか確認
+                    # 2. 既に存在するか確認 (filing_exists はメタデータの有無で判定)
                     if storage.filing_exists(acc_no):
                         continue
 
@@ -71,13 +72,19 @@ async def sync_recent_us_filings(fetcher, parser, storage, days=7):
                         )
                         continue
 
-                    # 5. パースして保存
+                    # 5. パースして保存 (定性データ)
                     sections = parser.extract_all_sections(resp.text, filing["form"])
                     if sections:
                         filing_metadata = filing.copy()
                         filing_metadata["ticker"] = ticker
                         filing_metadata["cik"] = cik
                         storage.save_filing(filing_metadata, sections)
+
+                    # 6. 定量データ (XBRL Facts) の抽出と保存
+                    logger.info(f"Extracting financial facts | ticker={ticker} | acc_no={acc_no}")
+                    facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
+                    if not facts_df.empty:
+                        storage.save_facts(ticker, acc_no, facts_df)
 
                     del resp
                     gc.collect()
@@ -128,6 +135,12 @@ async def process_us_tickers(tickers, fetcher, parser, storage, days=365):
                         filing_metadata["ticker"] = ticker
                         filing_metadata["cik"] = cik
                         storage.save_filing(filing_metadata, sections)
+                    
+                    # 定量データの抽出
+                    logger.info(f"Extracting financial facts | ticker={ticker} | acc_no={acc_no}")
+                    facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
+                    if not facts_df.empty:
+                        storage.save_facts(ticker, acc_no, facts_df)
                 
                 del resp
                 gc.collect()

@@ -12,6 +12,7 @@ dependencies = [
     "loguru",
     "markdownify",
     "lxml",
+    "edgartools",
 ]
 
 [project.scripts]

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 from loguru import logger
 
 
@@ -41,6 +42,27 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS company_facts (
+                    fact_id VARCHAR PRIMARY KEY,
+                    accession_number VARCHAR,
+                    ticker VARCHAR,
+                    concept VARCHAR,
+                    label VARCHAR,
+                    value DOUBLE,
+                    unit VARCHAR,
+                    fiscal_year INTEGER,
+                    fiscal_period VARCHAR,
+                    period_start DATE,
+                    period_end DATE,
+                    period_instant DATE,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup "
+                "ON company_facts (ticker, concept, period_end)"
+            )
             logger.info(f"Initialized DuckDB at {self.db_path}")
 
     def save_filing(self, metadata: dict, sections: dict):
@@ -76,6 +98,42 @@ class EdgarStorage:
                 ),
             )
             logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
+
+    def save_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
+        """
+        XBRLから抽出された財務数値を保存
+        """
+        if df.empty:
+            return
+
+        # カラム名の正規化と一意IDの生成
+        df["ticker"] = ticker
+        df["accession_number"] = accession_number
+        
+        # DuckDBへのインジェスト
+        with duckdb.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO company_facts (
+                    fact_id, accession_number, ticker, concept, label, value, unit,
+                    fiscal_year, fiscal_period, period_start, period_end, period_instant
+                )
+                SELECT
+                    md5(concat_ws('|', ticker, accession_number, concept, period_start, period_end, period_instant)) as fact_id,
+                    accession_number,
+                    ticker,
+                    concept,
+                    label,
+                    CAST(numeric_value AS DOUBLE) as value,
+                    unit_ref as unit,
+                    CAST(fiscal_year AS INTEGER) as fiscal_year,
+                    fiscal_period,
+                    CAST(period_start AS DATE) as period_start,
+                    CAST(period_end AS DATE) as period_end,
+                    CAST(period_instant AS DATE) as period_instant
+                FROM df
+                WHERE numeric_value IS NOT NULL
+            """)
+            logger.info(f"Ingested {len(df)} financial facts for {ticker}")
 
     def filing_exists(self, accession_number: str) -> bool:
         """指定された受理番号の書類が既に存在するか確認"""
