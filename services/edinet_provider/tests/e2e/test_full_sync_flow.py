@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from src.infra.db import db_manager
-from src.infra.migrations import MigrationManager
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.shared.infra.migrations import MigrationManager
 
 
 class MockDoc:

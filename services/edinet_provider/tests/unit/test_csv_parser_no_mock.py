@@ -1,4 +1,4 @@
-from src.service.csv_parser import get_csv_from_edinet
+from src.datalake.service.csv_parser import get_csv_from_edinet
 
 
 def test_get_csv_from_edinet_real_call():

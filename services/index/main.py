@@ -1,7 +1,6 @@
 import argparse
 import sys
 
-import uvicorn
 from loguru import logger
 from src.core.logging import setup_logger
 
@@ -38,6 +37,7 @@ def main():
     if args.command == "sync":
         run_sync(args.ticker)
     elif args.command == "server":
+        import uvicorn
         logger.info(f"Starting server on port {args.port}...")
         uvicorn.run(app, host="127.0.0.1", port=args.port)
 

@@ -1,8 +1,8 @@
 import time
 
-from src.infra.db import db_manager
-from src.infra.migrations import MigrationManager
-from src.service.writer import DatabaseWriter
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.shared.infra.migrations import MigrationManager
+from src.datalake.service.writer import DatabaseWriter
 
 
 def test_database_writer_batch_flush(tmp_path, monkeypatch):

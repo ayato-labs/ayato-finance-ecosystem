@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from src.infra.db import db_manager
-from src.infra.migrations import MigrationManager
-from src.service.ingestor import DataIngestor
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.shared.infra.migrations import MigrationManager
+from src.datalake.service.ingestor import DataIngestor
 
 
 class MockDoc:
@@ -44,17 +44,17 @@ def test_ingestion_to_db_full_verification(tmp_path, monkeypatch):
     docs = [MockDoc("ID_001")]
 
     # Mock CSV fetching to avoid network in integration test
-    with patch("src.service.ingestor.get_csv_from_edinet", return_value=b"PK..."):
+    with patch("src.datalake.service.ingestor.get_csv_from_edinet", return_value=b"PK..."):
         # Mock CSV parsing to return some facts
         mock_cols = ["A", "B", "C", "D", "E", "F", "G", "H", "I"]
         mock_data = [(0, ["", "Sales", "ctx", "", "", "", "", "JPY", "1000000"])]
         with patch(
-            "src.service.ingestor.parse_edinet_csv",
+            "src.datalake.service.ingestor.parse_edinet_csv",
             return_value={
                 "file1.csv": MagicMock(
                     empty=False,
                     columns=MagicMock(tolist=lambda: mock_cols),
-                    iterrows=lambda self: iter(mock_data),
+                    iterrows=lambda: iter(mock_data),
                 )
             },
         ):
@@ -101,12 +101,13 @@ def test_ingestion_duplicate_prevention(tmp_path, monkeypatch):
     monkeypatch.setenv("FACTS_DB_PATH", str(tmp_path / "facts_dup.db"))
     monkeypatch.setenv("NARRATIVE_DB_PATH", str(tmp_path / "narrative_dup.db"))
 
-    from src.infra.migrations import MigrationManager
+    from src.datalake.shared.infra.migrations import MigrationManager
 
     MigrationManager.apply_migrations()
 
     ingestor = DataIngestor()
     doc = MockDoc("DUP_001")
+    doc._data["csvFlag"] = "0"  # Avoid CSV download and parsing during integration test
 
     # Run once
     ingestor.process_docs_concurrently([doc], "sess1", max_workers=1)

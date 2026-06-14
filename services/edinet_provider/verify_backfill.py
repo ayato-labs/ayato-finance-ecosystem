@@ -3,8 +3,8 @@ import datetime
 import edinet_tools
 from loguru import logger
 
-from src.engine import JPEDINETEngine
-from src.infra.db import db_manager
+from src.datalake.engine import JPEDINETEngine
+from src.datalake.shared.infra.db import db_manager
 
 
 def test_backfill_single():

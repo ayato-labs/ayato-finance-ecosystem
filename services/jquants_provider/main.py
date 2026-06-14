@@ -1,10 +1,12 @@
 import argparse
 import sys
 from loguru import logger
+from dotenv import load_dotenv
 from src.core.logging import setup_logger
 from src.engine import JPEngine
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="J-Quants Data Provider CLI")
     parser.add_argument("--sync-tickers", action="store_true", help="Sync listed company info")
     parser.add_argument("--sync-all", action="store_true", help="Sync statements for all tickers")

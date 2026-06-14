@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
-from src.engine import JPEDINETEngine
-from src.infra.db import db_manager
-from src.service.ingestor import DataIngestor
+from src.datalake.engine import JPEDINETEngine
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.service.ingestor import DataIngestor
 
 
 class MockDoc:

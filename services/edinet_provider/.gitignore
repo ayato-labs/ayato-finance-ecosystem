@@ -1,6 +1,6 @@
 .env
-DataLake/
-DataBase/
+/DataLake/
+/DataBase/
 venv/
 .venv/
 .venv312/
@@ -10,3 +10,4 @@ __pycache__/
 downloads/
 data/
 logs/
+scratch/

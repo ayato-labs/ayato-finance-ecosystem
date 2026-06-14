@@ -5,9 +5,9 @@ import time
 
 from loguru import logger
 
-from src.engine import JPEDINETEngine
-from src.shared.infra.db import db_manager
-from src.shared.infra.logging_config import setup_logging
+from src.datalake.engine import JPEDINETEngine
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.shared.infra.logging_config import setup_logging
 
 
 def setup_progress_table():

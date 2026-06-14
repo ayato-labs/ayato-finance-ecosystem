@@ -1,7 +1,7 @@
 import io
 import zipfile
 
-from src.service.csv_parser import parse_edinet_csv
+from src.datalake.service.csv_parser import parse_edinet_csv
 
 
 def test_parse_edinet_csv_valid():

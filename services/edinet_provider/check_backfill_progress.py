@@ -1,5 +1,5 @@
 import datetime
-from src.shared.infra.db import db_manager
+from src.datalake.shared.infra.db import db_manager
 
 def check_progress():
     total_period_days = 1825  # 5 years

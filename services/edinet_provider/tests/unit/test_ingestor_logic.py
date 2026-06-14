@@ -1,4 +1,4 @@
-from src.service.ingestor import DataIngestor
+from src.datalake.service.ingestor import DataIngestor
 
 
 class MockDoc:

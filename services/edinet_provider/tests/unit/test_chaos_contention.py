@@ -4,7 +4,7 @@ import time
 import duckdb
 import pytest
 
-from src.infra.db import db_manager
+from src.datalake.shared.infra.db import db_manager
 
 
 def test_heavy_contention_resilience(tmp_path, monkeypatch):

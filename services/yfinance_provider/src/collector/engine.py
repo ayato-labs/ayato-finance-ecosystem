@@ -71,12 +71,15 @@ class SyncEngine:
         if os.path.exists(profile_path):
             try:
                 with open(profile_path, "r", encoding="utf-8") as f:
-                    history = json.load(f)
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        history = data
+                    else:
+                        logger.warning(f"Profile {profile_path} is not a list. Resetting.")
             except Exception:
                 logger.warning(f"Failed to read history from {profile_path}. Re-creating.")
-                history = []
 
-        if history and isinstance(history, list):
+        if history:
             last_entry = history[-1]
             if last_entry.get("hash") == current_hash:
                 return False  # 変更なし

@@ -1,6 +1,6 @@
 import threading
 
-from src.infra.db import db_manager
+from src.datalake.shared.infra.db import db_manager
 
 
 def test_db_manager_connection_sharing(tmp_path, monkeypatch):

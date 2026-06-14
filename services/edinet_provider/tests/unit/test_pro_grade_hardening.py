@@ -1,9 +1,9 @@
 import concurrent.futures
 
-from src.infra.db import db_manager
-from src.infra.migrations import MigrationManager
-from src.infra.tracing import current_trace_id, trace_execution, with_context
-from src.service.writer import DatabaseWriter
+from src.datalake.shared.infra.db import db_manager
+from src.datalake.shared.infra.migrations import MigrationManager
+from src.datalake.shared.infra.trace import current_trace_id, trace_execution, with_context
+from src.datalake.service.writer import DatabaseWriter
 
 
 def test_trace_id_propagation_to_threads():

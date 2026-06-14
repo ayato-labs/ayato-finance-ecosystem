@@ -1,7 +1,6 @@
 import argparse
 import sys
 
-import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
 from src.core.logging import setup_logger
@@ -47,6 +46,7 @@ def main():
             for s in ["DFF", "DGS10"]:
                 run_sync(s)
     elif args.command == "server":
+        import uvicorn
         logger.info(f"Starting server on port {args.port}...")
         uvicorn.run(app, host="127.0.0.1", port=args.port)
 

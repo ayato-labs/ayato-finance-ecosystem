@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from src.infra.tracing import current_trace_id, trace_execution
+from src.datalake.shared.infra.trace import current_trace_id, trace_execution
 
 
 def test_trace_execution_generates_id():

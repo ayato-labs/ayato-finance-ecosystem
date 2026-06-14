@@ -1,5 +1,5 @@
 import zstandard as zstd
-from src.shared.infra.db import db_manager
+from src.datalake.shared.infra.db import db_manager
 
 def validate_data():
     print("--- EDINET Data Quality Audit ---")
