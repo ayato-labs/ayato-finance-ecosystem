@@ -56,7 +56,9 @@ class JPEngine:
         """
         J-Quants API エンジンの初期化
         """
-        self.db_path = Path("data/jquants.duckdb")
+        # Resolve project root and set database path
+        project_root = Path(__file__).resolve().parents[3]
+        self.db_path = project_root / "data" / "jquants" / "jquants.duckdb"
         self.api_key = api_key or os.environ.get("JQUANTS_API_KEY")
         self.refresh_token = refresh_token or os.environ.get("JQUANTS_REFRESH_TOKEN")
 

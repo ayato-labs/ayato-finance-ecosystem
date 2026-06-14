@@ -13,8 +13,14 @@ class MacroEngine:
     マクロ指標データの保存 (Parquet) と抽出 (DuckDB) を担当する engine。
     """
 
-    def __init__(self, base_dir: str = "data/macro"):
-        self.base_dir = Path(base_dir)
+    def __init__(self, base_dir: str | None = None):
+        if base_dir is None:
+            # Resolve project root and set base directory
+            project_root = Path(__file__).resolve().parents[3]
+            self.base_dir = project_root / "data" / "macro"
+        else:
+            self.base_dir = Path(base_dir)
+            
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_safe_filename(self, symbol: str) -> str:

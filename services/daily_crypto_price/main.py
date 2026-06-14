@@ -24,8 +24,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from pathlib import Path
+project_root = Path(__file__).resolve().parents[2]
+default_db_path = str(project_root / "data" / "crypto" / "crypto_prices.duckdb")
+
 fetcher = CryptoPriceFetcher()
-db = CryptoDBEngine(db_path=os.getenv("DATABASE_PATH", "crypto_prices.duckdb"))
+db = CryptoDBEngine(db_path=os.getenv("DATABASE_PATH", default_db_path))
 
 TICKER_REGEX = re.compile(r"^[A-Z0-9\-\.\_]+$")
 

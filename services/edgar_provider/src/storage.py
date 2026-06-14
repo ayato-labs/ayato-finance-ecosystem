@@ -10,10 +10,16 @@ class EdgarStorage:
     SEC EDGAR 提出書類のパース結果を DuckDB に保存・管理するクラス
     """
 
-    def __init__(self, db_path: str = "data/edgar_filings.duckdb"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        if db_path is None:
+            # Resolve project root and set database path
+            project_root = Path(__file__).resolve().parents[3]
+            self.db_path = str(project_root / "data" / "edgar" / "edgar.duckdb")
+        else:
+            self.db_path = db_path
+            
         # データベースファイルのディレクトリ作成
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self):

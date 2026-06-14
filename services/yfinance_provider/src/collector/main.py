@@ -3,6 +3,7 @@ import json
 import os
 
 from loguru import logger
+from ..core.config import get_db_path, get_universe_cache_dir
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger
 from .engine import SyncEngine
@@ -22,7 +23,7 @@ def main():
 
     args = parser.parse_args()
 
-    db_path = os.path.join("data", "yfinance.duckdb")
+    db_path = get_db_path()
     db_manager = DatabaseManager(db_path)
     engine = SyncEngine(db_manager, max_workers=args.workers)
 
@@ -30,7 +31,7 @@ def main():
     if args.tickers:
         tickers = [t.strip() for t in args.tickers.split(",")]
     elif args.sync_market:
-        um = UniverseManager(cache_dir="data/universe")
+        um = UniverseManager(cache_dir=get_universe_cache_dir())
         if args.sync_market in ["us", "all"]:
             tickers.extend(um.get_us_universe())
         if args.sync_market in ["jp", "all"]:

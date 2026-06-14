@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     EDINET_API_KEY: str = ""
 
     # Paths
-    PROJECT_ROOT: Path = Path(__file__).resolve().parents[4]
-    DATA_DIR: Path = PROJECT_ROOT / "data" / "datalake"
+    PROJECT_ROOT: Path = Path(__file__).resolve().parents[6]
+    DATA_DIR: Path = PROJECT_ROOT / "data" / "edinet"
 
     # Split Database Architecture (The Quad-Split with Master)
     @property
