@@ -9,6 +9,7 @@ def main():
     load_dotenv()
     parser = argparse.ArgumentParser(description="J-Quants Data Provider CLI")
     parser.add_argument("--sync-tickers", action="store_true", help="Sync listed company info")
+    parser.add_argument("--sync-daily", action="store_true", help="Sync daily statements (smart incremental)")
     parser.add_argument("--sync-all", action="store_true", help="Sync statements for all tickers")
     parser.add_argument("--ticker", type=str, help="Sync specific ticker")
     
@@ -20,6 +21,9 @@ def main():
         
         if args.sync_tickers:
             engine.sync_tickers()
+
+        if args.sync_daily:
+            engine.sync_recent_statements(days=7)
             
         if args.ticker:
             df = engine.fetch_statements(args.ticker)

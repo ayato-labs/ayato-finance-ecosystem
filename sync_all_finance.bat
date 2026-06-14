@@ -17,7 +17,7 @@ REM 1. J-Quants Provider (JP Market Tickers & Statements)
 echo [1/8] Syncing J-Quants API Data...
 if exist "jquants_provider" (
     pushd "jquants_provider"
-    uv run python main.py --sync-tickers
+    uv run python main.py --sync-tickers --sync-daily
     popd
 ) else (
     echo [SKIP] jquants_provider not found.
@@ -28,7 +28,8 @@ REM 2. EDINET Provider (JP Financial Datalake)
 echo [2/8] Syncing EDINET Datalake...
 if exist "edinet_provider" (
     pushd "edinet_provider"
-    uv run python -m src.datalake.cli --market --days 7
+    REM Removed fixed --days to trigger smart discovery from last DB record
+    uv run python -m src.datalake.cli --market
     popd
 ) else (
     echo [SKIP] edinet_provider not found.

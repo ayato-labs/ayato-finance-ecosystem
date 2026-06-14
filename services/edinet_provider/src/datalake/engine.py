@@ -26,22 +26,38 @@ class JPEDINETEngine:
 
     def sync_market(
         self,
-        days: int = 30,
+        days: int | None = None,
         end_date: datetime.date | None = None,
         session_id: str = "market-sync",
         max_workers: int = 1,
         run_vacuum: bool = True,
     ):
         """
-        Synchronizes market data from EDINET for a specified period.
+        Synchronizes market data from EDINET.
+        - If 'days' is None, detects the last synced date from DB and bridges the gap.
         - Checks local registry to avoid redundant downloads.
-        - Parallel ingestion for speed.
         """
         if end_date is None:
             end_date = datetime.date.today()
 
-        start_date = end_date - datetime.timedelta(days=days - 1)
-        logger.info(f"🚀 Launching Syncing market from {start_date} to {end_date} ({days} days)...")
+        if days is not None:
+            start_date = end_date - datetime.timedelta(days=days - 1)
+        else:
+            # Smart discovery: detect last filing date
+            logger.info("Auto-detecting last sync date for smart discovery...")
+            with db_manager.connect_master(read_only=True) as conn:
+                res = conn.execute("SELECT MAX(submit_datetime) FROM registry_db.filings").fetchone()
+                if res and res[0]:
+                    # Start from the day after the last known filing
+                    last_date = pd.to_datetime(res[0]).date()
+                    start_date = last_date - datetime.timedelta(days=1)  # Buffer of 1 day to be safe
+                    logger.info(f"Last filing found: {last_date}. Starting from {start_date}")
+                else:
+                    # Default for empty DB
+                    start_date = end_date - datetime.timedelta(days=30)
+                    logger.info(f"No existing filings. Starting with default {start_date}")
+
+        logger.info(f"🚀 Launching Syncing market from {start_date} to {end_date}...")
 
         all_docs = []
         curr = start_date

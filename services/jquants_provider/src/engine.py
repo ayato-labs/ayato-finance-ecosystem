@@ -245,3 +245,53 @@ class JPEngine:
                 FROM melted
                 """
             )
+
+    def sync_daily_statements(self, target_date: str | datetime.date, session_id: str = "daily-sync"):
+        """
+        指定された日の全銘柄の財務諸表を一括取得・同期する。
+        """
+        date_str = target_date if isinstance(target_date, str) else target_date.strftime("%Y-%m-%d")
+        logger.info(f"Fetching statements for all companies on {date_str}...")
+        
+        try:
+            # J-Quants API allows fetching all statements for a date by omitting 'code'
+            df = self.cli.get_statements(date=date_str)
+            if df.empty:
+                logger.info(f"No statements released on {date_str}.")
+                return
+            
+            # Unique codes in this batch
+            codes = df["LocalCode"].unique()
+            logger.info(f"Discovered statements for {len(codes)} companies on {date_str}.")
+            
+            for code in codes:
+                company_df = df[df["LocalCode"] == code]
+                self.ingest_facts(str(code), company_df, session_id)
+                
+        except Exception as e:
+            logger.error(f"Failed to sync statements for {date_str}: {e}")
+            raise
+
+    def sync_recent_statements(self, days: int = 7):
+        """
+        直近N日間の全財務諸表をスマートに同期（差分更新）。
+        """
+        end_date = datetime.date.today()
+        
+        # Determine start date based on last ingested record if possible
+        with DuckDBManager.connect(self.db_path) as conn:
+            res = conn.execute("SELECT MAX(disclosed_date) FROM company_facts").fetchone()
+            if res and res[0]:
+                last_date = pd.to_datetime(res[0]).date()
+                start_date = last_date
+                logger.info(f"Last ingested fact date: {last_date}")
+            else:
+                start_date = end_date - datetime.timedelta(days=days)
+                logger.info(f"No existing facts. Starting from {start_date}")
+
+        curr = start_date
+        while curr <= end_date:
+            session_id = f"auto-sync-{curr.isoformat()}"
+            self.sync_daily_statements(curr, session_id=session_id)
+            curr += datetime.timedelta(days=1)
+
