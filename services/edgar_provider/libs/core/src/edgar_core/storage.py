@@ -6,6 +6,11 @@ import pandas as pd
 from loguru import logger
 
 
+class DataIntegrityError(Exception):
+    """データ整合性バリデーションに失敗した際に投げられる例外"""
+    pass
+
+
 class EdgarStorage:
     """
     SEC EDGAR 提出書類のパース結果を DuckDB に保存・管理するクラス
@@ -67,14 +72,36 @@ class EdgarStorage:
             )
             logger.info(f"Initialized DuckDB at {self.db_path}")
 
+    def _validate_filing(self, metadata: dict, sections: dict):
+        """保存前に定性データの最小限の妥当性をチェック"""
+        required_keys = ["accessionNumber", "ticker", "form", "filingDate"]
+        missing = [k for k in required_keys if not metadata.get(k)]
+        if missing:
+            raise DataIntegrityError(f"Missing metadata fields: {', '.join(missing)}")
+
+        if not sections:
+            raise DataIntegrityError(f"Sections are empty for {metadata.get('accessionNumber')}")
+        
+        # 合計文字数が極端に少ない場合はパース失敗とみなす (例: 100文字未満)
+        total_len = sum(len(content) for content in sections.values())
+        if total_len < 100:
+            raise DataIntegrityError(f"Sections content too sparse ({total_len} chars) for {metadata.get('accessionNumber')}")
+
+    def _validate_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
+        """保存前に定量データの最小限の妥当性をチェック"""
+        if df is None or df.empty:
+            raise DataIntegrityError(f"Facts DataFrame is empty for {ticker} ({accession_number})")
+        
+        required_cols = ["concept", "numeric_value"]
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            raise DataIntegrityError(f"Missing columns in facts DataFrame: {', '.join(missing_cols)}")
+
     def save_filing(self, metadata: dict, sections: dict):
         """
         メタデータとパースされたセクションを DuckDB に保存（UPSERT）
         """
-        required_keys = ["accessionNumber", "ticker", "form", "filingDate"]
-        missing = [k for k in required_keys if not metadata.get(k)]
-        if missing:
-            raise ValueError(f"Missing required metadata fields: {', '.join(missing)}")
+        self._validate_filing(metadata, sections)
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
@@ -105,8 +132,7 @@ class EdgarStorage:
         """
         XBRLから抽出された財務数値を保存
         """
-        if df.empty:
-            return
+        self._validate_facts(ticker, accession_number, df)
 
         # カラム名の正規化と一意IDの生成
         df["ticker"] = ticker

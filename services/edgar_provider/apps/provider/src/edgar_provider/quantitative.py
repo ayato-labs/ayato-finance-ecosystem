@@ -1,9 +1,17 @@
-from edgar import set_identity, get_by_accession_number
+from edgar import set_identity, get_by_accession_number, httpclient
 from loguru import logger
 import pandas as pd
 
 # Set identity as required by SEC
 set_identity("ayato-labs ayato-labs@example.com")
+
+# Disable disk cache to follow the "No-Local-Raw-Files" policy (ADR-0004)
+httpclient.CACHE_DIRECTORY = None
+# Method name correction based on runtime error
+if hasattr(httpclient, "close_clients"):
+    httpclient.close_clients()
+elif hasattr(httpclient, "close_client"):
+    httpclient.close_client()
 
 class EdgarQuantitative:
     """

@@ -9,7 +9,7 @@ from .fetcher import EdgarFetcher
 from .parser import EdgarParser
 from .quantitative import EdgarQuantitative
 # edgar_core will be available as a package
-from edgar_core import EdgarStorage
+from edgar_core import EdgarStorage, DataIntegrityError
 
 
 async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=7):
@@ -64,17 +64,23 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
                             # 定性データの保存
                             sections = parser.extract_all_sections(resp.text, filing["form"])
                             if sections:
-                                filing_metadata = filing.copy()
-                                filing_metadata["ticker"] = ticker
-                                filing_metadata["cik"] = cik
-                                storage.save_filing(filing_metadata, sections)
+                                try:
+                                    filing_metadata = filing.copy()
+                                    filing_metadata["ticker"] = ticker
+                                    filing_metadata["cik"] = cik
+                                    storage.save_filing(filing_metadata, sections)
+                                except DataIntegrityError as e:
+                                    logger.error(f"Filing integrity check failed | acc_no={acc_no} | error={e}")
                         del resp
 
                     # 定量データの抽出・保存
                     logger.info(f"Syncing financial facts | ticker={ticker} | acc_no={acc_no}")
                     facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
                     if not facts_df.empty:
-                        storage.save_facts(ticker, acc_no, facts_df)
+                        try:
+                            storage.save_facts(ticker, acc_no, facts_df)
+                        except DataIntegrityError as e:
+                            logger.error(f"Facts integrity check failed | acc_no={acc_no} | error={e}")
 
                     gc.collect()
                 except Exception:
@@ -121,17 +127,23 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
                     if resp.status_code == 200:
                         sections = parser.extract_all_sections(resp.text, filing["form"])
                         if sections:
-                            filing_metadata = filing.copy()
-                            filing_metadata["ticker"] = ticker
-                            filing_metadata["cik"] = cik
-                            storage.save_filing(filing_metadata, sections)
+                            try:
+                                filing_metadata = filing.copy()
+                                filing_metadata["ticker"] = ticker
+                                filing_metadata["cik"] = cik
+                                storage.save_filing(filing_metadata, sections)
+                            except DataIntegrityError as e:
+                                logger.error(f"Filing integrity check failed | ticker={ticker} | error={e}")
                     del resp
                 
                 # 定量データの抽出
                 logger.info(f"Syncing financial facts | ticker={ticker} | acc_no={acc_no}")
                 facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
                 if not facts_df.empty:
-                    storage.save_facts(ticker, acc_no, facts_df)
+                    try:
+                        storage.save_facts(ticker, acc_no, facts_df)
+                    except DataIntegrityError as e:
+                        logger.error(f"Facts integrity check failed | ticker={ticker} | error={e}")
                 
                 gc.collect()
         except Exception:
@@ -148,7 +160,10 @@ async def repair_all_missing_facts(storage: EdgarStorage):
             logger.info(f"Repairing facts | ticker={ticker} | acc_no={acc_no}")
             facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
             if not facts_df.empty:
-                storage.save_facts(ticker, acc_no, facts_df)
+                try:
+                    storage.save_facts(ticker, acc_no, facts_df)
+                except DataIntegrityError as e:
+                    logger.error(f"Facts integrity check failed during repair | acc_no={acc_no} | error={e}")
             else:
                 logger.warning(f"No facts found during repair for {acc_no}")
             
