@@ -261,6 +261,17 @@ class SyncEngine:
         logger.info(f"Starting sync session for {len(tickers)} tickers (force={force})...")
         conn = self.db.get_connection()
         synced_df = conn.execute("SELECT ticker, last_sync_at, last_status FROM sync_status").df()
+        
+        # Detect tickers with missing price data
+        missing_df = conn.execute("""
+            SELECT tm.ticker
+            FROM ticker_master AS tm
+            LEFT JOIN prices AS p ON tm.ticker = p.ticker
+            LEFT JOIN financials AS f ON tm.ticker = f.ticker
+            GROUP BY tm.ticker
+            HAVING count(f.ticker) > 0 AND count(p.ticker) < 5
+        """).df()
+        missing_tickers = missing_df["ticker"].tolist() if not missing_df.empty else []
         conn.close()
 
         to_fetch = []
@@ -283,6 +294,11 @@ class SyncEngine:
                     continue
 
             to_fetch.append(t)
+        
+        # Add missing tickers to the synchronization target without duplicates
+        for mt in missing_tickers:
+            if mt not in to_fetch:
+                to_fetch.append(mt)
 
         if not to_fetch:
             logger.info("No tickers need syncing.")
