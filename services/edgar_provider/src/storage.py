@@ -21,8 +21,8 @@ class EdgarStorage:
         if db_path is None:
             # Resolve finance root and set database path
             # __file__ is at: src/storage.py
-            # parents[2] = edgar_provider/, parents[3] = services/, parents[4] = finance/
-            _finance_root = Path(__file__).resolve().parents[4]
+            # parents[0] = src/, parents[1] = edgar_provider/, parents[2] = services/, parents[3] = finance/
+            _finance_root = Path(__file__).resolve().parents[3]
             _default_path = _finance_root / "data" / "edgar" / "edgar.duckdb"
             self.db_path = os.environ.get("EDGAR_DATA_DIR", str(_default_path))
         else:
