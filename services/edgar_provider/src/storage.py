@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import duckdb
@@ -18,14 +19,15 @@ class EdgarStorage:
 
     def __init__(self, db_path: str | None = None):
         if db_path is None:
-            # Resolve project root and set database path
-            # Now inside libs/core/src/edgar_core/storage.py
-            # 5 levels up: edgar_core -> src -> core -> libs -> root
-            project_root = Path(__file__).resolve().parents[4]
-            self.db_path = str(project_root / "data" / "edgar" / "edgar.duckdb")
+            # Resolve finance root and set database path
+            # __file__ is at: src/storage.py
+            # parents[2] = edgar_provider/, parents[3] = services/, parents[4] = finance/
+            _finance_root = Path(__file__).resolve().parents[4]
+            _default_path = _finance_root / "data" / "edgar" / "edgar.duckdb"
+            self.db_path = os.environ.get("EDGAR_DATA_DIR", str(_default_path))
         else:
             self.db_path = db_path
-            
+
         # データベースファイルのディレクトリ作成
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -81,7 +83,7 @@ class EdgarStorage:
 
         if not sections:
             raise DataIntegrityError(f"Sections are empty for {metadata.get('accessionNumber')}")
-        
+
         # 合計文字数が極端に少ない場合はパース失敗とみなす (例: 100文字未満)
         total_len = sum(len(content) for content in sections.values())
         if total_len < 100:
@@ -91,7 +93,7 @@ class EdgarStorage:
         """保存前に定量データの最小限の妥当性をチェック"""
         if df is None or df.empty:
             raise DataIntegrityError(f"Facts DataFrame is empty for {ticker} ({accession_number})")
-        
+
         required_cols = ["concept", "numeric_value"]
         missing_cols = [c for c in required_cols if c not in df.columns]
         if missing_cols:
@@ -137,7 +139,7 @@ class EdgarStorage:
         # カラム名の正規化と一意IDの生成
         df["ticker"] = ticker
         df["accession_number"] = accession_number
-        
+
         # DuckDBへのインジェスト
         with duckdb.connect(self.db_path) as conn:
             conn.execute("""
@@ -183,9 +185,9 @@ class EdgarStorage:
         """定性データはあるが定量データが欠けている受理番号とティッカーのリストを取得"""
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT f.accession_number, f.ticker 
+                SELECT f.accession_number, f.ticker
                 FROM filings f
-                LEFT JOIN (SELECT DISTINCT accession_number FROM company_facts) c 
+                LEFT JOIN (SELECT DISTINCT accession_number FROM company_facts) c
                 ON f.accession_number = c.accession_number
                 WHERE c.accession_number IS NULL
             """

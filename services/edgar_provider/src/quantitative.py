@@ -17,7 +17,7 @@ class EdgarQuantitative:
     """
     SEC提出書類から財務数値（定量データ）を抽出するクラス
     """
-    
+
     @staticmethod
     def extract_facts(accession_number: str) -> pd.DataFrame:
         """
@@ -28,21 +28,21 @@ class EdgarQuantitative:
             if not filing:
                 logger.warning(f"Filing not found for accession number: {accession_number}")
                 return pd.DataFrame()
-            
+
             xbrl = filing.xbrl()
             if not xbrl:
                 logger.info(f"No XBRL data for filing: {accession_number}")
                 return pd.DataFrame()
-            
+
             # FactsView から DataFrame を取得
             df = xbrl.facts.to_dataframe()
-            
+
             if df.empty:
                 logger.info(f"Empty facts for filing: {accession_number}")
                 return pd.DataFrame()
-                
+
             return df
-            
+
         except Exception as e:
             logger.error(f"Failed to extract facts for {accession_number}: {e}")
             return pd.DataFrame()

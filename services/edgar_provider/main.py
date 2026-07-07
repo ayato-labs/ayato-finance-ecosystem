@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import os
 
-from edgar_core import setup_logger, EdgarStorage
-from .fetcher import EdgarFetcher
-from .parser import EdgarParser
-from .pipeline import sync_recent_us_filings, process_us_tickers, repair_all_missing_facts
+from src.core.logging import setup_logger
+from src.fetcher import EdgarFetcher
+from src.parser import EdgarParser
+from src.storage import EdgarStorage
+from src.pipeline import sync_recent_us_filings, process_us_tickers, repair_all_missing_facts
+
 
 def main():
     setup_logger(log_dir="logs", app_name="edgar_provider")
@@ -50,6 +52,7 @@ def main():
             print(f"- {s['ticker']}: {s['count']} filings (Latest: {s['latest_filing']})")
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

@@ -8,8 +8,7 @@ from loguru import logger
 from .fetcher import EdgarFetcher
 from .parser import EdgarParser
 from .quantitative import EdgarQuantitative
-# edgar_core will be available as a package
-from edgar_core import EdgarStorage, DataIntegrityError
+from .storage import EdgarStorage, DataIntegrityError
 
 
 async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=7):
@@ -107,7 +106,7 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
 
             for filing in target_filings:
                 acc_no = filing["accessionNumber"]
-                
+
                 needs_full_sync = not storage.filing_exists(acc_no)
                 needs_facts_repair = not needs_full_sync and not storage.facts_exist(acc_no)
 
@@ -135,7 +134,7 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
                             except DataIntegrityError as e:
                                 logger.error(f"Filing integrity check failed | ticker={ticker} | error={e}")
                     del resp
-                
+
                 # 定量データの抽出
                 logger.info(f"Syncing financial facts | ticker={ticker} | acc_no={acc_no}")
                 facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
@@ -144,7 +143,7 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
                         storage.save_facts(ticker, acc_no, facts_df)
                     except DataIntegrityError as e:
                         logger.error(f"Facts integrity check failed | ticker={ticker} | error={e}")
-                
+
                 gc.collect()
         except Exception:
             logger.exception(f"Failed to process ticker | ticker={ticker}")
@@ -154,7 +153,7 @@ async def repair_all_missing_facts(storage: EdgarStorage):
     """DBを走査し、数値データが欠けている全レコードを修復する"""
     targets = storage.get_accession_numbers_needing_repair()
     logger.info(f"Found {len(targets)} filings needing facts repair.")
-    
+
     for acc_no, ticker in targets:
         try:
             logger.info(f"Repairing facts | ticker={ticker} | acc_no={acc_no}")
@@ -166,8 +165,8 @@ async def repair_all_missing_facts(storage: EdgarStorage):
                     logger.error(f"Facts integrity check failed during repair | acc_no={acc_no} | error={e}")
             else:
                 logger.warning(f"No facts found during repair for {acc_no}")
-            
-            await asyncio.sleep(0.1) 
+
+            await asyncio.sleep(0.1)
             gc.collect()
         except Exception:
             logger.exception(f"Failed to repair facts for {acc_no}")

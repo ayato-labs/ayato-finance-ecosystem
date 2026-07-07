@@ -17,14 +17,13 @@ dependencies = [
 ]
 
 [project.scripts]
-edgar-provider = "edgar_provider.cli:main"
+edgar-provider = "main:main"
 
 [tool.setuptools.package-dir]
-"edgar_core" = "libs/core/src/edgar_core"
-"edgar_provider" = "apps/provider/src/edgar_provider"
+"src" = "src"
 
 [tool.setuptools.packages.find]
-where = ["libs/core/src", "apps/provider/src"]
+where = ["src"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
