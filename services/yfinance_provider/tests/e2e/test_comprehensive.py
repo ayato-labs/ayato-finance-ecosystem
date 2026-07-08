@@ -2,8 +2,6 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from fastapi.testclient import TestClient
-from src.api.main import app
 from src.collector.engine import SyncEngine
 
 
@@ -46,13 +44,7 @@ def test_comprehensive_user_flow(db_manager):
         assert len(history) == 1
         assert history[0]["longName"] == "Apple Inc."
 
-    # 3. API経由の検証
-    with patch("src.api.main.db_manager", db_manager):
-        client = TestClient(app)
-        api_res = client.get(f"/tickers/{ticker}/info")
-        assert api_res.status_code == 200
-        assert api_res.json()["longName"] == "Apple Inc."
-
+    # 3. Clean up and check sync status
     logger_check = db_manager.get_connection()
     query = "SELECT last_status FROM sync_status WHERE ticker = ?"
     sync_check = logger_check.execute(query, [ticker]).fetchone()

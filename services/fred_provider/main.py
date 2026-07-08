@@ -7,7 +7,11 @@ from src.core.logging import setup_logger
 # .env ファイルの読み込み(インポートより前に行う)
 load_dotenv()
 
-from src.api.app import app, engine, fetcher
+from src.engine import MacroEngine
+from src.fetchers.fred_fetcher import FredFetcher
+
+engine = MacroEngine()
+fetcher = FredFetcher()
 
 # Configure structured logging
 setup_logger(log_dir="logs", app_name="fred_provider")
@@ -31,24 +35,16 @@ def run_sync(symbol: str):
 
 def main():
     parser = argparse.ArgumentParser(description="FRED Provider Service")
-    parser.add_argument("command", choices=["sync", "server"], help="Command to run")
     parser.add_argument("--symbol", help="Indicator symbol (e.g., DFF, DGS10)")
-    parser.add_argument("--port", type=int, default=5010, help="Server port (default: 5010)")
 
     args = parser.parse_args()
 
-    if args.command == "sync":
-        if args.symbol:
-            run_sync(args.symbol)
-        else:
-            # MVP: 政策金利と10年債利回りをデフォルトで同期
-            for s in ["DFF", "DGS10"]:
-                run_sync(s)
-    elif args.command == "server":
-        import uvicorn
-
-        logger.info(f"Starting server on port {args.port}...")
-        uvicorn.run(app, host="127.0.0.1", port=args.port)
+    if args.symbol:
+        run_sync(args.symbol)
+    else:
+        # MVP: 政策金利と10年債利回りをデフォルトで同期
+        for s in ["DFF", "DGS10"]:
+            run_sync(s)
 
 
 if __name__ == "__main__":
