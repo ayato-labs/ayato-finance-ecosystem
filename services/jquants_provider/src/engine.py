@@ -200,17 +200,34 @@ class JPEngine:
         date_options = ["DisclosedDate", "Date", "DiscDate"]
         date_col = next((c for c in date_options if c in df.columns), None)
         if not date_col:
-            logger.warning(f"Could not find date column in data for {code}. Columns: {df.columns.tolist()}")
+            logger.warning(
+                f"Could not find date column in data for {code}. Columns: {df.columns.tolist()}"
+            )
             return
 
         ignore_cols = [
-            "LocalCode", "DisclosedDate", "FiscalYear", "FiscalPeriod", "DocType",
-            "CurPerType", "CurPerSt", "CurPerEn", "CurFYSt", "CurFYEn", "NxtFYSt", "NxtFYEn",
-            "DEPS", "REPS", "Type", "Code", "Date",
+            "LocalCode",
+            "DisclosedDate",
+            "FiscalYear",
+            "FiscalPeriod",
+            "DocType",
+            "CurPerType",
+            "CurPerSt",
+            "CurPerEn",
+            "CurFYSt",
+            "CurFYEn",
+            "NxtFYSt",
+            "NxtFYEn",
+            "DEPS",
+            "REPS",
+            "Type",
+            "Code",
+            "Date",
         ]
 
         id_vars = [
-            c for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"]
+            c
+            for c in [date_col, "LocalCode", "Code", "FiscalYear", "FiscalPeriod"]
             if c in df.columns
         ]
 
@@ -254,7 +271,9 @@ class JPEngine:
                 """
             )
 
-    def sync_daily_statements(self, target_date: str | datetime.date, session_id: str = "daily-sync"):
+    def sync_daily_statements(
+        self, target_date: str | datetime.date, session_id: str = "daily-sync"
+    ):
         """
         指定された日の全銘柄の財務諸表を一括取得・同期する。
         """
@@ -266,9 +285,9 @@ class JPEngine:
 
         date_hyphen = date_obj.strftime("%Y-%m-%d")
         date_raw = date_obj.strftime("%Y%m%d")
-        
+
         logger.info(f"Fetching statements for all companies on {date_hyphen}...")
-        
+
         try:
             # ClientV2 (API Key) の場合は get_fin_summary または get_fin_details を使用
             if hasattr(self.cli, "get_fin_summary"):
@@ -277,25 +296,27 @@ class JPEngine:
             else:
                 # V1の場合 (get_statements は 'date' を受け取る)
                 df = self.cli.get_statements(date=date_hyphen)
-            
+
             if df.empty:
                 logger.info(f"No statements released on {date_hyphen}.")
                 return
-            
+
             # カラム名の正規化 (Code または LocalCode)
             code_col = "LocalCode" if "LocalCode" in df.columns else "Code"
             if code_col not in df.columns:
-                logger.error(f"Required code column missing in batch for {date_hyphen}. Columns: {df.columns.tolist()}")
+                logger.error(
+                    f"Required code column missing in batch for {date_hyphen}. Columns: {df.columns.tolist()}"
+                )
                 return
 
             # Unique codes in this batch
             codes = df[code_col].unique()
             logger.info(f"Discovered statements for {len(codes)} companies on {date_hyphen}.")
-            
+
             for code in codes:
                 company_df = df[df[code_col] == code]
                 self.ingest_facts(str(code), company_df, session_id)
-                
+
         except Exception as e:
             logger.error(f"Failed to sync statements for {date_hyphen}: {e}")
             raise
@@ -305,7 +326,7 @@ class JPEngine:
         直近N日間の全財務諸表をスマートに同期（差分更新）。
         """
         end_date = datetime.date.today()
-        
+
         # Determine start date based on last ingested record if possible
         with DuckDBManager.connect(self.db_path) as conn:
             res = conn.execute("SELECT MAX(disclosed_date) FROM company_facts").fetchone()
@@ -322,4 +343,3 @@ class JPEngine:
             session_id = f"auto-sync-{curr.isoformat()}"
             self.sync_daily_statements(curr, session_id=session_id)
             curr += datetime.timedelta(days=1)
-
