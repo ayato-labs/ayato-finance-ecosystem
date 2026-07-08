@@ -117,83 +117,117 @@ class SyncEngine:
         start_time = time.perf_counter()
         logger.info(f"[{ticker}] Starting sync task...")
 
+        clean_ticker = ticker.upper().strip()
+        is_forex = clean_ticker.endswith("=X") or clean_ticker in ["JPY", "EUR", "CNY", "USD"]
+        is_crypto = clean_ticker.endswith("-USD") or clean_ticker in ["BTC", "ETH", "SOL", "XRP", "BNB"]
+        is_index = clean_ticker.startswith("^")
+
         try:
-            profile_dir = os.path.join("data", "profiles")
-            profile_path = os.path.join(profile_dir, f"{ticker}.json")
-            info_raw = None
-            need_fetch_info = True
-
-            if os.path.exists(profile_path):
-                mtime = os.path.getmtime(profile_path)
-                if not force and time.time() - mtime < 7 * 24 * 3600:
-                    need_fetch_info = False
-                    logger.debug(f"[{ticker}] Profile is recent (7d). Skipping yt.info")
-                    try:
-                        with open(profile_path, encoding="utf-8") as f:
-                            data = json.load(f)
-                            if isinstance(data, list) and len(data) > 0:
-                                info_raw = data[-1]
-                            else:
-                                info_raw = data
-                    except Exception:
-                        logger.warning(f"[{ticker}] Failed to read cached profile")
-                        need_fetch_info = True
-
-            yt = yf.Ticker(ticker)
-
-            if need_fetch_info:
+            if is_forex:
+                if clean_ticker == "USD":
+                    self.write_queue.put((self._update_status_only, (ticker, "SUCCESS")))
+                    return
+                yf_symbol = clean_ticker
+                if yf_symbol == "JPY": yf_symbol = "JPY=X"
+                elif yf_symbol == "CNY": yf_symbol = "CNY=X"
+                elif yf_symbol == "EUR": yf_symbol = "EURUSD=X"
+                
+                yt = yf.Ticker(yf_symbol)
+                prices_df = yt.history(period="max")
+                self.write_queue.put((self._write_forex_to_db, (ticker, prices_df)))
+                
+            elif is_crypto:
+                yf_symbol = clean_ticker
+                if "-USD" not in yf_symbol:
+                    yf_symbol = f"{yf_symbol}-USD"
+                
+                yt = yf.Ticker(yf_symbol)
                 info_raw = yt.info
+                prices_df = yt.history(period="max")
+                self.write_queue.put((self._write_crypto_to_db, (ticker, info_raw, prices_df)))
+                
+            elif is_index:
+                yt = yf.Ticker(ticker)
+                prices_df = yt.history(period="max")
+                self.write_queue.put((self._write_index_to_db, (ticker, prices_df)))
+                
+            else:
+                profile_dir = os.path.join("data", "profiles")
+                profile_path = os.path.join(profile_dir, f"{ticker}.json")
+                info_raw = None
+                need_fetch_info = True
 
-            if not info_raw or "longName" not in info_raw:
+                if os.path.exists(profile_path):
+                    mtime = os.path.getmtime(profile_path)
+                    if not force and time.time() - mtime < 7 * 24 * 3600:
+                        need_fetch_info = False
+                        logger.debug(f"[{ticker}] Profile is recent (7d). Skipping yt.info")
+                        try:
+                            with open(profile_path, encoding="utf-8") as f:
+                                data = json.load(f)
+                                if isinstance(data, list) and len(data) > 0:
+                                    info_raw = data[-1]
+                                else:
+                                    info_raw = data
+                        except Exception:
+                            logger.warning(f"[{ticker}] Failed to read cached profile")
+                            need_fetch_info = True
+
+                yt = yf.Ticker(ticker)
+
+                if need_fetch_info:
+                    info_raw = yt.info
+
+                if not info_raw or "longName" not in info_raw:
+                    elapsed = time.perf_counter() - start_time
+                    logger.warning(
+                        f"[{ticker}] Crucial data missing (possibly invalid). Skipping. ({elapsed:.2f}s)"
+                    )
+                    self.write_queue.put(
+                        (self._update_status_only, (ticker, "FAILED", "Crucial data missing"))
+                    )
+                    return
+
+                def get_long_df(df, p_type):
+                    if df is None or df.empty:
+                        return None
+                    if isinstance(df, pd.Series):
+                        df = df.to_frame()
+                    ds = df.stack().reset_index()
+                    ds.columns = ["item", "date", "value"]
+                    ds["ticker"] = ticker
+                    ds["period_type"] = p_type
+                    ds["date"] = pd.to_datetime(ds["date"]).dt.strftime("%Y-%m-%d")
+                    return ds.dropna(subset=["value"])
+
+                financials = [
+                    (get_long_df(yt.financials, "Annual"), "financials"),
+                    (get_long_df(yt.quarterly_financials, "Quarterly"), "financials"),
+                    (get_long_df(yt.balance_sheet, "Annual"), "balance_sheet"),
+                    (get_long_df(yt.quarterly_balance_sheet, "Quarterly"), "balance_sheet"),
+                    (get_long_df(yt.cashflow, "Annual"), "cashflow"),
+                    (get_long_df(yt.quarterly_cashflow, "Quarterly"), "cashflow"),
+                ]
+
+                prices_df = yt.history(period="max")
+                if not prices_df.empty:
+                    prices_df = prices_df.reset_index()
+                    prices_df["ticker"] = ticker
+                    prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
+
+                    # Apply logical validation (OHLC relations, NaN handling)
+                    prices_df = self.validator.check_logical(prices_df)
+
+                if prices_df.empty:
+                    logger.warning(f"[{ticker}] No valid price data after validation. Skipping.")
+                    self.write_queue.put(
+                        (self._update_status_only, (ticker, "FAILED", "No valid price data"))
+                    )
+                    return
+
+                self.write_queue.put((self._write_to_db, (ticker, info_raw, financials, prices_df)))
                 elapsed = time.perf_counter() - start_time
-                logger.warning(
-                    f"[{ticker}] Crucial data missing (possibly invalid). Skipping. ({elapsed:.2f}s)"
-                )
-                self.write_queue.put(
-                    (self._update_status_only, (ticker, "FAILED", "Crucial data missing"))
-                )
-                return
-
-            def get_long_df(df, p_type):
-                if df is None or df.empty:
-                    return None
-                if isinstance(df, pd.Series):
-                    df = df.to_frame()
-                ds = df.stack().reset_index()
-                ds.columns = ["item", "date", "value"]
-                ds["ticker"] = ticker
-                ds["period_type"] = p_type
-                ds["date"] = pd.to_datetime(ds["date"]).dt.strftime("%Y-%m-%d")
-                return ds.dropna(subset=["value"])
-
-            financials = [
-                (get_long_df(yt.financials, "Annual"), "financials"),
-                (get_long_df(yt.quarterly_financials, "Quarterly"), "financials"),
-                (get_long_df(yt.balance_sheet, "Annual"), "balance_sheet"),
-                (get_long_df(yt.quarterly_balance_sheet, "Quarterly"), "balance_sheet"),
-                (get_long_df(yt.cashflow, "Annual"), "cashflow"),
-                (get_long_df(yt.quarterly_cashflow, "Quarterly"), "cashflow"),
-            ]
-
-            prices_df = yt.history(period="max")
-            if not prices_df.empty:
-                prices_df = prices_df.reset_index()
-                prices_df["ticker"] = ticker
-                prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
-
-                # Apply logical validation (OHLC relations, NaN handling)
-                prices_df = self.validator.check_logical(prices_df)
-
-            if prices_df.empty:
-                logger.warning(f"[{ticker}] No valid price data after validation. Skipping.")
-                self.write_queue.put(
-                    (self._update_status_only, (ticker, "FAILED", "No valid price data"))
-                )
-                return
-
-            self.write_queue.put((self._write_to_db, (ticker, info_raw, financials, prices_df)))
-            elapsed = time.perf_counter() - start_time
-            logger.info(f"[{ticker}] Task queued in {elapsed:.2f}s")
+                logger.info(f"[{ticker}] Task queued in {elapsed:.2f}s")
 
         except YFRateLimitError:
             with self._rate_limit_lock:
@@ -206,6 +240,89 @@ class SyncEngine:
             elapsed = time.perf_counter() - start_time
             logger.exception(f"[{ticker}] Unexpected Fetch/Validation error after {elapsed:.2f}s")
             self.write_queue.put((self._update_status_only, (ticker, "FAILED", str(e))))
+
+    def _write_forex_to_db(self, conn, symbol, prices_df):
+        try:
+            if prices_df is None or prices_df.empty:
+                self.db.update_sync_status(symbol, "FAILED", error="No forex data", conn=conn)
+                return
+            
+            clean_sym = symbol.upper().strip()
+            is_inverse = clean_sym in ["JPY", "CNY"] or clean_sym.endswith("=X") and ("JPY" in clean_sym or "CNY" in clean_sym)
+            
+            df = prices_df.reset_index()
+            df = df[["Date", "Close"]].rename(columns={"Close": "rate"})
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            df["symbol"] = clean_sym.replace("=X", "").replace("USD", "")
+            
+            if is_inverse:
+                df["rate"] = 1.0 / df["rate"]
+                
+            query = """
+                INSERT OR REPLACE INTO forex_rates (symbol, date, rate)
+                SELECT symbol, date, rate FROM df
+            """
+            conn.execute(query)
+            self.db.update_sync_status(symbol, "SUCCESS", conn=conn)
+        except Exception as e:
+            logger.exception(f"[{symbol}] Error writing forex data to DB")
+            self.db.update_sync_status(symbol, "FAILED", error=str(e), conn=conn)
+
+    def _write_crypto_to_db(self, conn, ticker, info_raw, prices_df):
+        try:
+            if info_raw:
+                conn.execute("""
+                    INSERT OR REPLACE INTO crypto_metadata 
+                    (ticker, circulating_supply, total_supply, max_supply, market_cap, description)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, [
+                    ticker,
+                    info_raw.get("circulatingSupply"),
+                    info_raw.get("totalSupply"),
+                    info_raw.get("maxSupply"),
+                    info_raw.get("marketCap"),
+                    info_raw.get("description")
+                ])
+                
+            if prices_df is not None and not prices_df.empty:
+                prices_df = prices_df.reset_index()
+                prices_df["ticker"] = ticker
+                prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
+                prices_df = self.validator.check_logical(prices_df)
+                
+                query = """
+                    INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume,
+                                        dividends, stock_splits)
+                    SELECT ticker, date, open, high, low, close, volume,
+                           dividends, stock_splits FROM prices_df
+                """
+                conn.execute(query)
+                
+            self.db.update_sync_status(ticker, "SUCCESS", conn=conn)
+        except Exception as e:
+            logger.exception(f"[{ticker}] Error writing crypto to DB")
+            self.db.update_sync_status(ticker, "FAILED", error=str(e), conn=conn)
+
+    def _write_index_to_db(self, conn, ticker, prices_df):
+        try:
+            if prices_df is not None and not prices_df.empty:
+                prices_df = prices_df.reset_index()
+                prices_df["ticker"] = ticker
+                prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
+                prices_df = self.validator.check_logical(prices_df)
+                
+                query = """
+                    INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume,
+                                        dividends, stock_splits)
+                    SELECT ticker, date, open, high, low, close, volume,
+                           dividends, stock_splits FROM prices_df
+                """
+                conn.execute(query)
+                
+            self.db.update_sync_status(ticker, "SUCCESS", conn=conn)
+        except Exception as e:
+            logger.exception(f"[{ticker}] Error writing index to DB")
+            self.db.update_sync_status(ticker, "FAILED", error=str(e), conn=conn)
 
     def _write_to_db(self, conn, ticker, info_raw, financials, prices_df):
         """DBへの書き込み処理 (DBワーカーから呼ばれる)"""

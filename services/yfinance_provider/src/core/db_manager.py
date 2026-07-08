@@ -70,6 +70,22 @@ class DatabaseManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (ticker, date)
                 );
+                CREATE TABLE IF NOT EXISTS forex_rates (
+                    symbol VARCHAR,
+                    date DATE,
+                    rate DOUBLE,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (symbol, date)
+                );
+                CREATE TABLE IF NOT EXISTS crypto_metadata (
+                    ticker VARCHAR PRIMARY KEY,
+                    circulating_supply DOUBLE,
+                    total_supply DOUBLE,
+                    max_supply DOUBLE,
+                    market_cap DOUBLE,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
             """)
             conn.close()
             logger.success("Database migration completed successfully.")
