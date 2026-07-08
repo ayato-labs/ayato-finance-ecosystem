@@ -12,7 +12,13 @@ def test_db_path(tmp_path):
 @pytest.fixture
 def db_manager(test_db_path):
     """初期化済みのDatabaseManagerを提供"""
-    return DatabaseManager(test_db_path)
+    manager = DatabaseManager(test_db_path)
+    conn = manager.get_connection()
+    conn.execute("CREATE TABLE IF NOT EXISTS ticker_master (ticker VARCHAR PRIMARY KEY)")
+    conn.execute("INSERT OR IGNORE INTO ticker_master (ticker) VALUES ('AAPL'), ('9119.T')")
+    conn.close()
+    return manager
+
 
 
 @pytest.fixture
