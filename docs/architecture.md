@@ -18,9 +18,8 @@ We chose **DuckDB** as our core analytical engine.
 The ecosystem is split into domain-specific APIs (Stock Price, Financial Figures, Macro, etc.).
 - **Reasoning**: This allows for independent ingestion schedules and failure isolation. A failure in the Crypto price fetcher does not halt the analysis of Statutory Financials.
 
-### Monorepo Strategy
-We maintain all services in a single repository.
-- **Reasoning**: Shared logic (like the `Mapping Audit` system for Japanese stocks) can be synchronized instantly across all modules, ensuring data consistency without managing multiple upstream packages.
+### Repository Separation Strategy
+The ecosystem is split into decoupled repositories (e.g., Data Ingestion Platform vs. Asset Application) to optimize build cycles, isolate dependencies, and separate domain concerns.
 
 ## 3. Overall System Diagram
 
@@ -29,26 +28,19 @@ graph TD
     UI["Asset Management Dashboard (Next.js)"]
     API_A["Asset API (Backend)"]
     
-    subgraph Data_Ecosystem
-        API_P["Daily Stock Price API"]
-        API_F["Financial Figures API"]
-        API_M["Macro & Index API"]
+    subgraph Data_Platform_Files
+        DB_P[(us/jp.duckdb)]
+        DB_E[(edinet.duckdb)]
     end
     
     DB_A[(assets.duckdb)]
-    DB_P[(us/jp.duckdb)]
-    DB_E[(edinet.duckdb)]
     
     UI <--> API_A
-    API_A --> API_P
-    API_A --> API_F
-    API_A --> API_M
     API_A <--> DB_A
-    
-    API_P --> DB_P
-    API_F --> DB_P
-    API_F --> DB_E
+    API_A -.-> |Direct DuckDB ATTACH| DB_P
+    API_A -.-> |Direct DuckDB ATTACH| DB_E
 ```
+
 
 ## 4. Constraints and Limits
 To maintain trust, we explicitly state what this system is **not** designed for:

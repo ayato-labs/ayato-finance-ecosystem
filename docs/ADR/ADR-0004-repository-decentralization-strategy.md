@@ -56,10 +56,13 @@ Root/
 - **Local Setup**: Developers need to clone multiple repositories to run the full ecosystem locally.
 
 ## Prerequisite Tasks
-1. Standardize all `services/**/config.py` to use `FINANCE_DATA_ROOT`.
-2. Refactor shared `DuckDBManager` and `logging_config` into a single `libs/` folder before full extraction.
-3. Establish a standard `README.md` and `pyproject.toml` template for all future split repositories.
+1. Standardize all `services/**/config.py` and application configurations to use `FINANCE_DATA_ROOT`.
+2. Refactor shared `DuckDBManager` and `logging_config` into a single library or common code path.
+3. Establish a standard `README.md` and database schema specifications for direct DB access.
+4. Establish direct file-based reading patterns in `finance-asset-management-app` to read from the central database location instead of HTTP API querying.
 
 ## References
 - ADR-0001: Centralized Data Storage and Documentation
 - ADR-0002: Automated High-Water Mark Synchronization
+- ADR-0005: Direct Database Access for Local Portfolio Analytics
+
