@@ -2,6 +2,7 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 from src.collector.engine import SyncEngine
 
 
@@ -21,8 +22,23 @@ def test_comprehensive_user_flow(db_manager):
         mock_ticker.info = {"longName": "Apple Inc.", "symbol": "AAPL", "currentPrice": 150.0}
         mock_ticker.financials = MagicMock()
         mock_ticker.financials.empty = True
-        mock_ticker.history.return_value = MagicMock()
-        mock_ticker.history.return_value.empty = True
+
+        # Create non-empty dummy prices DataFrame
+        mock_df = pd.DataFrame(
+            [
+                {
+                    "Date": pd.Timestamp("2026-07-09 00:00:00"),
+                    "Open": 150.0,
+                    "High": 155.0,
+                    "Low": 148.0,
+                    "Close": 150.0,
+                    "Volume": 10000,
+                    "Dividends": 0.0,
+                    "Stock Splits": 0.0,
+                }
+            ]
+        ).set_index("Date")
+        mock_ticker.history.return_value = mock_df
         mock_yf.return_value = mock_ticker
 
         engine.run_sync([ticker], force=True)

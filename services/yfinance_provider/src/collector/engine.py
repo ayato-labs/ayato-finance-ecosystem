@@ -119,7 +119,13 @@ class SyncEngine:
 
         clean_ticker = ticker.upper().strip()
         is_forex = clean_ticker.endswith("=X") or clean_ticker in ["JPY", "EUR", "CNY", "USD"]
-        is_crypto = clean_ticker.endswith("-USD") or clean_ticker in ["BTC", "ETH", "SOL", "XRP", "BNB"]
+        is_crypto = clean_ticker.endswith("-USD") or clean_ticker in [
+            "BTC",
+            "ETH",
+            "SOL",
+            "XRP",
+            "BNB",
+        ]
         is_index = clean_ticker.startswith("^")
 
         try:
@@ -128,29 +134,32 @@ class SyncEngine:
                     self.write_queue.put((self._update_status_only, (ticker, "SUCCESS")))
                     return
                 yf_symbol = clean_ticker
-                if yf_symbol == "JPY": yf_symbol = "JPY=X"
-                elif yf_symbol == "CNY": yf_symbol = "CNY=X"
-                elif yf_symbol == "EUR": yf_symbol = "EURUSD=X"
-                
+                if yf_symbol == "JPY":
+                    yf_symbol = "JPY=X"
+                elif yf_symbol == "CNY":
+                    yf_symbol = "CNY=X"
+                elif yf_symbol == "EUR":
+                    yf_symbol = "EURUSD=X"
+
                 yt = yf.Ticker(yf_symbol)
                 prices_df = yt.history(period="max")
                 self.write_queue.put((self._write_forex_to_db, (ticker, prices_df)))
-                
+
             elif is_crypto:
                 yf_symbol = clean_ticker
                 if "-USD" not in yf_symbol:
                     yf_symbol = f"{yf_symbol}-USD"
-                
+
                 yt = yf.Ticker(yf_symbol)
                 info_raw = yt.info
                 prices_df = yt.history(period="max")
                 self.write_queue.put((self._write_crypto_to_db, (ticker, info_raw, prices_df)))
-                
+
             elif is_index:
                 yt = yf.Ticker(ticker)
                 prices_df = yt.history(period="max")
                 self.write_queue.put((self._write_index_to_db, (ticker, prices_df)))
-                
+
             else:
                 profile_dir = os.path.join("data", "profiles")
                 profile_path = os.path.join(profile_dir, f"{ticker}.json")
@@ -213,7 +222,9 @@ class SyncEngine:
                 if not prices_df.empty:
                     prices_df = prices_df.reset_index()
                     prices_df["ticker"] = ticker
-                    prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
+                    prices_df.columns = [
+                        str(c).lower().replace(" ", "_") for c in prices_df.columns
+                    ]
 
                     # Apply logical validation (OHLC relations, NaN handling)
                     prices_df = self.validator.check_logical(prices_df)
@@ -246,18 +257,20 @@ class SyncEngine:
             if prices_df is None or prices_df.empty:
                 self.db.update_sync_status(symbol, "FAILED", error="No forex data", conn=conn)
                 return
-            
+
             clean_sym = symbol.upper().strip()
-            is_inverse = clean_sym in ["JPY", "CNY"] or clean_sym.endswith("=X") and ("JPY" in clean_sym or "CNY" in clean_sym)
-            
+            is_inverse = clean_sym in ["JPY", "CNY"] or (
+                clean_sym.endswith("=X") and ("JPY" in clean_sym or "CNY" in clean_sym)
+            )
+
             df = prices_df.reset_index()
             df = df[["Date", "Close"]].rename(columns={"Close": "rate"})
             df["Date"] = pd.to_datetime(df["Date"]).dt.date
             df["symbol"] = clean_sym.replace("=X", "").replace("USD", "")
-            
+
             if is_inverse:
                 df["rate"] = 1.0 / df["rate"]
-                
+
             query = """
                 INSERT OR REPLACE INTO forex_rates (symbol, date, rate)
                 SELECT symbol, date, rate FROM df
@@ -271,25 +284,28 @@ class SyncEngine:
     def _write_crypto_to_db(self, conn, ticker, info_raw, prices_df):
         try:
             if info_raw:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO crypto_metadata 
                     (ticker, circulating_supply, total_supply, max_supply, market_cap, description)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, [
-                    ticker,
-                    info_raw.get("circulatingSupply"),
-                    info_raw.get("totalSupply"),
-                    info_raw.get("maxSupply"),
-                    info_raw.get("marketCap"),
-                    info_raw.get("description")
-                ])
-                
+                """,
+                    [
+                        ticker,
+                        info_raw.get("circulatingSupply"),
+                        info_raw.get("totalSupply"),
+                        info_raw.get("maxSupply"),
+                        info_raw.get("marketCap"),
+                        info_raw.get("description"),
+                    ],
+                )
+
             if prices_df is not None and not prices_df.empty:
                 prices_df = prices_df.reset_index()
                 prices_df["ticker"] = ticker
                 prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
                 prices_df = self.validator.check_logical(prices_df)
-                
+
                 query = """
                     INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume,
                                         dividends, stock_splits)
@@ -297,7 +313,7 @@ class SyncEngine:
                            dividends, stock_splits FROM prices_df
                 """
                 conn.execute(query)
-                
+
             self.db.update_sync_status(ticker, "SUCCESS", conn=conn)
         except Exception as e:
             logger.exception(f"[{ticker}] Error writing crypto to DB")
@@ -310,7 +326,7 @@ class SyncEngine:
                 prices_df["ticker"] = ticker
                 prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
                 prices_df = self.validator.check_logical(prices_df)
-                
+
                 query = """
                     INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume,
                                         dividends, stock_splits)
@@ -318,7 +334,7 @@ class SyncEngine:
                            dividends, stock_splits FROM prices_df
                 """
                 conn.execute(query)
-                
+
             self.db.update_sync_status(ticker, "SUCCESS", conn=conn)
         except Exception as e:
             logger.exception(f"[{ticker}] Error writing index to DB")

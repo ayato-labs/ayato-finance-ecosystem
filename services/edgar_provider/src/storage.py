@@ -35,8 +35,13 @@ class EdgarStorage:
 
     def _init_db(self):
         """データベースの初期化とテーブル作成"""
+        from .core.db_schema import generate_schema_files
+
+        generate_schema_files(Path(self.db_path).parent)
+
         with duckdb.connect(self.db_path) as conn:
             conn.execute("SET memory_limit='2GB'")
+
             conn.execute("SET threads=4")
             conn.execute("SET checkpoint_threshold='1GB'")
 

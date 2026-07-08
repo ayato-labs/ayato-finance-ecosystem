@@ -80,9 +80,14 @@ class JPEngine:
 
     def _init_db(self):
         """データベースの初期化"""
+        from .core.db_schema import generate_schema_files
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        generate_schema_files(self.db_path.parent)
+
         with DuckDBManager.connect(self.db_path) as conn:
             conn.execute("SET max_memory='2GB'")
+
             conn.execute("SET threads=4")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tickers (

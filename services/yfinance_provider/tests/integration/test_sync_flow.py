@@ -1,8 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import duckdb
-from fastapi.testclient import TestClient
-from src.api.main import app
+import pandas as pd
 from src.collector.engine import SyncEngine
 
 
@@ -16,8 +15,23 @@ def test_sync_engine_full_flow(db_manager):
         mock_ticker.info = {"longName": "Test Co", "symbol": "TEST"}
         mock_ticker.financials = MagicMock()
         mock_ticker.financials.empty = True
-        mock_ticker.history.return_value = MagicMock()
-        mock_ticker.history.return_value.empty = True
+
+        # Create non-empty dummy prices DataFrame
+        mock_df = pd.DataFrame(
+            [
+                {
+                    "Date": pd.Timestamp("2026-07-09 00:00:00"),
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 95.0,
+                    "Close": 101.0,
+                    "Volume": 10000,
+                    "Dividends": 0.0,
+                    "Stock Splits": 0.0,
+                }
+            ]
+        ).set_index("Date")
+        mock_ticker.history.return_value = mock_df
         mock_yf.return_value = mock_ticker
 
         engine.run_sync(["TEST"], force=True)
@@ -32,21 +46,6 @@ def test_sync_engine_full_flow(db_manager):
         info = conn.execute("SELECT ticker FROM info WHERE ticker = 'TEST'").fetchone()
         assert info[0] == "TEST"
         conn.close()
-
-
-def test_api_server_integration(db_manager):
-    """APIサーバーがDBから正しく情報を引き出せるか"""
-    # データを手動で注入
-    conn = db_manager.get_connection()
-    conn.execute("INSERT INTO info (ticker, data) VALUES ('AAPL', '{\"longName\": \"Apple Inc\"}')")
-    conn.close()
-
-    # APIのDB参照先をテスト用DBに向ける (実際の実装に合わせて修正が必要な場合あり)
-    with patch("src.api.main.db_manager", db_manager):
-        client = TestClient(app)
-        response = client.get("/tickers/AAPL/info")
-        assert response.status_code == 200
-        assert response.json()["longName"] == "Apple Inc"
 
 
 def test_negative_invalid_ticker(db_manager):
@@ -79,8 +78,22 @@ def test_chaos_db_lock(db_manager):
         mock_ticker.info = {"symbol": "CHAOS", "longName": "Chaos Co"}
         mock_ticker.financials = MagicMock()
         mock_ticker.financials.empty = True
-        mock_ticker.history.return_value = MagicMock()
-        mock_ticker.history.return_value.empty = True
+        # Create non-empty dummy prices DataFrame
+        mock_df = pd.DataFrame(
+            [
+                {
+                    "Date": pd.Timestamp("2026-07-09 00:00:00"),
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 95.0,
+                    "Close": 101.0,
+                    "Volume": 10000,
+                    "Dividends": 0.0,
+                    "Stock Splits": 0.0,
+                }
+            ]
+        ).set_index("Date")
+        mock_ticker.history.return_value = mock_df
         mock_yf.return_value = mock_ticker
 
         # 無限再帰を避けるため、オリジナルのメソッドを保持

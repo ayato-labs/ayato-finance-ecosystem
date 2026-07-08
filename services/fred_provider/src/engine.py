@@ -5,6 +5,8 @@ import duckdb
 import pandas as pd
 from loguru import logger
 
+from .core.db_schema import generate_schema_files
+
 _file_lock = threading.Lock()
 
 
@@ -22,6 +24,7 @@ class MacroEngine:
             self.base_dir = Path(base_dir)
 
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        generate_schema_files(self.base_dir)
 
     def _get_safe_filename(self, symbol: str) -> str:
         # ファイル名に使えない文字を置換
