@@ -193,5 +193,3 @@ class DatabaseWriter:
                 retry_count = retry_count + 1
         """
         conn.executemany(sql, logs)
-
-

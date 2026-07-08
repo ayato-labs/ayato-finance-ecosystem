@@ -21,6 +21,7 @@ def setup_test_env(tmp_path):
     settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     from src.datalake.shared.infra.rate_limit import edinet_rate_limit
+
     edinet_rate_limit._backoff_until = 0.0
     edinet_rate_limit._last_request_time = 0.0
 

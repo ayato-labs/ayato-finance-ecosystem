@@ -11,13 +11,15 @@ def test_retry_on_429():
     Updated for urllib implementation.
     """
     current_time = [100.0]
+
     def mock_sleep_side_effect(secs):
         current_time[0] += secs
 
-    with patch("urllib.request.urlopen") as mock_urlopen, \
-         patch("time.monotonic", side_effect=lambda: current_time[0]), \
-         patch("time.sleep", side_effect=mock_sleep_side_effect) as mock_sleep:
-         
+    with (
+        patch("urllib.request.urlopen") as mock_urlopen,
+        patch("time.monotonic", side_effect=lambda: current_time[0]),
+        patch("time.sleep", side_effect=mock_sleep_side_effect) as mock_sleep,
+    ):
         # Mock 429 for the first 2 calls
         mock_429 = urllib.error.HTTPError(
             url="http://test", code=429, msg="Too Many Requests", hdrs={}, fp=None
@@ -45,13 +47,15 @@ def test_failure_after_max_retries():
     Boundary Test: Ensure it gives up after max retries.
     """
     current_time = [100.0]
+
     def mock_sleep_side_effect(secs):
         current_time[0] += secs
 
-    with patch("urllib.request.urlopen") as mock_urlopen, \
-         patch("time.monotonic", side_effect=lambda: current_time[0]), \
-         patch("time.sleep", side_effect=mock_sleep_side_effect) as mock_sleep:
-         
+    with (
+        patch("urllib.request.urlopen") as mock_urlopen,
+        patch("time.monotonic", side_effect=lambda: current_time[0]),
+        patch("time.sleep", side_effect=mock_sleep_side_effect) as mock_sleep,
+    ):
         mock_429 = urllib.error.HTTPError(
             url="http://test", code=429, msg="Too Many Requests", hdrs={}, fp=None
         )

@@ -37,6 +37,7 @@ class DataRepository:
                     logger.warning(f"Failed to load cache {cache_file}: {e}")
 
         from src.datalake.shared.infra.rate_limit import edinet_rate_limit
+
         logger.debug(f"Cache MISS for documents on {target_date}. Fetching from EDINET...")
         try:
             edinet_rate_limit.check_and_wait()

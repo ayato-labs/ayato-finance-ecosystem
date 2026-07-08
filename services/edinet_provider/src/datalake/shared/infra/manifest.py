@@ -1,5 +1,6 @@
 from src.datalake.shared.infra.db import db_manager
 
+
 def init_manifest():
     """Initialize the manifest table."""
     with db_manager.connect_master(read_only=False) as conn:
@@ -10,6 +11,7 @@ def init_manifest():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
 
 def get_document_status(doc_id: str) -> str | None:
     """Get the status of a document."""
@@ -22,6 +24,7 @@ def get_document_status(doc_id: str) -> str | None:
     except Exception:
         # Fallback if table does not exist yet
         return None
+
 
 def update_document_status(doc_id: str, status: str):
     """Update the status of a document."""

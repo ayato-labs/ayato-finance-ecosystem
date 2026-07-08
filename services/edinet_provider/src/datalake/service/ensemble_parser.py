@@ -24,6 +24,7 @@ def parse_with_edinet_mcp(zip_path: Path, doc_id: str) -> Dict[str, Any]:
     """Brain 1: edinet-mcp (Bypassing categorization to salvage raw facts)"""
     import edinet_mcp
     import edinet_mcp.parser
+
     logger.info(f"[Ensemble] Running edinet-mcp (salvage mode) on {zip_path}")
     extract_dir = zip_path.parent / f"{doc_id}_extracted"
 
@@ -77,7 +78,9 @@ def parse_with_edinet_mcp(zip_path: Path, doc_id: str) -> Dict[str, Any]:
                 # Call the internal method directly to get all facts before categorization
                 facts = parser._extract_xbrl_facts(xbrl_file)
             except Exception as e:
-                logger.warning(f"[Ensemble] edinet-mcp facts extraction failed for {xbrl_file}: {e}")
+                logger.warning(
+                    f"[Ensemble] edinet-mcp facts extraction failed for {xbrl_file}: {e}"
+                )
                 continue
 
             # Skipped debugging dump to optimize performance

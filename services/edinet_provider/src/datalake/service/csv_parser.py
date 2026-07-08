@@ -24,7 +24,7 @@ def get_document_from_edinet(doc_id: str, api_key: str, doc_type: int = 5):
     for attempt in range(max_retries):
         # Global rate limit check
         edinet_rate_limit.check_and_wait()
-        
+
         try:
             logger.debug(f"Fetching {suffix}: {doc_id} (Attempt {attempt + 1}/{max_retries})")
             with urllib.request.urlopen(url, timeout=30) as response:
@@ -33,10 +33,12 @@ def get_document_from_edinet(doc_id: str, api_key: str, doc_type: int = 5):
                 # Check if it is a JSON error response representing a 429
                 if not content.startswith(b"PK\x03\x04"):
                     if b"429" in content or b"Too Many Requests" in content:
-                        logger.warning(f"Rate limited (429 JSON) for {doc_id}. Triggering global backoff.")
+                        logger.warning(
+                            f"Rate limited (429 JSON) for {doc_id}. Triggering global backoff."
+                        )
                         edinet_rate_limit.trigger_backoff(60.0)
                         continue
-                        
+
                     logger.warning(
                         f"Received non-ZIP content from EDINET for {doc_id}. "
                         f"First 100 bytes: {content[:100]!r}"
@@ -131,10 +133,7 @@ def parse_edinet_csv(content: bytes):
                                 )
                                 results[file_name] = df
                         except Exception as e:
-                            logger.error(
-                                f"Failed to parse CSV {file_name}: {e}",
-                                exc_info=True
-                            )
+                            logger.error(f"Failed to parse CSV {file_name}: {e}", exc_info=True)
         except zipfile.BadZipFile:
             logger.warning(
                 f"Content is not a valid ZIP file. Skipping. First 100 bytes: {content[:100]!r}"

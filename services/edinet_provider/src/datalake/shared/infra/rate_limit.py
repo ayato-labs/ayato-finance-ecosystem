@@ -2,11 +2,13 @@ import threading
 import time
 from loguru import logger
 
+
 class RateLimitManager:
     """
     Coordinates rate limit (429) backoff and proactive spacing across multiple threads.
     Enforces virtual time spacing to allow lock-free sleeping outside the lock.
     """
+
     def __init__(self, requests_per_second: float = 1.5):
         self._min_interval = 1.0 / requests_per_second
         self._last_request_time = time.monotonic()
@@ -21,21 +23,23 @@ class RateLimitManager:
             is_backoff = False
             with self._lock:
                 now = time.monotonic()
-                
+
                 # 1. Handle global backoff if 429 was hit
                 if now < self._backoff_until:
                     wait_time = self._backoff_until - now
                     is_backoff = True
-                    logger.warning(f"Global backoff in effect. Thread waiting {wait_time:.1f}s outside lock...")
+                    logger.warning(
+                        f"Global backoff in effect. Thread waiting {wait_time:.1f}s outside lock..."
+                    )
                 else:
                     # 2. Proactive rate limit spacing (Virtual Time spacing)
                     target_time = max(self._last_request_time + self._min_interval, now)
                     if target_time > now:
                         wait_time = target_time - now
-                    
+
                     # Lock-in the request slot
                     self._last_request_time = target_time
-            
+
             if wait_time > 0.0:
                 time.sleep(wait_time)
                 # If we slept for normal spacing, we don't need to re-evaluate (slot is already reserved)
@@ -43,7 +47,7 @@ class RateLimitManager:
                     return
             else:
                 return  # No sleep needed, proceed
-                
+
         # Safeguard fallback to proceed anyway after 10 loops (should only hit if mocked)
         return
 
@@ -54,6 +58,7 @@ class RateLimitManager:
             if new_backoff > self._backoff_until:
                 self._backoff_until = new_backoff
                 logger.error(f"RATE LIMIT HIT. Global backoff triggered for {seconds}s.")
+
 
 # Global instance for EDINET
 edinet_rate_limit = RateLimitManager()

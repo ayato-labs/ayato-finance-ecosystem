@@ -38,7 +38,9 @@ class DataIngestor:
 
         completed_doc_ids = set()
         if not bypass_manifest_check:
-            logger.debug(f"Querying existing filings and manifest status for {len(docs)} candidates...")
+            logger.debug(
+                f"Querying existing filings and manifest status for {len(docs)} candidates..."
+            )
             with db_manager.connect_master(read_only=True) as conn:
                 try:
                     existing_doc_ids = {
@@ -48,20 +50,25 @@ class DataIngestor:
                     try:
                         successful_doc_ids = {
                             row[0]
-                            for row in conn.execute("SELECT doc_id FROM ingestion_log WHERE status = 'SUCCESS'").fetchall()
+                            for row in conn.execute(
+                                "SELECT doc_id FROM ingestion_log WHERE status = 'SUCCESS'"
+                            ).fetchall()
                         }
                     except Exception:
                         successful_doc_ids = set()
-                    
+
                     completed_doc_ids = existing_doc_ids.union(successful_doc_ids)
-                    logger.debug(f"Found {len(completed_doc_ids)} already completed filings/logs in DB.")
+                    logger.debug(
+                        f"Found {len(completed_doc_ids)} already completed filings/logs in DB."
+                    )
                 except Exception as e:
                     logger.error(f"Failed to query existing filings/manifest: {e}", exc_info=True)
                     raise
 
         TARGET_FORM_CODES = {"030000", "030001", "043000", "043001", "040000", "040001"}
         docs_to_process = [
-            doc for doc in docs 
+            doc
+            for doc in docs
             if (bypass_manifest_check or doc._data.get("docID") not in completed_doc_ids)
             and (doc._data.get("formCode") in TARGET_FORM_CODES)
         ]
@@ -74,7 +81,7 @@ class DataIngestor:
 
         # Bounded queue to prevent memory growth (holds raw downloaded ZIP/CSV bytes)
         download_queue = queue.Queue(maxsize=15)
-        
+
         # Start the database writer
         self.writer.start()
 
@@ -116,7 +123,7 @@ class DataIngestor:
                     # Propagate termination marker
                     download_queue.put(None)
                     break
-                
+
                 doc, zip_bytes, csv_bytes, ticker = item
                 doc_id = doc._data.get("docID")
                 try:
@@ -163,11 +170,7 @@ class DataIngestor:
         num_parsers = max_workers if max_workers > 0 else 1
         parser_threads = []
         for i in range(num_parsers):
-            t = threading.Thread(
-                target=parser_worker_loop, 
-                name=f"ParserWorker-{i}", 
-                daemon=True
-            )
+            t = threading.Thread(target=parser_worker_loop, name=f"ParserWorker-{i}", daemon=True)
             t.start()
             parser_threads.append(t)
 
@@ -175,14 +178,11 @@ class DataIngestor:
             # Download concurrently with a thread pool (max 3 downloaders)
             num_downloaders = min(3, len(docs_to_process))
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=num_downloaders, 
-                thread_name_prefix="DownloaderPool"
+                max_workers=num_downloaders, thread_name_prefix="DownloaderPool"
             ) as downloader_executor:
                 futures = [
                     downloader_executor.submit(
-                        with_context(download_task), 
-                        doc, 
-                        doc._data.get("secCode", "0000")
+                        with_context(download_task), doc, doc._data.get("secCode", "0000")
                     )
                     for doc in docs_to_process
                 ]
@@ -239,7 +239,9 @@ class DataIngestor:
                 all_docs_on_date = edinet_tools.documents(date=d)
                 target_ids = {did for did, sc in items}
                 for doc in all_docs_on_date:
-                    if doc._data.get("docID") in target_ids and (doc._data.get("formCode") in TARGET_FORM_CODES):
+                    if doc._data.get("docID") in target_ids and (
+                        doc._data.get("formCode") in TARGET_FORM_CODES
+                    ):
                         sc = next(sc for did, sc in items if did == doc._data.get("docID"))
                         docs_to_process.append((doc, sc))
             except Exception as e:
@@ -256,7 +258,7 @@ class DataIngestor:
         for doc, sc in docs_to_process:
             doc._data["secCode"] = sc
             docs.append(doc)
-        
+
         self.process_docs_concurrently(docs, "backfill", max_workers, bypass_manifest_check=True)
         logger.info(f"Backfill completed. Processed {len(docs_to_process)} documents.")
 
@@ -376,9 +378,7 @@ class DataIngestor:
                 return []
             content = csv_bytes
             if content is None:
-                content = get_csv_from_edinet(
-                    data.get("docID"), settings.EDINET_API_KEY
-                )
+                content = get_csv_from_edinet(data.get("docID"), settings.EDINET_API_KEY)
             if content is None:
                 return None
 

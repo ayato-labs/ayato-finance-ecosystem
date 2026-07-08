@@ -75,9 +75,7 @@ def main():
 
         lookback = args.days
         end_dt = (
-            datetime.date.fromisoformat(args.end_date)
-            if args.end_date
-            else datetime.date.today()
+            datetime.date.fromisoformat(args.end_date) if args.end_date else datetime.date.today()
         )
 
         missing_dates = get_missing_dates(lookback, end_dt)
@@ -97,19 +95,21 @@ def main():
             chunk = missing_dates[i : i + CHUNK_SIZE]
             start_chunk_dt = chunk[-1]
             end_chunk_dt = chunk[0]
-            logger.info(f"--- Processing Chunk: {end_chunk_dt} back to {start_chunk_dt} ({len(chunk)} days) ---")
+            logger.info(
+                f"--- Processing Chunk: {end_chunk_dt} back to {start_chunk_dt} ({len(chunk)} days) ---"
+            )
 
             try:
                 # Sync the whole chunk at once
                 # Note: sync_market handles the range internally
                 days_in_range = (end_chunk_dt - start_chunk_dt).days + 1
                 session_id = f"hist-chunk-{end_chunk_dt.isoformat()}"
-                
+
                 engine.sync_market(
-                    days=days_in_range, 
-                    end_date=end_chunk_dt, 
-                    session_id=session_id, 
-                    run_vacuum=False
+                    days=days_in_range,
+                    end_date=end_chunk_dt,
+                    session_id=session_id,
+                    run_vacuum=False,
                 )
 
                 # Record success for each day in the chunk that was actually processed
@@ -122,7 +122,7 @@ def main():
                             """,
                             [target_date],
                         )
-                
+
                 logger.info(f"✅ Successfully completed chunk ending at {end_chunk_dt}")
                 processed_in_session += len(chunk)
 
@@ -131,7 +131,9 @@ def main():
                     engine._vacuum_db()
 
             except Exception as e:
-                logger.error(f"❌ Failed to process chunk ending at {end_chunk_dt}: {e}", exc_info=True)
+                logger.error(
+                    f"❌ Failed to process chunk ending at {end_chunk_dt}: {e}", exc_info=True
+                )
                 # On failure, we don't mark individual dates as failed here to allow retry on next run
                 # But we wait to avoid spamming the API
                 time.sleep(20)

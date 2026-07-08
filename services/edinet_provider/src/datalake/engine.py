@@ -46,11 +46,15 @@ class JPEDINETEngine:
             # Smart discovery: detect last filing date
             logger.info("Auto-detecting last sync date for smart discovery...")
             with db_manager.connect_master(read_only=True) as conn:
-                res = conn.execute("SELECT MAX(submit_datetime) FROM registry_db.filings").fetchone()
+                res = conn.execute(
+                    "SELECT MAX(submit_datetime) FROM registry_db.filings"
+                ).fetchone()
                 if res and res[0]:
                     # Start from the day after the last known filing
                     last_date = pd.to_datetime(res[0]).date()
-                    start_date = last_date - datetime.timedelta(days=1)  # Buffer of 1 day to be safe
+                    start_date = last_date - datetime.timedelta(
+                        days=1
+                    )  # Buffer of 1 day to be safe
                     logger.info(f"Last filing found: {last_date}. Starting from {start_date}")
                 else:
                     # Default for empty DB
@@ -110,8 +114,10 @@ class JPEDINETEngine:
                 if docs:
                     # 証券コードが前方一致するかチェック
                     filtered = [
-                        d for d in docs 
-                        if d._data.get("secCode") and str(d._data.get("secCode")).startswith(ticker_clean)
+                        d
+                        for d in docs
+                        if d._data.get("secCode")
+                        and str(d._data.get("secCode")).startswith(ticker_clean)
                     ]
                     all_docs.extend(filtered)
             except Exception as e:

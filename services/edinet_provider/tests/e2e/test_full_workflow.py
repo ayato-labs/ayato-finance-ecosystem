@@ -41,7 +41,9 @@ def test_full_user_workflow_sync(tmp_path, monkeypatch):
     docs_today = [MockDoc("E2E_001", "2024-05-07")]
     docs_yesterday = [MockDoc("E2E_002", "2024-05-06")]
 
-    with patch("src.datalake.shared.queries.repository.DataRepository.get_documents_with_cache") as mock_fetch:
+    with patch(
+        "src.datalake.shared.queries.repository.DataRepository.get_documents_with_cache"
+    ) as mock_fetch:
         mock_fetch.side_effect = lambda d: docs_today if d == today else docs_yesterday
 
         # Run sync
