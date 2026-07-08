@@ -91,7 +91,7 @@ const ResultPage: React.FC = () => {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: any) => formatCurrency(value as number, inputs.baseCurrency)}
+                      formatter={(value: number | string) => formatCurrency(Number(value), inputs.baseCurrency)}
                     />
                   </PieChart>
                 </ResponsiveContainer>

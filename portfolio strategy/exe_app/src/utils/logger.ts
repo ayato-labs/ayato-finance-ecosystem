@@ -7,7 +7,7 @@
 declare global {
   interface Window {
     electronAPI?: {
-      log: (level: string, msg: string, context?: any) => void;
+      log: (level: string, msg: string, context?: Record<string, unknown>) => void;
     };
   }
 }
@@ -15,28 +15,28 @@ declare global {
 const isElectron = typeof window !== 'undefined' && window.electronAPI;
 
 export const logger = {
-  debug: (msg: string, context?: any) => {
+  debug: (msg: string, context?: Record<string, unknown>) => {
     if (isElectron) {
       window.electronAPI?.log('debug', msg, context);
     } else {
       console.debug(`[DEBUG] ${msg}`, context || '');
     }
   },
-  info: (msg: string, context?: any) => {
+  info: (msg: string, context?: Record<string, unknown>) => {
     if (isElectron) {
       window.electronAPI?.log('info', msg, context);
     } else {
       console.info(`[INFO] ${msg}`, context || '');
     }
   },
-  warn: (msg: string, context?: any) => {
+  warn: (msg: string, context?: Record<string, unknown>) => {
     if (isElectron) {
       window.electronAPI?.log('warn', msg, context);
     } else {
       console.warn(`[WARN] ${msg}`, context || '');
     }
   },
-  error: (msg: string, context?: any) => {
+  error: (msg: string, context?: Record<string, unknown>) => {
     if (isElectron) {
       window.electronAPI?.log('error', msg, context);
     } else {

@@ -29,10 +29,10 @@ def setup_logging(log_dir="logs", service_name="portfolio_rebalancer"):
     logger.add(
         main_log,
         format="{time} | {level} | {name}:{function}:{line} | {message}",
-        serialize=True,     # JSON output
-        rotation="10 MB",    # Size based rotation
-        retention=2,        # Keep only the last 2 log files
-        level="DEBUG"
+        serialize=True,  # JSON output
+        rotation="10 MB",  # Size based rotation
+        retention=2,  # Keep only the last 2 log files
+        level="DEBUG",
     )
 
     # 3. Error Log File (Isolated, Only ERROR and above, 'error.log')
@@ -44,10 +44,11 @@ def setup_logging(log_dir="logs", service_name="portfolio_rebalancer"):
         level="ERROR",
         backtrace=True,
         diagnose=True,
-        filter=lambda record: record["level"].name == "ERROR"
+        filter=lambda record: record["level"].name == "ERROR",
     )
 
     return logger
+
 
 if __name__ == "__main__":
     # Test logging setup
