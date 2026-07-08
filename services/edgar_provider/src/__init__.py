@@ -1,6 +1,6 @@
 from .fetcher import EdgarFetcher
 from .parser import EdgarParser
 from .quantitative import EdgarQuantitative
-from .storage import EdgarStorage, DataIntegrityError
+from .storage import DataIntegrityError, EdgarStorage
 
-__all__ = ["EdgarFetcher", "EdgarParser", "EdgarQuantitative", "EdgarStorage", "DataIntegrityError"]
+__all__ = ["DataIntegrityError", "EdgarFetcher", "EdgarParser", "EdgarQuantitative", "EdgarStorage"]

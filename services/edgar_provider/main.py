@@ -5,8 +5,8 @@ import os
 from src.core.logging import setup_logger
 from src.fetcher import EdgarFetcher
 from src.parser import EdgarParser
+from src.pipeline import process_us_tickers, repair_all_missing_facts, sync_recent_us_filings
 from src.storage import EdgarStorage
-from src.pipeline import sync_recent_us_filings, process_us_tickers, repair_all_missing_facts
 
 
 def main():
@@ -32,9 +32,7 @@ def main():
 
     args = parser.parse_args()
 
-    user_agent = os.environ.get(
-        "USER_AGENT", "edgar-provider/1.0 (contact: admin@example.com)"
-    )
+    user_agent = os.environ.get("USER_AGENT", "edgar-provider/1.0 (contact: admin@example.com)")
     fetcher = EdgarFetcher(user_agent=user_agent)
     parser_obj = EdgarParser()
     storage = EdgarStorage()

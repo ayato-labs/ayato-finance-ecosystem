@@ -9,6 +9,7 @@ from loguru import logger
 
 class DataIntegrityError(Exception):
     """データ整合性バリデーションに失敗した際に投げられる例外"""
+
     pass
 
 
@@ -87,7 +88,9 @@ class EdgarStorage:
         # 合計文字数が極端に少ない場合はパース失敗とみなす (例: 100文字未満)
         total_len = sum(len(content) for content in sections.values())
         if total_len < 100:
-            raise DataIntegrityError(f"Sections content too sparse ({total_len} chars) for {metadata.get('accessionNumber')}")
+            raise DataIntegrityError(
+                f"Sections content too sparse ({total_len} chars) for {metadata.get('accessionNumber')}"
+            )
 
     def _validate_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
         """保存前に定量データの最小限の妥当性をチェック"""
@@ -97,7 +100,9 @@ class EdgarStorage:
         required_cols = ["concept", "numeric_value"]
         missing_cols = [c for c in required_cols if c not in df.columns]
         if missing_cols:
-            raise DataIntegrityError(f"Missing columns in facts DataFrame: {', '.join(missing_cols)}")
+            raise DataIntegrityError(
+                f"Missing columns in facts DataFrame: {', '.join(missing_cols)}"
+            )
 
     def save_filing(self, metadata: dict, sections: dict):
         """

@@ -1,6 +1,6 @@
-from edgar import set_identity, get_by_accession_number, httpclient
-from loguru import logger
 import pandas as pd
+from edgar import get_by_accession_number, httpclient, set_identity
+from loguru import logger
 
 # Set identity as required by SEC
 set_identity("ayato-labs ayato-labs@example.com")
@@ -12,6 +12,7 @@ if hasattr(httpclient, "close_clients"):
     httpclient.close_clients()
 elif hasattr(httpclient, "close_client"):
     httpclient.close_client()
+
 
 class EdgarQuantitative:
     """

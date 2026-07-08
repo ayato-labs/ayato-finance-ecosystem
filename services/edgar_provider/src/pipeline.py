@@ -8,10 +8,12 @@ from loguru import logger
 from .fetcher import EdgarFetcher
 from .parser import EdgarParser
 from .quantitative import EdgarQuantitative
-from .storage import EdgarStorage, DataIntegrityError
+from .storage import DataIntegrityError, EdgarStorage
 
 
-async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=7):
+async def sync_recent_us_filings(
+    fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=7
+):
     """
     SEC Daily Index を使用して、指定された過去日数分の 10-K/Q 提出書類を同期する
     """
@@ -45,7 +47,9 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
                     if needs_full_sync:
                         # 詳細なメタデータを解決
                         logger.info(f"Resolving metadata | ticker={ticker} | acc_no={acc_no}")
-                        filing = await asyncio.to_thread(fetcher.resolve_filing_metadata, ticker, acc_no)
+                        filing = await asyncio.to_thread(
+                            fetcher.resolve_filing_metadata, ticker, acc_no
+                        )
                         if not filing:
                             continue
 
@@ -56,7 +60,9 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
                         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
                         logger.info(f"Downloading | ticker={ticker} | acc_no={acc_no}")
-                        resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+                        resp = await asyncio.to_thread(
+                            requests.get, url, headers=fetcher.headers, timeout=30
+                        )
                         await asyncio.sleep(0.11)
 
                         if resp.status_code == 200:
@@ -69,7 +75,9 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
                                     filing_metadata["cik"] = cik
                                     storage.save_filing(filing_metadata, sections)
                                 except DataIntegrityError as e:
-                                    logger.error(f"Filing integrity check failed | acc_no={acc_no} | error={e}")
+                                    logger.error(
+                                        f"Filing integrity check failed | acc_no={acc_no} | error={e}"
+                                    )
                         del resp
 
                     # 定量データの抽出・保存
@@ -79,7 +87,9 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
                         try:
                             storage.save_facts(ticker, acc_no, facts_df)
                         except DataIntegrityError as e:
-                            logger.error(f"Facts integrity check failed | acc_no={acc_no} | error={e}")
+                            logger.error(
+                                f"Facts integrity check failed | acc_no={acc_no} | error={e}"
+                            )
 
                     gc.collect()
                 except Exception:
@@ -88,7 +98,9 @@ async def sync_recent_us_filings(fetcher: EdgarFetcher, parser: EdgarParser, sto
             logger.exception(f"Failed to process US index | date={target_date}")
 
 
-async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=365):
+async def process_us_tickers(
+    tickers, fetcher: EdgarFetcher, parser: EdgarParser, storage: EdgarStorage, days=365
+):
     """指定されたティッカーの直近書類を同期する"""
     for ticker in tickers:
         try:
@@ -120,7 +132,9 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
                     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
                     logger.info(f"Downloading | ticker={ticker} | date={filing['filingDate']}")
-                    resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+                    resp = await asyncio.to_thread(
+                        requests.get, url, headers=fetcher.headers, timeout=30
+                    )
                     await asyncio.sleep(0.11)
 
                     if resp.status_code == 200:
@@ -132,7 +146,9 @@ async def process_us_tickers(tickers, fetcher: EdgarFetcher, parser: EdgarParser
                                 filing_metadata["cik"] = cik
                                 storage.save_filing(filing_metadata, sections)
                             except DataIntegrityError as e:
-                                logger.error(f"Filing integrity check failed | ticker={ticker} | error={e}")
+                                logger.error(
+                                    f"Filing integrity check failed | ticker={ticker} | error={e}"
+                                )
                     del resp
 
                 # 定量データの抽出
@@ -162,7 +178,9 @@ async def repair_all_missing_facts(storage: EdgarStorage):
                 try:
                     storage.save_facts(ticker, acc_no, facts_df)
                 except DataIntegrityError as e:
-                    logger.error(f"Facts integrity check failed during repair | acc_no={acc_no} | error={e}")
+                    logger.error(
+                        f"Facts integrity check failed during repair | acc_no={acc_no} | error={e}"
+                    )
             else:
                 logger.warning(f"No facts found during repair for {acc_no}")
 
