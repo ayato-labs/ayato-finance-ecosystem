@@ -14,21 +14,24 @@ def test_sync_engine_full_flow(db_manager):
         mock_ticker.info = {"longName": "Test Co", "symbol": "TEST"}
         mock_ticker.financials = MagicMock()
         mock_ticker.financials.empty = True
-        
+
         # Create non-empty dummy prices DataFrame
-        mock_df = pd.DataFrame([{
-            "Date": pd.Timestamp("2026-07-09 00:00:00"),
-            "Open": 100.0,
-            "High": 105.0,
-            "Low": 95.0,
-            "Close": 101.0,
-            "Volume": 10000,
-            "Dividends": 0.0,
-            "Stock Splits": 0.0
-        }]).set_index("Date")
+        mock_df = pd.DataFrame(
+            [
+                {
+                    "Date": pd.Timestamp("2026-07-09 00:00:00"),
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 95.0,
+                    "Close": 101.0,
+                    "Volume": 10000,
+                    "Dividends": 0.0,
+                    "Stock Splits": 0.0,
+                }
+            ]
+        ).set_index("Date")
         mock_ticker.history.return_value = mock_df
         mock_yf.return_value = mock_ticker
-
 
         engine.run_sync(["TEST"], force=True)
 
@@ -42,8 +45,6 @@ def test_sync_engine_full_flow(db_manager):
         info = conn.execute("SELECT ticker FROM info WHERE ticker = 'TEST'").fetchone()
         assert info[0] == "TEST"
         conn.close()
-
-
 
 
 def test_negative_invalid_ticker(db_manager):
@@ -77,16 +78,20 @@ def test_chaos_db_lock(db_manager):
         mock_ticker.financials = MagicMock()
         mock_ticker.financials.empty = True
         # Create non-empty dummy prices DataFrame
-        mock_df = pd.DataFrame([{
-            "Date": pd.Timestamp("2026-07-09 00:00:00"),
-            "Open": 100.0,
-            "High": 105.0,
-            "Low": 95.0,
-            "Close": 101.0,
-            "Volume": 10000,
-            "Dividends": 0.0,
-            "Stock Splits": 0.0
-        }]).set_index("Date")
+        mock_df = pd.DataFrame(
+            [
+                {
+                    "Date": pd.Timestamp("2026-07-09 00:00:00"),
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 95.0,
+                    "Close": 101.0,
+                    "Volume": 10000,
+                    "Dividends": 0.0,
+                    "Stock Splits": 0.0,
+                }
+            ]
+        ).set_index("Date")
         mock_ticker.history.return_value = mock_df
         mock_yf.return_value = mock_ticker
 

@@ -22,10 +22,7 @@ for service in services:
         try:
             # Reinstall all packages to ensure integrity
             subprocess.run(
-                ["uv", "sync", "--reinstall"], 
-                cwd=str(service), 
-                check=True,
-                env=env
+                ["uv", "sync", "--reinstall"], cwd=str(service), check=True, env=env
             )
             print(f"SUCCESS: {service.name} environment repaired.")
         except subprocess.CalledProcessError as e:

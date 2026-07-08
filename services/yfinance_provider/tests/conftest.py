@@ -20,7 +20,6 @@ def db_manager(test_db_path):
     return manager
 
 
-
 @pytest.fixture
 def sample_tickers():
     """テスト用の実在銘柄リスト (日米混在)"""

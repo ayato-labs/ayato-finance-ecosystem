@@ -1,5 +1,6 @@
 import duckdb
-
+from pathlib import Path
+from .db_schema import generate_schema_files
 from .logging import setup_logger
 
 logger = setup_logger(app_name="db_manager")
@@ -14,6 +15,10 @@ class DatabaseManager:
         """Schema-as-Code: スキーマ定義とマイグレーションの初期化"""
         logger.info(f"Initializing/Migrating Database at {self.db_path}")
         try:
+            # Auto-generate schema.sql and database_design.md
+            db_dir = Path(self.db_path).parent
+            generate_schema_files(db_dir)
+
             conn = duckdb.connect(self.db_path)
 
             # マスター管理テーブル (SSoT)
