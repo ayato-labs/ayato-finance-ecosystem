@@ -20,7 +20,7 @@ class MacroEngine:
             self.base_dir = project_root / "data" / "macro"
         else:
             self.base_dir = Path(base_dir)
-            
+
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_safe_filename(self, symbol: str) -> str:

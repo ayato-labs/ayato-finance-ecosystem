@@ -15,7 +15,7 @@ async def get_indicator(symbol: str):
     """
     data = engine.get_values(symbol)
     if not data:
-        raise HTTPException(status_code=404, detail=f"No data found for {symbol}")  # noqa: PLR2004
+        raise HTTPException(status_code=404, detail=f"No data found for {symbol}")
     return data
 
 

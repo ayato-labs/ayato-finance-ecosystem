@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-
 from src.fetchers.fred_fetcher import FredFetcher
 
 load_dotenv()

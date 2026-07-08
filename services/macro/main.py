@@ -1,5 +1,4 @@
 import argparse
-import sys
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -47,6 +46,7 @@ def main():
                 run_sync(s)
     elif args.command == "server":
         import uvicorn
+
         logger.info(f"Starting server on port {args.port}...")
         uvicorn.run(app, host="127.0.0.1", port=args.port)
 

@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-
 from src.engine import MacroEngine
 from src.fetchers.fred_fetcher import FredFetcher
 

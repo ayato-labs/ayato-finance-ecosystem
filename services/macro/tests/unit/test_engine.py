@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from src.engine import MacroEngine
 from src.schema import enforce_schema
 
