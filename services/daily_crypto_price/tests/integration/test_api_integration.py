@@ -1,9 +1,8 @@
 from pathlib import Path
 
+import main
 import pytest
 from fastapi.testclient import TestClient
-
-import main
 from main import app
 from src.engine.db_engine import CryptoDBEngine
 

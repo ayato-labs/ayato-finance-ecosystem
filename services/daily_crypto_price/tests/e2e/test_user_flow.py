@@ -1,12 +1,11 @@
 from pathlib import Path
 from unittest import mock
 
+import main
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
-
-import main
 import src.fetchers.crypto_fetcher as fetcher_mod
+from fastapi.testclient import TestClient
 from main import app
 from src.engine.db_engine import CryptoDBEngine
 

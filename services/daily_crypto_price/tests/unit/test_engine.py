@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from src.engine.db_engine import CryptoDBEngine
 
 # Constants for testing

@@ -7,7 +7,6 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from src.core.logging import setup_logger
-
 from src.engine.db_engine import CryptoDBEngine
 from src.fetchers.crypto_fetcher import CryptoPriceFetcher
 
@@ -25,6 +24,7 @@ app.add_middleware(
 )
 
 from pathlib import Path
+
 project_root = Path(__file__).resolve().parents[2]
 default_db_path = str(project_root / "data" / "crypto" / "crypto_prices.duckdb")
 
