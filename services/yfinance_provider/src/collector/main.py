@@ -3,11 +3,12 @@ import json
 import os
 
 from loguru import logger
+
 from ..core.config import get_db_path, get_universe_cache_dir
 from ..core.db_manager import DatabaseManager
 from ..core.logging import setup_logger
-from .engine import SyncEngine
 from ..universe.manager import UniverseManager
+from .engine import SyncEngine
 
 setup_logger(log_dir="logs", app_name="yfinance_collector")
 
@@ -41,7 +42,7 @@ def main():
         # JSONファイルがあれば読み込む、なければデフォルト
         ticker_file = os.path.join("data", "tickers_to_sync.json")
         if os.path.exists(ticker_file):
-            with open(ticker_file, "r") as f:
+            with open(ticker_file) as f:
                 tickers = json.load(f)
             logger.info(f"Loaded {len(tickers)} tickers from {ticker_file}")
         else:

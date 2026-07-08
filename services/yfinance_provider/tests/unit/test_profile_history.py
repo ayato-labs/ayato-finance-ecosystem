@@ -1,6 +1,7 @@
-import os
 import json
+import os
 from unittest.mock import MagicMock
+
 import pytest
 from src.collector.engine import SyncEngine
 
@@ -49,7 +50,7 @@ def test_update_profile_history_new_file(sync_engine, tmp_path):
     assert updated is True
 
     # 内容の確認
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         history = json.load(f)
         assert len(history) == 1
         assert history[0]["hash"] == "hash1"
@@ -69,7 +70,7 @@ def test_update_profile_history_no_change(sync_engine, tmp_path):
     assert updated is False
 
     # 履歴は増えていないはず
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         history = json.load(f)
         assert len(history) == 1
 
@@ -87,7 +88,7 @@ def test_update_profile_history_with_change(sync_engine, tmp_path):
     assert updated is True
 
     # 履歴が増えているはず
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         history = json.load(f)
         assert len(history) == 2
         assert history[0]["hash"] == "hash1"

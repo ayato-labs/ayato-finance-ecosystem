@@ -3,7 +3,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
-
 from src.api.main import app
 from src.collector.engine import SyncEngine
 
@@ -42,7 +41,7 @@ def test_comprehensive_user_flow(db_manager):
     # ファイル保存の検証 (SCD Type 2)
     profile_path = os.path.join("data", "profiles", f"{ticker}.json")
     assert os.path.exists(profile_path)
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         history = json.load(f)
         assert len(history) == 1
         assert history[0]["longName"] == "Apple Inc."

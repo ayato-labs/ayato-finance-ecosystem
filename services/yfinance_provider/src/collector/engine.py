@@ -1,12 +1,12 @@
+import concurrent.futures
+import hashlib
 import json
 import os
-import random
-import time
-import threading
 import queue
-import concurrent.futures
+import random
+import threading
+import time
 from datetime import datetime, timedelta
-import hashlib
 
 import pandas as pd
 import yfinance as yf
@@ -70,7 +70,7 @@ class SyncEngine:
         history = []
         if os.path.exists(profile_path):
             try:
-                with open(profile_path, "r", encoding="utf-8") as f:
+                with open(profile_path, encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
                         history = data
@@ -129,7 +129,7 @@ class SyncEngine:
                     need_fetch_info = False
                     logger.debug(f"[{ticker}] Profile is recent (7d). Skipping yt.info")
                     try:
-                        with open(profile_path, "r", encoding="utf-8") as f:
+                        with open(profile_path, encoding="utf-8") as f:
                             data = json.load(f)
                             if isinstance(data, list) and len(data) > 0:
                                 info_raw = data[-1]
@@ -180,7 +180,7 @@ class SyncEngine:
                 prices_df = prices_df.reset_index()
                 prices_df["ticker"] = ticker
                 prices_df.columns = [str(c).lower().replace(" ", "_") for c in prices_df.columns]
-                
+
                 # Apply logical validation (OHLC relations, NaN handling)
                 prices_df = self.validator.check_logical(prices_df)
 
@@ -261,7 +261,7 @@ class SyncEngine:
         logger.info(f"Starting sync session for {len(tickers)} tickers (force={force})...")
         conn = self.db.get_connection()
         synced_df = conn.execute("SELECT ticker, last_sync_at, last_status FROM sync_status").df()
-        
+
         # Detect tickers with missing price data
         missing_df = conn.execute("""
             SELECT tm.ticker
@@ -294,7 +294,7 @@ class SyncEngine:
                     continue
 
             to_fetch.append(t)
-        
+
         # Add missing tickers to the synchronization target without duplicates
         for mt in missing_tickers:
             if mt not in to_fetch:

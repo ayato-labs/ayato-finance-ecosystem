@@ -1,6 +1,7 @@
+import os
+
 import duckdb
 from src.core.db_manager import DatabaseManager
-import os
 
 db_path = os.path.join("data", "yfinance.duckdb")
 
@@ -25,7 +26,7 @@ for table in tables:
                 FROM {table}
             ) WHERE rn = 1;
         """)
-        
+
         # Step 2: Drop the original table
         conn.execute(f"DROP TABLE {table};")
         print(f"Dropped original {table}.")

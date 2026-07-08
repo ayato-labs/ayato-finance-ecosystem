@@ -1,8 +1,9 @@
-import subprocess
 import os
+import subprocess
 import sys
-import pytest
+
 import duckdb
+import pytest
 
 
 def test_cli_sync_success():

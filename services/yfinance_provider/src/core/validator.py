@@ -36,10 +36,10 @@ class DataValidator:
         不合理なOHLC関係を持つ行を除外する。
         """
         initial_len = len(df)
-        
+
         # 0. NaN値を持つ行は通常の欠損データとして扱うため、事前に静かに除外する
         df = df.dropna(subset=["open", "high", "low", "close", "volume"])
-        
+
         if df.empty:
             return df
 
@@ -114,4 +114,3 @@ class DataValidator:
                         f"Price change for {ticker} on {row['date'].date()}: "
                         f"{change:+.2%} WITH split info ({split})."
                     )
-

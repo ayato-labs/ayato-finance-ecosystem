@@ -2,7 +2,6 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 from fastapi.testclient import TestClient
-
 from src.api.main import app
 from src.collector.engine import SyncEngine
 

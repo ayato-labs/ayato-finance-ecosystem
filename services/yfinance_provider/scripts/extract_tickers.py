@@ -1,6 +1,7 @@
-import duckdb
-import os
 import json
+import os
+
+import duckdb
 
 
 def extract_tickers():
