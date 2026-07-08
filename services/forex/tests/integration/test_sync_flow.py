@@ -2,7 +2,6 @@ from datetime import datetime
 
 import pandas as pd
 import pytest
-
 from src.engine import ForexEngine
 from src.fetchers.forex_fetcher import ForexFetcher
 

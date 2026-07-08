@@ -21,7 +21,7 @@ class ForexEngine:
             self.base_dir = project_root / "data" / "forex"
         else:
             self.base_dir = Path(base_dir)
-            
+
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def save_data(self, symbol: str, df: pd.DataFrame):

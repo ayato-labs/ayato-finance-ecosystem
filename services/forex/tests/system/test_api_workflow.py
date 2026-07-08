@@ -1,7 +1,6 @@
 import pandas as pd
 from fastapi import status
 from fastapi.testclient import TestClient
-
 from src.api.app import app, get_engine
 from src.engine import ForexEngine
 

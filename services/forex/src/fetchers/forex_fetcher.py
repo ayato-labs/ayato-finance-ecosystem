@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timedelta
+
 import pandas as pd
 import yfinance as yf
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 logger = logging.getLogger(__name__)
