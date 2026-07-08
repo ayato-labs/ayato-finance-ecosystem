@@ -17,7 +17,7 @@ class MacroEngine:
         if base_dir is None:
             # Resolve project root and set base directory
             project_root = Path(__file__).resolve().parents[3]
-            self.base_dir = project_root / "data" / "macro"
+            self.base_dir = project_root / "data" / "fred"
         else:
             self.base_dir = Path(base_dir)
 

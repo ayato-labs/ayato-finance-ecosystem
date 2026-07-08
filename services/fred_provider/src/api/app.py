@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from ..engine import MacroEngine
 from ..fetchers.fred_fetcher import FredFetcher
 
-app = FastAPI(title="Macro Economic API")
+app = FastAPI(title="FRED Provider API")
 engine = MacroEngine()
 fetcher = FredFetcher()
 

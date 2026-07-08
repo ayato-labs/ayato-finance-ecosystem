@@ -10,7 +10,7 @@ load_dotenv()
 from src.api.app import app, engine, fetcher
 
 # Configure structured logging
-setup_logger(log_dir="logs", app_name="macro")
+setup_logger(log_dir="logs", app_name="fred_provider")
 
 
 def run_sync(symbol: str):
@@ -30,7 +30,7 @@ def run_sync(symbol: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Macro Economic Service")
+    parser = argparse.ArgumentParser(description="FRED Provider Service")
     parser.add_argument("command", choices=["sync", "server"], help="Command to run")
     parser.add_argument("--symbol", help="Indicator symbol (e.g., DFF, DGS10)")
     parser.add_argument("--port", type=int, default=5010, help="Server port (default: 5010)")

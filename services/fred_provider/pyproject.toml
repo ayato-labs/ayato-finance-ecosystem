@@ -1,7 +1,7 @@
 [project]
-name = "macro"
+name = "fred_provider"
 version = "0.1.0"
-description = "Macro Economic Indicators and Interest Rates Database API"
+description = "FRED Economic Indicators and Interest Rates Database"
 authors = [
     { name = "ayato-labs" }
 ]
