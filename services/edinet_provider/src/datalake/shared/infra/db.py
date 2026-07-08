@@ -113,6 +113,7 @@ class DuckDBManager:
                         conn = duckdb.connect(master_path, read_only=read_only)
                         settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
                         from src.core.db_schema import generate_schema_files
+
                         generate_schema_files(settings.DATA_DIR)
                         (settings.DATA_DIR / "tmp").mkdir(parents=True, exist_ok=True)
                         manager._setup_connection_params(conn, read_only)

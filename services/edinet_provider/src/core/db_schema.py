@@ -161,6 +161,7 @@ class IngestionProgressSchema(BaseDbSchema):
         table_name: ClassVar[str] = "ingestion_progress"
         primary_key: ClassVar[list[str]] = ["target_date"]
 
+
 import types
 from typing import Any, get_args, get_origin, Union
 from pathlib import Path
@@ -174,13 +175,20 @@ TYPE_MAPPING = {
     bool: "BOOLEAN",
 }
 
-def resolve_sql_type(field_type: Any, field_name: str, type_overrides: dict[str, str] = None) -> str:
+
+def resolve_sql_type(
+    field_type: Any, field_name: str, type_overrides: dict[str, str] = None
+) -> str:
     if type_overrides and field_name in type_overrides:
         return type_overrides[field_name]
 
     # Handle Optional types / Unions (including Python 3.10+ UnionType)
     origin = get_origin(field_type)
-    if origin is Union or origin == type(Union) or (hasattr(types, "UnionType") and origin is types.UnionType):
+    if (
+        origin is Union
+        or origin == type(Union)
+        or (hasattr(types, "UnionType") and origin is types.UnionType)
+    ):
         args = get_args(field_type)
         # Filter out NoneType (type(None))
         non_none_args = [arg for arg in args if arg is not type(None)]
@@ -196,6 +204,7 @@ def resolve_sql_type(field_type: Any, field_name: str, type_overrides: dict[str,
 
     return "VARCHAR"
 
+
 def generate_schema_files(output_dir: Path):
     schemas = [
         DocumentManifestSchema,
@@ -209,7 +218,9 @@ def generate_schema_files(output_dir: Path):
 
     sql_statements = []
     markdown_sections = []
-    markdown_sections.append("# database_design.md\n\nThis document describes the schema of the EDINET Provider DuckDB database files.")
+    markdown_sections.append(
+        "# database_design.md\n\nThis document describes the schema of the EDINET Provider DuckDB database files."
+    )
 
     for schema_cls in schemas:
         config = getattr(schema_cls, "SQLConfig", None)
@@ -219,7 +230,7 @@ def generate_schema_files(output_dir: Path):
                 table_names = config.table_names
             elif hasattr(config, "table_name"):
                 table_names = [config.table_name]
-        
+
         if not table_names:
             table_names = [schema_cls.__name__.lower().replace("schema", "")]
 
@@ -230,7 +241,7 @@ def generate_schema_files(output_dir: Path):
         fields_ddl = []
         md_fields_table = [
             "| Column | Type | Default | Description |",
-            "| :--- | :--- | :--- | :--- |"
+            "| :--- | :--- | :--- | :--- |",
         ]
 
         for name, field in schema_cls.model_fields.items():
@@ -238,7 +249,7 @@ def generate_schema_files(output_dir: Path):
             constraints = []
             if name in primary_keys and len(primary_keys) == 1:
                 constraints.append("PRIMARY KEY")
-            
+
             default_val = "NULL"
             sql_extra = field.json_schema_extra or {}
             if "sql_default" in sql_extra:
@@ -285,7 +296,8 @@ def generate_schema_files(output_dir: Path):
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "schema.sql").write_text("\n\n".join(sql_statements) + "\n", encoding="utf-8")
-        (output_dir / "database_design.md").write_text("\n".join(markdown_sections) + "\n", encoding="utf-8")
+        (output_dir / "database_design.md").write_text(
+            "\n".join(markdown_sections) + "\n", encoding="utf-8"
+        )
     except Exception as e:
         print(f"Warning: Failed to auto-update EDINET schema files: {e}")
-

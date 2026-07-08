@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import ClassVar
+
 from pydantic import BaseModel, Field
 
 
@@ -52,8 +53,8 @@ class TickerSchema(BaseDbSchema):
 
 
 import types
-from typing import Any, get_args, get_origin, Union
 from pathlib import Path
+from typing import Any, Union, get_args, get_origin
 
 TYPE_MAPPING = {
     str: "VARCHAR",
@@ -171,7 +172,7 @@ def generate_schema_files(output_dir: Path):
             if primary_keys:
                 md_sec += f"- **Primary Key**: `{', '.join(primary_keys)}`\n"
             if unique_constraints:
-                md_sec += f"- **Unique Constraints**:\n"
+                md_sec += "- **Unique Constraints**:\n"
                 for uq in unique_constraints:
                     md_sec += f"  - `({', '.join(uq)})`\n"
             md_sec += "\n" + "\n".join(md_fields_table) + "\n"

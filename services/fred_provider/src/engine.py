@@ -4,6 +4,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 from loguru import logger
+
 from .core.db_schema import generate_schema_files
 
 _file_lock = threading.Lock()

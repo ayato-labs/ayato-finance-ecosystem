@@ -81,6 +81,7 @@ class JPEngine:
     def _init_db(self):
         """データベースの初期化"""
         from .core.db_schema import generate_schema_files
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         generate_schema_files(self.db_path.parent)
 

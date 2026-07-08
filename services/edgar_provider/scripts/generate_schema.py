@@ -1,17 +1,16 @@
-import os
 import sys
-from datetime import datetime, date
-from pathlib import Path
-from typing import Any, get_args, get_origin, Union
 import types
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Union, get_args, get_origin
 
 # Add project root to python path to import src module
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.db_schema import (
-    FilingSchema,
     CompanyFactSchema,
+    FilingSchema,
 )
 
 # Mapping Python types to SQL/DuckDB types
@@ -142,7 +141,7 @@ def generate_ddl_and_md():
             if primary_keys:
                 md_sec += f"- **Primary Key**: `{', '.join(primary_keys)}`\n"
             if unique_constraints:
-                md_sec += f"- **Unique Constraints**:\n"
+                md_sec += "- **Unique Constraints**:\n"
                 for uq in unique_constraints:
                     md_sec += f"  - `({', '.join(uq)})`\n"
 

@@ -1,5 +1,7 @@
-import duckdb
 from pathlib import Path
+
+import duckdb
+
 from .db_schema import generate_schema_files
 from .logging import setup_logger
 

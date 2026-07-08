@@ -259,10 +259,8 @@ class SyncEngine:
                 return
 
             clean_sym = symbol.upper().strip()
-            is_inverse = (
-                clean_sym in ["JPY", "CNY"]
-                or clean_sym.endswith("=X")
-                and ("JPY" in clean_sym or "CNY" in clean_sym)
+            is_inverse = clean_sym in ["JPY", "CNY"] or (
+                clean_sym.endswith("=X") and ("JPY" in clean_sym or "CNY" in clean_sym)
             )
 
             df = prices_df.reset_index()
