@@ -19,12 +19,12 @@ This is a **Monorepo** of decoupled services. For detailed design decisions and 
 - **[Quick Start & Usage](./docs/usage.md)**
 - **[Operational Guide](./docs/operations.md)**
 
-### Modules:
-- **[Asset Management App](./asset%20management%20App)**: Dashboard for real-time risk analysis.
-- **[Daily Stock Price](./services/daily_stock_price)**: Historical and daily OHLCV ingestion.
-- **[Financial Figures](./services/Financial%20Figures)**: Statutory reporting (XBRL) tracking.
-- **[Market Index API](./services/index)**: Benchmarks (S&P 500, Nikkei 225).
-- **[Macro Economic API](./services/macro)**: Treasury yields, Fed rates, etc.
+### Data Providers (under services/):
+- **[yfinance_provider](./services/yfinance_provider)**: Historical prices, index benchmarks, cryptocurrency rates, forex rates, and qualitative corporate profiles.
+- **[fred_provider](./services/fred_provider)**: Macroeconomic data indicators, treasury yields, and federal interest rates from FRED.
+- **[edinet_provider](./services/edinet_provider)**: Statutory figures and corporate financial statements (FSA XBRL).
+- **[edgar_provider](./services/edgar_provider)**: US statutory reporting data (SEC XBRL).
+- **[jquants_provider](./services/jquants_provider)**: Quantitative market and trading data for Japanese equities.
 
 ## 🚀 Getting Started
 
