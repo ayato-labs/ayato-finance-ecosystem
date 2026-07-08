@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import os
 
-from src.core.logging import setup_logger
+from src.logging import setup_logger
 from src.fetcher import EdgarFetcher
 from src.parser import EdgarParser
 from src.pipeline import process_us_tickers, repair_all_missing_facts, sync_recent_us_filings

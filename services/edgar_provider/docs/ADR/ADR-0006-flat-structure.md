@@ -17,18 +17,17 @@ We will revert to a flat `src/` structure and consolidate all code into a single
 
 1. **Flat Structure**:
    ```
-   edgar_provider/
-   ├── src/
-   │   ├── __init__.py
-   │   ├── fetcher.py
-   │   ├── parser.py
-   │   ├── storage.py
-   │   ├── quantitative.py
-   │   ├── pipeline.py
-   │   └── core/
-   │       └── logging.py
-   ├── main.py
-   └── pyproject.toml
+    edgar_provider/
+    ├── src/
+    │   ├── __init__.py
+    │   ├── fetcher.py
+    │   ├── parser.py
+    │   ├── storage.py
+    │   ├── quantitative.py
+    │   ├── pipeline.py
+    │   └── logging.py
+    ├── main.py
+    └── pyproject.toml
    ```
 
 2. **Import Convention**: Use relative imports within `src.*` or absolute `src.*` imports.
