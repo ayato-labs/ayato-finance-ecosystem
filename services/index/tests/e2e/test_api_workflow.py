@@ -5,7 +5,6 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-
 from src.api.app import app, engine
 
 client = TestClient(app)

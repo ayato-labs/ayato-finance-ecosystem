@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-
 from src.engine import IndexEngine
 from src.fetchers.yf_fetcher import YFinanceFetcher
 

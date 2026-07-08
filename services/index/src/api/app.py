@@ -15,7 +15,7 @@ async def get_prices(ticker: str):
     """
     data = engine.get_prices(ticker)
     if not data:
-        raise HTTPException(status_code=404, detail=f"No data found for {ticker}")  # noqa: PLR2004
+        raise HTTPException(status_code=404, detail=f"No data found for {ticker}")
     return data
 
 
