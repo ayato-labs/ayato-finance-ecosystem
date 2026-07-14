@@ -14,9 +14,6 @@ class FilingSchema(BaseDbSchema):
     cik: str | None = Field(None, description="SEC Central Index Key (CIK)")
     form: str | None = Field(None, description="Filer form type (e.g. 10-K, 10-Q)")
     filing_date: dt.date | None = Field(None, description="SEC official filing date")
-    sections: Any = Field(
-        None, description="Parsed text sections of the document stored in JSON format"
-    )
     metadata: Any = Field(None, description="Accompanying metadata stored in JSON format")
     updated_at: dt.datetime = Field(
         default_factory=dt.datetime.now,
@@ -27,7 +24,23 @@ class FilingSchema(BaseDbSchema):
     class SQLConfig:
         table_name: ClassVar[str] = "filings"
         primary_key: ClassVar[list[str]] = ["accession_number"]
-        type_overrides: ClassVar[dict[str, str]] = {"sections": "JSON", "metadata": "JSON"}
+        type_overrides: ClassVar[dict[str, str]] = {"metadata": "JSON"}
+
+
+class FilingSectionSchema(BaseDbSchema):
+    section_id: str = Field(..., description="Unique MD5 hash key for section row (Primary Key)")
+    accession_number: str = Field(..., description="Foreign key referencing filings.accession_number")
+    section_name: str = Field(..., description="Section key name (e.g., mda, business, risk_factors)")
+    content_md: str = Field(..., description="Raw parsed section text in markdown format")
+    updated_at: dt.datetime = Field(
+        default_factory=dt.datetime.now,
+        description="DB record insertion timestamp",
+        json_schema_extra={"sql_default": "CURRENT_TIMESTAMP"},
+    )
+
+    class SQLConfig:
+        table_name: ClassVar[str] = "filing_sections"
+        primary_key: ClassVar[list[str]] = ["section_id"]
 
 
 class CompanyFactSchema(BaseDbSchema):
@@ -110,6 +123,7 @@ def resolve_sql_type(
 def generate_schema_files(output_dir: Path):
     schemas = [
         FilingSchema,
+        FilingSectionSchema,
         CompanyFactSchema,
     ]
 

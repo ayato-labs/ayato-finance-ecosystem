@@ -35,13 +35,12 @@ class EdgarStorage:
 
     def _init_db(self):
         """データベースの初期化とテーブル作成"""
-        from .core.db_schema import generate_schema_files
+        from .db_schema import generate_schema_files
 
         generate_schema_files(Path(self.db_path).parent)
 
         with duckdb.connect(self.db_path) as conn:
             conn.execute("SET memory_limit='2GB'")
-
             conn.execute("SET threads=4")
             conn.execute("SET checkpoint_threshold='1GB'")
 
@@ -52,8 +51,16 @@ class EdgarStorage:
                     cik VARCHAR,
                     form VARCHAR,
                     filing_date DATE,
-                    sections JSON,
                     metadata JSON,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS filing_sections (
+                    section_id VARCHAR PRIMARY KEY,
+                    accession_number VARCHAR,
+                    section_name VARCHAR,
+                    content_md VARCHAR,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -77,6 +84,10 @@ class EdgarStorage:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup "
                 "ON company_facts (ticker, concept, period_end)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup "
+                "ON filing_sections (accession_number, section_name)"
             )
             logger.info(f"Initialized DuckDB at {self.db_path}")
 
@@ -117,16 +128,15 @@ class EdgarStorage:
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
-
-        sections_json = json.dumps(sections)
         metadata_json = json.dumps(metadata)
 
         with duckdb.connect(self.db_path) as conn:
+            # 1. filings テーブル（メタデータ）の挿入
             conn.execute(
                 """
                 INSERT OR REPLACE INTO filings (
-                    accession_number, ticker, cik, form, filing_date, sections, metadata, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    accession_number, ticker, cik, form, filing_date, metadata, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
                 (
                     acc_no,
@@ -134,11 +144,28 @@ class EdgarStorage:
                     metadata.get("cik"),
                     metadata.get("form"),
                     metadata.get("filingDate"),
-                    sections_json,
                     metadata_json,
                 ),
             )
-            logger.success(f"Saved filing for {ticker} ({acc_no}) to DuckDB")
+
+            # 2. filing_sections テーブル（テキスト本文）の挿入
+            for section_name, content in sections.items():
+                if not content:
+                    continue
+                # 一意な section_id の生成 (accession_number + section_name)
+                import hashlib
+                section_id = hashlib.md5(f"{acc_no}|{section_name}".encode("utf-8")).hexdigest()
+
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO filing_sections (
+                        section_id, accession_number, section_name, content_md, updated_at
+                    ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                    (section_id, acc_no, section_name, content),
+                )
+
+            logger.success(f"Saved filing and sections for {ticker} ({acc_no}) to DuckDB")
 
     def save_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
         """
@@ -204,11 +231,17 @@ class EdgarStorage:
             return conn.execute(query).fetchall()
 
     def get_filings_by_ticker(self, ticker: str):
-        """特定のティッカーの書類一覧を取得"""
+        """特定のティッカーの書類一覧を取得（結合して旧互換の構造をシミュレートして取得）"""
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT ticker, form, filing_date, sections, metadata, updated_at
-                FROM filings WHERE ticker = ? ORDER BY filing_date DESC
+                SELECT f.ticker, f.form, f.filing_date, 
+                       (
+                           SELECT json_group_object(s.section_name, s.content_md)
+                           FROM filing_sections s
+                           WHERE s.accession_number = f.accession_number
+                       ) as sections, 
+                       f.metadata, f.updated_at
+                FROM filings f WHERE f.ticker = ? ORDER BY f.filing_date DESC
             """
             res = conn.execute(query, (ticker.upper(),)).fetchall()
             return res
