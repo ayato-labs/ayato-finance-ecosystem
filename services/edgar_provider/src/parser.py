@@ -15,11 +15,12 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 class EdgarParser:
     """
-    SEC 10-K/10-Q HTML ドキュメントを解析して、特定のセクション（Business, Risk Factors等）を
-    抽出・Markdown化するためのパースクラス
+    SEC 10-K（通期）/ 10-Q（四半期）の HTML ドキュメントをパースし、
+    特定のセクション（例: 経営戦略、事業リスク、MD&A 等）を抽出・Markdown化するためのテキスト処理クラス。
     """
 
-    # セクション抽出用正規表現定義 (Markdown変換後の検索用)
+    # 10-K, 10-Q 形式ごとの対象セクションと、それらの開始位置を検出するための正規表現パターン定義。
+    # Markdown変換後の見出し行（Item 1、Item 7等）をターゲットにします。
     SECTION_RE: ClassVar[dict[str, list[dict]]] = {
         "10-K": [
             {
@@ -97,22 +98,23 @@ class EdgarParser:
 
     @staticmethod
     def clean_text(text: str) -> str:
+        """不要な改行コードの連続（3つ以上の連続改行など）や、行前後の余分な空白をトリムして整形します。"""
         if not text:
             return ""
-        # 連続した改行や空白の整理
         lines = [line.strip() for line in text.split("\n")]
         cleaned_text = "\n".join(lines)
         cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)
         return cleaned_text.strip()
 
     def _preprocess_html(self, html_content: str) -> BeautifulSoup:
+        """HTMLの無駄な装飾タグや属性情報を削除し、構造をプレーンに整えパース効率を向上させます。"""
         soup = BeautifulSoup(html_content, "lxml")
-        # 不要なタグのunwrapや除去
+        # スタイルを持たない単なるラッパー用の汎用タグを展開（unwrap）して中身のテキストだけを露出
         for tag in soup(["span", "font", "div"]):
             if not tag.attrs:
                 tag.unwrap()
 
-        # スタイルの除去
+        # HTMLタグのインラインCSSスタイルやクラス名などをすべて破棄（Markdown変換の出力を綺麗にするため）
         for tag in soup.find_all(True):
             for attr in [
                 "style",
@@ -127,11 +129,13 @@ class EdgarParser:
                 if attr in tag.attrs:
                     del tag.attrs[attr]
 
+        # iXBRL（Inline XBRL）のカスタム名前空間タグ（ix:nonFraction等）をプレーンに展開
         for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
             ix_tag.unwrap()
         return soup
 
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
+        """プレーン化した HTML 要素を GitHub 互換形式のマークダウンテキストに一括変換します。"""
         return md(
             str(soup),
             heading_style="ATX",
@@ -142,7 +146,8 @@ class EdgarParser:
 
     def extract_all_sections(self, html_content: str, form_type: str) -> dict[str, str]:
         """
-        特定の提出書類タイプに基づき、主要なセクションを抽出・Markdown化して返す
+        HTML本文を受け取り、特定の開示フォームタイプ（10-K/Q）に基づいて、
+        各種章（セクション）ごとにマークダウンテキストを切り分けて抽出した辞書を返します。
         """
         if form_type not in self.SECTION_RE:
             logger.warning(f"Unsupported form type: {form_type}")
@@ -155,13 +160,13 @@ class EdgarParser:
         sections_found = {}
         definitions = self.SECTION_RE[form_type]
 
-        # 各セクションの開始位置を特定
+        # 各セクション見出しがマークダウンの何行目から開始しているかをスキャン
         indices = {}
         for defn in definitions:
             key = defn["key"]
             pattern = defn["start"]
             for i, line in enumerate(lines):
-                # 目次のリンク行を除外するための簡易チェック
+                # 誤判定（目次ページのリンクアンカー行など）を防ぎつつ見出しを検索
                 if (
                     pattern.search(line)
                     and len(line) < 250
@@ -170,15 +175,15 @@ class EdgarParser:
                     indices[key] = i
                     break
 
-        # セクションごとに内容を切り出す
+        # スキャン結果を元に、開始位置から次のセクションの開始位置までの行を切り抜き
         for i, defn in enumerate(definitions):
             key = defn["key"]
             if key not in indices:
                 continue
 
             start_idx = indices[key]
-            # 次のセクションの開始位置を終了位置とする
             end_idx = None
+            # 現在のセクションの次以降で、開始インデックスが存在する最も近いセクションを終了点とする
             for next_defn in definitions[i + 1 :]:
                 next_key = next_defn["key"]
                 if next_key in indices:

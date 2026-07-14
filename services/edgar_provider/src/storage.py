@@ -8,42 +8,53 @@ from loguru import logger
 
 
 class DataIntegrityError(Exception):
-    """データ整合性バリデーションに失敗した際に投げられる例外"""
+    """データ整合性バリデーション（空チェック、文字数チェック等）に失敗した際に投げられる例外"""
 
     pass
 
 
 class EdgarStorage:
     """
-    SEC EDGAR 提出書類のパース結果を DuckDB に保存・管理するクラス
+    SEC EDGAR 提出書類のパース結果を DuckDB に保存・管理するストレージ層クラス。
+    3テーブルに正規化されたリレーショナルデータベース構造を管理します。
     """
 
     def __init__(self, db_path: str | None = None):
+        """
+        EdgarStorageの初期化。
+        環境変数 'EDGAR_DATA_DIR' が存在する場合はそこから優先的にパスを解決し、
+        ない場合はデフォルトの共有ディレクトリ（finance/data/edgar/edgar.duckdb）を参照します。
+        """
         if db_path is None:
-            # Resolve finance root and set database path
-            # __file__ is at: src/storage.py
-            # parents[0] = src/, parents[1] = edgar_provider/, parents[2] = services/, parents[3] = finance/
+            # プロジェクトルートディレクトリ（finance/）を取得し、データベースの既定パスを設定
+            # __file__ は src/storage.py にあるため、parents[3] は finance/ ディレクトリになります
             _finance_root = Path(__file__).resolve().parents[3]
             _default_path = _finance_root / "data" / "edgar" / "edgar.duckdb"
             self.db_path = os.environ.get("EDGAR_DATA_DIR", str(_default_path))
         else:
             self.db_path = db_path
 
-        # データベースファイルのディレクトリ作成
+        # データベースを配置する親ディレクトリが存在しない場合は自動作成
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self):
-        """データベースの初期化とテーブル作成"""
+        """
+        データベースの初期化、Schema-as-Code に基づくスキーマファイルの自動出力、
+        およびテーブル・インデックスの作成を実行します。
+        """
         from .db_schema import generate_schema_files
 
+        # データベースと同じディレクトリに SQL 定義ファイルおよび設計書 markdown を自動生成出力
         generate_schema_files(Path(self.db_path).parent)
 
         with duckdb.connect(self.db_path) as conn:
+            # DuckDB の接続最適化オプション（メモリ制限、マルチスレッド並列処理等）を設定
             conn.execute("SET memory_limit='2GB'")
             conn.execute("SET threads=4")
             conn.execute("SET checkpoint_threshold='1GB'")
 
+            # 1. filings テーブル（書類の基本メタデータ）の定義
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS filings (
                     accession_number VARCHAR PRIMARY KEY,
@@ -55,6 +66,8 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # 2. filing_sections テーブル（定性テキスト本文のセクション分割保存用）の定義
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS filing_sections (
                     section_id VARCHAR PRIMARY KEY,
@@ -64,6 +77,8 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # 3. company_facts テーブル（抽出された定量数値データ）の定義
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS company_facts (
                     fact_id VARCHAR PRIMARY KEY,
@@ -81,18 +96,25 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup "
-                "ON company_facts (ticker, concept, period_end)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup "
-                "ON filing_sections (accession_number, section_name)"
-            )
+            
+            # 財務データの照会速度向上のための複合インデックスの作成
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup 
+                ON company_facts (ticker, concept, period_end)
+            """)
+            
+            # 受付番号とセクション名での検索を高速化するための複合インデックスの作成
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup 
+                ON filing_sections (accession_number, section_name)
+            """)
             logger.info(f"Initialized DuckDB at {self.db_path}")
 
     def _validate_filing(self, metadata: dict, sections: dict):
-        """保存前に定性データの最小限の妥当性をチェック"""
+        """
+        保存処理を実行する前に、受け取ったメタデータおよび定性テキストセクションの最小限の整合性検証を行います。
+        必須項目の欠損やテキストが極端に少ない場合は、パース失敗として例外を投げます。
+        """
         required_keys = ["accessionNumber", "ticker", "form", "filingDate"]
         missing = [k for k in required_keys if not metadata.get(k)]
         if missing:
@@ -101,7 +123,7 @@ class EdgarStorage:
         if not sections:
             raise DataIntegrityError(f"Sections are empty for {metadata.get('accessionNumber')}")
 
-        # 合計文字数が極端に少ない場合はパース失敗とみなす (例: 100文字未満)
+        # 各セクションの合計文字数が極端に少ない場合は、ダウンロード・パース異常とみなして検証エラー
         total_len = sum(len(content) for content in sections.values())
         if total_len < 100:
             raise DataIntegrityError(
@@ -109,7 +131,7 @@ class EdgarStorage:
             )
 
     def _validate_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
-        """保存前に定量データの最小限の妥当性をチェック"""
+        """保存処理を実行する前に、定量データ DataFrame の妥当性チェックを行います。"""
         if df is None or df.empty:
             raise DataIntegrityError(f"Facts DataFrame is empty for {ticker} ({accession_number})")
 
@@ -122,7 +144,7 @@ class EdgarStorage:
 
     def save_filing(self, metadata: dict, sections: dict):
         """
-        メタデータとパースされたセクションを DuckDB に保存（UPSERT）
+        パースされた定性情報をデータベースの「filings」と「filing_sections」に分割保存（UPSERT）します。
         """
         self._validate_filing(metadata, sections)
 
@@ -131,7 +153,7 @@ class EdgarStorage:
         metadata_json = json.dumps(metadata)
 
         with duckdb.connect(self.db_path) as conn:
-            # 1. filings テーブル（メタデータ）の挿入
+            # 1. filings テーブル（メタデータ）にメタデータを登録（UPSERT）
             conn.execute(
                 """
                 INSERT OR REPLACE INTO filings (
@@ -148,11 +170,11 @@ class EdgarStorage:
                 ),
             )
 
-            # 2. filing_sections テーブル（テキスト本文）の挿入
+            # 2. 各セクションの本文を1セクション=1レコードとして filing_sections にインサート
             for section_name, content in sections.items():
                 if not content:
                     continue
-                # 一意な section_id の生成 (accession_number + section_name)
+                # 受付番号と章名から一意なプライマリキー MD5 ハッシュ値を生成
                 import hashlib
                 section_id = hashlib.md5(f"{acc_no}|{section_name}".encode("utf-8")).hexdigest()
 
@@ -169,16 +191,16 @@ class EdgarStorage:
 
     def save_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
         """
-        XBRLから抽出された財務数値を保存
+        XBRLデータから抽出された企業の財務数値データ（定量Facts）を保存します。
         """
         self._validate_facts(ticker, accession_number, df)
 
-        # カラム名の正規化と一意IDの生成
+        # 結合識別用の一時カラム追加
         df["ticker"] = ticker
         df["accession_number"] = accession_number
 
-        # DuckDBへのインジェスト
         with duckdb.connect(self.db_path) as conn:
+            # 各数値データ項目に対し、一意のハッシュキー（MD5）を生成して登録
             conn.execute("""
                 INSERT OR REPLACE INTO company_facts (
                     fact_id, accession_number, ticker, concept, label, value, unit,
@@ -203,7 +225,7 @@ class EdgarStorage:
             logger.info(f"Ingested {len(df)} financial facts for {ticker}")
 
     def filing_exists(self, accession_number: str) -> bool:
-        """指定された受理番号の書類が既に存在するか確認"""
+        """指定された受付番号の書類メタデータが、すでにデータベースに登録されているか確認します。"""
         with duckdb.connect(self.db_path) as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM filings WHERE accession_number = ?", (accession_number,)
@@ -211,7 +233,7 @@ class EdgarStorage:
             return res[0] > 0
 
     def facts_exist(self, accession_number: str) -> bool:
-        """指定された受理番号の財務数値（定量データ）が既に存在するか確認"""
+        """指定された受付番号に対応する財務数値（定量データ）が、すでに登録されているか確認します。"""
         with duckdb.connect(self.db_path) as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM company_facts WHERE accession_number = ?", (accession_number,)
@@ -219,7 +241,10 @@ class EdgarStorage:
             return res[0] > 0
 
     def get_accession_numbers_needing_repair(self) -> list[tuple[str, str]]:
-        """定性データはあるが定量データが欠けている受理番号とティッカーのリストを取得"""
+        """
+        スマートリペア機能（データ不完全性の修復）用メソッド。
+        定性テキストは保存されているが、対応する定量Facts数値が欠落している受付番号の一覧を返します。
+        """
         with duckdb.connect(self.db_path) as conn:
             query = """
                 SELECT f.accession_number, f.ticker
@@ -231,7 +256,11 @@ class EdgarStorage:
             return conn.execute(query).fetchall()
 
     def get_filings_by_ticker(self, ticker: str):
-        """特定のティッカーの書類一覧を取得（結合して旧互換の構造をシミュレートして取得）"""
+        """
+        特定のティッカーの書類一覧を取得します。
+        後方互換性を保つため、内部で filing_sections テーブルと JOIN し、
+        旧スキーマと同じように sections（JSONオブジェクト）型をシミュレート構成して結果を返します。
+        """
         with duckdb.connect(self.db_path) as conn:
             query = """
                 SELECT f.ticker, f.form, f.filing_date, 
@@ -247,7 +276,7 @@ class EdgarStorage:
             return res
 
     def get_stats(self):
-        """保存されているデータの統計情報を取得"""
+        """保存されている全データの統計情報（総書類数、銘柄ごとの書類取得数など）を取得します。"""
         with duckdb.connect(self.db_path) as conn:
             query = """
                 SELECT ticker, COUNT(*) as count, MAX(filing_date) as latest
