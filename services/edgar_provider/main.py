@@ -3,7 +3,7 @@ import asyncio
 import os
 
 from src.fetcher import EdgarFetcher
-from src.logging import setup_logger
+from src.logging_config import setup_logger
 from src.parser import EdgarParser
 from src.pipeline import process_us_tickers, repair_all_missing_facts, sync_recent_us_filings
 from src.storage import EdgarStorage

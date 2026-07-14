@@ -25,7 +25,7 @@ We will revert to a flat `src/` structure and consolidate all code into a single
     │   ├── storage.py
     │   ├── quantitative.py
     │   ├── pipeline.py
-    │   └── logging.py
+    │   └── logging_config.py
     ├── main.py
     └── pyproject.toml
    ```
