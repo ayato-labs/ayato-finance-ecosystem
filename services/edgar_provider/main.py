@@ -13,7 +13,7 @@ def main():
     setup_logger(log_dir="logs", app_name="edgar_provider")
 
     parser = argparse.ArgumentParser(description="SEC EDGAR Provider CLI")
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute", required=True)
 
     # Sync command
     sync_parser = subparsers.add_parser("sync", help="Sync filings from daily index")
