@@ -25,6 +25,7 @@ class EdgarQuantitative:
         """
         受付番号（accessionNumber）を指定して、該当する報告書のXBRLデータから
         全財務項目（Facts）を抽出して pandas.DataFrame として返します。
+        storage.py の save_facts で必要なカラムを含むように query API を使用します。
         """
         try:
             # edgartoolsライブラリを使用して受付番号から書類を取得
@@ -39,12 +40,76 @@ class EdgarQuantitative:
                 logger.info(f"No XBRL data for filing: {accession_number}")
                 return pd.DataFrame()
 
-            # XBRLの全財務ファクト項目を pandas.DataFrame に一括変換
-            df = xbrl.facts.to_dataframe()
+            # XBRLの全財務ファクト項目を pandas.DataFrame に変換
+            # edgartools query API で利用可能なカラムを使用
+            df = xbrl.facts.query().to_dataframe(
+                "concept",
+                "label",
+                "numeric_value",
+                "unit_ref",
+                "fiscal_year",
+                "period_start",
+                "period_end",
+                "period_instant",
+                "period_type",
+            )
 
             if df.empty:
                 logger.info(f"Empty facts for filing: {accession_number}")
                 return pd.DataFrame()
+
+            # unit_ref から通貨(currency)を抽出
+            def get_currency(unit_ref):
+                if not unit_ref or not xbrl.units:
+                    return None
+                unit_info = xbrl.units.get(unit_ref)
+                if unit_info and unit_info.get("type") == "simple":
+                    measure = unit_info.get("measure", "")
+                    if measure.startswith("iso4217:"):
+                        return measure.replace("iso4217:", "")
+                return None
+
+            df["currency"] = df["unit_ref"].apply(get_currency)
+
+            # fiscal_period を period_type と期間長から導出
+            # period_type: 'instant' (時点) または 'duration' (期間)
+            # duration の場合、期間長で四半期(Q1/Q2/Q3)か通期(FY)を判定
+            df["period_start"] = pd.to_datetime(df["period_start"], errors="coerce")
+            df["period_end"] = pd.to_datetime(df["period_end"], errors="coerce")
+            df["period_instant"] = pd.to_datetime(df["period_instant"], errors="coerce")
+
+            # duration の場合のみ期間長を計算
+            duration_mask = df["period_type"] == "duration"
+            df.loc[duration_mask, "period_length"] = (
+                df.loc[duration_mask, "period_end"] - df.loc[duration_mask, "period_start"]
+            ).dt.days
+
+            def derive_fiscal_period(row):
+                if row["period_type"] == "instant":
+                    return "FY"  # 時点情報は通期として扱う
+                length = row.get("period_length")
+                if pd.isna(length):
+                    return None
+                if length <= 100:  # ~3ヶ月
+                    # 四半期の判定は period_end の月で行うのが正確だが、
+                    # 簡易的に期間長で判定
+                    return "Q"
+                elif length <= 200:  # ~6ヶ月
+                    return "Q2"
+                elif length <= 300:  # ~9ヶ月
+                    return "Q3"
+                else:
+                    return "FY"
+
+            df["fiscal_period"] = df.apply(derive_fiscal_period, axis=1)
+
+            # unit カラムを unit_ref + currency で構成
+            df["unit"] = df["unit_ref"].fillna("") + " " + df["currency"].fillna("")
+            df["unit"] = df["unit"].str.strip()
+            df.loc[df["unit"] == "", "unit"] = None
+
+            # 不要な一時カラムを削除
+            df = df.drop(columns=["period_length", "period_type", "unit_ref", "currency"])
 
             return df
 

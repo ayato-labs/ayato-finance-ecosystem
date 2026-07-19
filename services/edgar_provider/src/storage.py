@@ -213,7 +213,7 @@ class EdgarStorage:
                     concept,
                     label,
                     CAST(numeric_value AS DOUBLE) as value,
-                    unit_ref as unit,
+                    unit as unit,
                     CAST(fiscal_year AS INTEGER) as fiscal_year,
                     fiscal_period,
                     CAST(period_start AS DATE) as period_start,
