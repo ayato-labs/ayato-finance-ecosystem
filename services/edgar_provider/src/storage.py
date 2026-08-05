@@ -243,8 +243,11 @@ class EdgarStorage:
             return 0
 
         saved_count = 0
+        total = len(filings_data)
+        progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
+
         with duckdb.connect(self.db_path) as conn:
-            for metadata, sections in filings_data:
+            for i, (metadata, sections) in enumerate(filings_data, 1):
                 try:
                     self._validate_filing(metadata, sections)
 
@@ -284,12 +287,17 @@ class EdgarStorage:
                         )
 
                     saved_count += 1
+
+                    # 進捗ログ（10%ごと）
+                    if i % progress_interval == 0 or i == total:
+                        logger.info(f"Saving filings progress | {i}/{total} ({i*100//total}%)")
+
                 except DataIntegrityError as e:
                     logger.warning(f"Skipping filing due to validation error: {e}")
                 except Exception as e:
                     logger.error(f"Error saving filing {metadata.get('accessionNumber')}: {e}")
 
-        logger.info(f"Batch saved {saved_count}/{len(filings_data)} filings")
+        logger.info(f"Batch saved {saved_count}/{total} filings")
         return saved_count
 
     def save_facts_batch(self, facts_data: list[tuple[str, str, pd.DataFrame]]) -> int:
@@ -306,8 +314,11 @@ class EdgarStorage:
             return 0
 
         saved_count = 0
+        total = len(facts_data)
+        progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
+
         with duckdb.connect(self.db_path) as conn:
-            for ticker, accession_number, df in facts_data:
+            for i, (ticker, accession_number, df) in enumerate(facts_data, 1):
                 try:
                     self._validate_facts(ticker, accession_number, df)
 
@@ -337,12 +348,17 @@ class EdgarStorage:
                         WHERE numeric_value IS NOT NULL
                     """)
                     saved_count += 1
+
+                    # 進捗ログ（10%ごと）
+                    if i % progress_interval == 0 or i == total:
+                        logger.info(f"Saving facts progress | {i}/{total} ({i*100//total}%)")
+
                 except DataIntegrityError as e:
                     logger.warning(f"Skipping facts due to validation error: {e}")
                 except Exception as e:
                     logger.error(f"Error saving facts for {ticker} ({accession_number}): {e}")
 
-        logger.info(f"Batch saved facts for {saved_count}/{len(facts_data)} filings")
+        logger.info(f"Batch saved facts for {saved_count}/{total} filings")
         return saved_count
 
     def filing_exists(self, accession_number: str) -> bool:

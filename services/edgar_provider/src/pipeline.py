@@ -51,6 +51,9 @@ async def sync_recent_us_filings(
 
             logger.info(f"Found filings in daily index | date={target_date} | count={len(filings)}")
 
+            # 差分更新の内訳を追跡
+            skipped_tickers = []  # スキップされたティッカーのリスト
+
             for entry in filings:
                 try:
                     acc_no = entry["accessionNumber"]
@@ -71,6 +74,7 @@ async def sync_recent_us_filings(
                     # 両方揃っている場合は処理をスキップ（高速化）
                     if not needs_full_sync and not needs_facts_repair:
                         daily_skipped += 1
+                        skipped_tickers.append(f"{ticker} ({filing_date})")
                         logger.debug(
                             f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                         )
@@ -153,6 +157,11 @@ async def sync_recent_us_filings(
             logger.info(
                 f"Completed daily sync | date={target_date} | processed={daily_processed} | skipped={daily_skipped}"
             )
+            # スキップされたティッカーの詳細をログに出力（差分更新の確認用）
+            if skipped_tickers:
+                logger.info(
+                    f"Skipped tickers (already synced) | date={target_date} | count={len(skipped_tickers)} | tickers={', '.join(skipped_tickers[:10])}{'...' if len(skipped_tickers) > 10 else ''}"
+                )
         except Exception:
             logger.exception(f"Failed to process US index | date={target_date}")
 
@@ -207,6 +216,10 @@ async def process_us_tickers(
                 f"in_range={len(target_filings)} | threshold={threshold_date}"
             )
 
+            # 差分更新の内訳を追跡
+            skipped_filings = []  # スキップされた書類のリスト
+            skipped_facts = []  # スキップされたファクトのリスト
+
             for filing in target_filings:
                 acc_no = filing["accessionNumber"]
                 filing_date = filing.get("filingDate", "unknown")
@@ -217,10 +230,14 @@ async def process_us_tickers(
 
                 if not needs_full_sync and not needs_facts_repair:
                     skipped_count += 1
+                    skipped_filings.append(f"{filing_date} ({acc_no})")
                     logger.debug(
                         f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                     )
                     continue
+
+                if needs_facts_repair:
+                    skipped_facts.append(f"{filing_date} ({acc_no})")
 
                 if needs_full_sync:
                     # ダウンロードと定性テキスト保存
@@ -281,6 +298,15 @@ async def process_us_tickers(
             logger.info(
                 f"Completed ticker | ticker={ticker} | processed={processed_count} | skipped={skipped_count}"
             )
+            # スキップされた書類の詳細をログに出力（差分更新の確認用）
+            if skipped_filings:
+                logger.info(
+                    f"Skipped filings (already synced) | ticker={ticker} | count={len(skipped_filings)} | dates={', '.join(skipped_filings[:5])}{'...' if len(skipped_filings) > 5 else ''}"
+                )
+            if skipped_facts:
+                logger.info(
+                    f"Skipped facts (repair needed) | ticker={ticker} | count={len(skipped_facts)} | dates={', '.join(skipped_facts[:5])}{'...' if len(skipped_facts) > 5 else ''}"
+                )
         except Exception:
             logger.exception(f"Failed to process ticker | ticker={ticker}")
 
