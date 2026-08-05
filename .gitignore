@@ -77,4 +77,7 @@ Desktop.ini
 # Projects & Private Data
 Intrinsic Value/
 portfolio strategy/dist_electron/
-portfolio strategy/dist_package/
+portfolio strategy/dist_package/
+
+# develop
+OpenCodeReview.md
