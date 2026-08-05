@@ -241,3 +241,107 @@ class TestEdgarStorage:
         assert len(targets) == 1
         assert targets[0][0] == "0001234567-26-000030"
         assert targets[0][1] == "AAPL"
+
+    def test_save_filings_batch(self):
+        """提出書類バッチ保存のテスト。"""
+        filings_data = [
+            (
+                {
+                    "accessionNumber": "0001234567-26-000040",
+                    "ticker": "AAPL",
+                    "form": "10-K",
+                    "filingDate": "2026-01-01",
+                    "cik": "0000320193",
+                },
+                {"business": "Apple Inc. business content." * 10},
+            ),
+            (
+                {
+                    "accessionNumber": "0001234567-26-000041",
+                    "ticker": "MSFT",
+                    "form": "10-Q",
+                    "filingDate": "2026-03-01",
+                    "cik": "0000789019",
+                },
+                {"mda": "Microsoft management discussion." * 10},
+            ),
+        ]
+
+        saved_count = self.storage.save_filings_batch(filings_data)
+        assert saved_count == 2
+        assert self.storage.filing_exists("0001234567-26-000040")
+        assert self.storage.filing_exists("0001234567-26-000041")
+
+    def test_save_filings_batch_empty(self):
+        """空のバッチ保存のテスト。"""
+        saved_count = self.storage.save_filings_batch([])
+        assert saved_count == 0
+
+    def test_save_facts_batch(self):
+        """ファクトバッチ保存のテスト。"""
+        # まずメタデータを保存
+        metadata = {
+            "accessionNumber": "0001234567-26-000050",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Apple business content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        facts_data = [
+            (
+                "AAPL",
+                "0001234567-26-000050",
+                pd.DataFrame(
+                    {
+                        "concept": ["Revenue", "NetIncome"],
+                        "label": ["Revenue", "Net Income"],
+                        "numeric_value": [400000000, 100000000],
+                        "unit": ["USD", "USD"],
+                        "fiscal_year": [2025, 2025],
+                        "fiscal_period": ["FY", "FY"],
+                        "period_start": ["2025-01-01", "2025-01-01"],
+                        "period_end": ["2025-12-31", "2025-12-31"],
+                        "period_instant": [None, None],
+                    }
+                ),
+            ),
+        ]
+
+        saved_count = self.storage.save_facts_batch(facts_data)
+        assert saved_count == 1
+        assert self.storage.facts_exist("0001234567-26-000050")
+
+    def test_save_facts_batch_empty(self):
+        """空のファクトバッチ保存のテスト。"""
+        saved_count = self.storage.save_facts_batch([])
+        assert saved_count == 0
+
+    def test_save_filings_batch_with_invalid_data(self):
+        """無効なデータを含むバッチ保存のテスト。"""
+        filings_data = [
+            (
+                {
+                    "accessionNumber": "0001234567-26-000060",
+                    "ticker": "AAPL",
+                    "form": "10-K",
+                    "filingDate": "2026-01-01",
+                },
+                {"business": "Valid content." * 10},
+            ),
+            (
+                {
+                    "accessionNumber": "0001234567-26-000061",
+                    # ticker が欠落している
+                    "form": "10-K",
+                    "filingDate": "2026-01-01",
+                },
+                {"business": "Invalid content." * 10},
+            ),
+        ]
+
+        # 無効なデータはスキップされ、有効なデータのみ保存される
+        saved_count = self.storage.save_filings_batch(filings_data)
+        assert saved_count == 1
+        assert self.storage.filing_exists("0001234567-26-000060")
