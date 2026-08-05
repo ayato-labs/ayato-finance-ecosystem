@@ -1,9 +1,16 @@
+import os
+
 import pandas as pd
+from dotenv import load_dotenv
 from edgar import get_by_accession_number, httpclient, set_identity
 from loguru import logger
 
+# .env ファイルから環境変数を読み込み
+load_dotenv()
+
 # SECが要求するアイデンティティ（連絡先メールアドレス）の設定
-set_identity("ayato-labs ayato-labs@example.com")
+sec_identity = os.getenv("SEC_IDENTITY", "ayato-labs ayato-labs@example.com")
+set_identity(sec_identity)
 
 # Rawファイルをローカルに重複して持たせないポリシー（ADR-0004）に準拠するため、ディスクキャッシュを無効化
 httpclient.CACHE_DIRECTORY = None
