@@ -50,9 +50,14 @@ class EdgarStorage:
 
         with duckdb.connect(self.db_path) as conn:
             # DuckDB の接続最適化オプション（メモリ制限、マルチスレッド並列処理等）を設定
-            conn.execute("SET memory_limit='2GB'")
-            conn.execute("SET threads=4")
-            conn.execute("SET checkpoint_threshold='1GB'")
+            # 環境変数から設定値を読み込み、デフォルト値を使用
+            memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "2GB")
+            threads = int(os.getenv("DUCKDB_THREADS", "4"))
+            checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
+
+            conn.execute(f"SET memory_limit='{memory_limit}'")
+            conn.execute(f"SET threads={threads}")
+            conn.execute(f"SET checkpoint_threshold='{checkpoint_threshold}'")
 
             # 1. filings テーブル（書類の基本メタデータ）の定義
             conn.execute("""
