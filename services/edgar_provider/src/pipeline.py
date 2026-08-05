@@ -26,14 +26,19 @@ async def sync_recent_us_filings(
     米国上場企業全体の指定過去日数分の提出書類（10-K, 10-Q）を同期・収集します。
     """
     today = date.today()
+    threshold_date = (today - timedelta(days=days)).isoformat()
 
     # バッチ処理用のバッファ
     filings_buffer: list[tuple[dict, dict]] = []
     facts_buffer: list[tuple[str, str, any]] = []
 
+    logger.info(f"Starting sync | days={days} | threshold_date={threshold_date}")
+
     for i in range(days):
         # 今日から指定日数分、過去に遡って1日ずつインデックスを処理
         target_date = today - timedelta(days=i)
+        daily_skipped = 0
+        daily_processed = 0
         logger.info(f"Syncing US filings via daily index | date={target_date}")
 
         try:
@@ -41,7 +46,10 @@ async def sync_recent_us_filings(
             filings = await asyncio.to_thread(fetcher.list_daily_filings, target_date)
             if not filings:
                 # 週末・祝日などで提出書類リストがない場合はスキップ
+                logger.debug(f"No filings found for date (weekend/holiday) | date={target_date}")
                 continue
+
+            logger.info(f"Found filings in daily index | date={target_date} | count={len(filings)}")
 
             for entry in filings:
                 try:
@@ -51,6 +59,7 @@ async def sync_recent_us_filings(
 
                     # ティッカーが解決できない特殊な書類は同期対象から除外
                     if not ticker or ticker == "UNKNOWN":
+                        logger.debug(f"Skipping unknown ticker | acc_no={acc_no}")
                         continue
 
                     # スマートリペア（Smart Repair）ロジックによる差分同期判定
@@ -61,6 +70,10 @@ async def sync_recent_us_filings(
 
                     # 両方揃っている場合は処理をスキップ（高速化）
                     if not needs_full_sync and not needs_facts_repair:
+                        daily_skipped += 1
+                        logger.debug(
+                            f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                        )
                         continue
 
                     # メタデータおよび定性テキスト（本文）が未取得の場合、ダウンロードと保存を実行
@@ -82,8 +95,8 @@ async def sync_recent_us_filings(
                         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
                         # HTML書類をダウンロード
-                        logger.debug(
-                            f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                        logger.info(
+                            f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={entry.get('form', 'unknown')}"
                         )
                         resp = await asyncio.to_thread(
                             requests.get, url, headers=fetcher.headers, timeout=30
@@ -111,9 +124,14 @@ async def sync_recent_us_filings(
                         del resp
 
                     # 定量（財務数値Facts）データの抽出および保存
-                    logger.debug(
-                        f"Syncing financial facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
-                    )
+                    if needs_facts_repair:
+                        logger.info(
+                            f"Repairing facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                        )
+                    else:
+                        logger.debug(
+                            f"Syncing financial facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                        )
                     facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
                     if not facts_df.empty:
                         facts_buffer.append((ticker, acc_no, facts_df))
@@ -126,8 +144,15 @@ async def sync_recent_us_filings(
                             storage.save_facts_batch(facts_buffer)
                             facts_buffer.clear()
 
+                    daily_processed += 1
+
                 except Exception:
                     logger.exception(f"Error processing US filing | acc_no={acc_no} | filing_date={filing_date}")
+
+            # 日付ごとの処理完了サマリー
+            logger.info(
+                f"Completed daily sync | date={target_date} | processed={daily_processed} | skipped={daily_skipped}"
+            )
         except Exception:
             logger.exception(f"Failed to process US index | date={target_date}")
 
@@ -139,6 +164,8 @@ async def sync_recent_us_filings(
     if facts_buffer:
         logger.info(f"Flushing final facts buffer | count={len(facts_buffer)}")
         storage.save_facts_batch(facts_buffer)
+
+    logger.info("Sync completed")
 
 
 async def process_us_tickers(
@@ -152,22 +179,33 @@ async def process_us_tickers(
     filings_buffer: list[tuple[dict, dict]] = []
     facts_buffer: list[tuple[str, str, any]] = []
 
+    # 基準日付を計算
+    threshold_date = (date.today() - timedelta(days=days)).isoformat()
+    logger.info(f"Processing tickers | count={len(tickers)} | threshold_date={threshold_date}")
+
     for ticker in tickers:
+        skipped_count = 0
+        processed_count = 0
         try:
             logger.info(f"Processing ticker | ticker={ticker}")
             # 対象企業の全提出履歴メタデータを取得
             subs = await asyncio.to_thread(fetcher.get_latest_submissions, ticker)
             if not subs:
+                logger.warning(f"No submissions found | ticker={ticker}")
                 continue
 
             # 10-K, 10-Q書類のみをフィルタリング
             filings = fetcher.filter_relevant_filings(subs)
             if not filings:
+                logger.warning(f"No 10-K/10-Q filings found | ticker={ticker}")
                 continue
 
             # 指定日数前の基準日付を設定
-            threshold_date = (date.today() - timedelta(days=days)).isoformat()
             target_filings = [f for f in filings if f["filingDate"] >= threshold_date]
+            logger.info(
+                f"Found filings | ticker={ticker} | total={len(filings)} | "
+                f"in_range={len(target_filings)} | threshold={threshold_date}"
+            )
 
             for filing in target_filings:
                 acc_no = filing["accessionNumber"]
@@ -178,6 +216,10 @@ async def process_us_tickers(
                 needs_facts_repair = not needs_full_sync and not storage.facts_exist(acc_no)
 
                 if not needs_full_sync and not needs_facts_repair:
+                    skipped_count += 1
+                    logger.debug(
+                        f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                    )
                     continue
 
                 if needs_full_sync:
@@ -187,8 +229,8 @@ async def process_us_tickers(
                     doc_name = filing["primaryDocument"]
                     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-                    logger.debug(
-                        f"Downloading | ticker={ticker} | date={filing_date} | acc_no={acc_no}"
+                    logger.info(
+                        f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={filing.get('form', 'unknown')}"
                     )
                     resp = await asyncio.to_thread(
                         requests.get, url, headers=fetcher.headers, timeout=30
@@ -213,9 +255,14 @@ async def process_us_tickers(
                     del resp
 
                 # 定量データの抽出と保存
-                logger.debug(
-                    f"Syncing financial facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
-                )
+                if needs_facts_repair:
+                    logger.info(
+                        f"Repairing facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                    )
+                else:
+                    logger.debug(
+                        f"Syncing financial facts | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                    )
                 facts_df = await asyncio.to_thread(EdgarQuantitative.extract_facts, acc_no)
                 if not facts_df.empty:
                     facts_buffer.append((ticker, acc_no, facts_df))
@@ -227,6 +274,13 @@ async def process_us_tickers(
                         )
                         storage.save_facts_batch(facts_buffer)
                         facts_buffer.clear()
+
+                processed_count += 1
+
+            # ティッカーごとの処理完了サマリー
+            logger.info(
+                f"Completed ticker | ticker={ticker} | processed={processed_count} | skipped={skipped_count}"
+            )
         except Exception:
             logger.exception(f"Failed to process ticker | ticker={ticker}")
 
