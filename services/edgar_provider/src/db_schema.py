@@ -116,7 +116,7 @@ TYPE_MAPPING = {
 
 
 def resolve_sql_type(
-    field_type: Any, field_name: str, type_overrides: dict[str, str] = None
+    field_type: Any, field_name: str, type_overrides: dict[str, str] | None = None
 ) -> str:
     """
     Pydantic フィールドの型アノテーションを解釈し、対応する SQL データ型文字列を解決します。
@@ -129,7 +129,7 @@ def resolve_sql_type(
     origin = get_origin(field_type)
     if (
         origin is Union
-        or origin == type(Union)
+        or isinstance(origin, type(Union))
         or (hasattr(types, "UnionType") and origin is types.UnionType)
     ):
         args = get_args(field_type)

@@ -66,7 +66,7 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # 2. filing_sections テーブル（定性テキスト本文のセクション分割保存用）の定義
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS filing_sections (
@@ -77,7 +77,7 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # 3. company_facts テーブル（抽出された定量数値データ）の定義
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS company_facts (
@@ -96,16 +96,16 @@ class EdgarStorage:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # 財務データの照会速度向上のための複合インデックスの作成
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup 
+                CREATE INDEX IF NOT EXISTS idx_edgar_facts_lookup
                 ON company_facts (ticker, concept, period_end)
             """)
-            
+
             # 受付番号とセクション名での検索を高速化するための複合インデックスの作成
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup 
+                CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup
                 ON filing_sections (accession_number, section_name)
             """)
             logger.info(f"Initialized DuckDB at {self.db_path}")
@@ -176,7 +176,7 @@ class EdgarStorage:
                     continue
                 # 受付番号と章名から一意なプライマリキー MD5 ハッシュ値を生成
                 import hashlib
-                section_id = hashlib.md5(f"{acc_no}|{section_name}".encode("utf-8")).hexdigest()
+                section_id = hashlib.md5(f"{acc_no}|{section_name}".encode()).hexdigest()
 
                 conn.execute(
                     """
@@ -263,12 +263,12 @@ class EdgarStorage:
         """
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT f.ticker, f.form, f.filing_date, 
+                SELECT f.ticker, f.form, f.filing_date,
                        (
                            SELECT json_group_object(s.section_name, s.content_md)
                            FROM filing_sections s
                            WHERE s.accession_number = f.accession_number
-                       ) as sections, 
+                       ) as sections,
                        f.metadata, f.updated_at
                 FROM filings f WHERE f.ticker = ? ORDER BY f.filing_date DESC
             """
