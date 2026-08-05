@@ -53,7 +53,7 @@ async def sync_recent_us_filings(
                     # メタデータおよび定性テキスト（本文）が未取得の場合、ダウンロードと保存を実行
                     if needs_full_sync:
                         # インデックスに含まれない詳細なメタデータ（主ファイル名等）を解決
-                        logger.info(f"Resolving metadata | ticker={ticker} | acc_no={acc_no}")
+                        logger.debug(f"Resolving metadata | ticker={ticker} | acc_no={acc_no}")
                         filing = await asyncio.to_thread(
                             fetcher.resolve_filing_metadata, ticker, acc_no
                         )
@@ -67,7 +67,7 @@ async def sync_recent_us_filings(
                         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
                         # HTML書類をダウンロード
-                        logger.info(f"Downloading | ticker={ticker} | acc_no={acc_no}")
+                        logger.debug(f"Downloading | ticker={ticker} | acc_no={acc_no}")
                         resp = await asyncio.to_thread(
                             requests.get, url, headers=fetcher.headers, timeout=30
                         )
@@ -148,7 +148,7 @@ async def process_us_tickers(
                     doc_name = filing["primaryDocument"]
                     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
-                    logger.info(f"Downloading | ticker={ticker} | date={filing['filingDate']}")
+                    logger.debug(f"Downloading | ticker={ticker} | date={filing['filingDate']}")
                     resp = await asyncio.to_thread(
                         requests.get, url, headers=fetcher.headers, timeout=30
                     )
