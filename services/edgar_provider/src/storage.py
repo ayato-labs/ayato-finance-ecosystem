@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -180,7 +181,6 @@ class EdgarStorage:
                 if not content:
                     continue
                 # 受付番号と章名から一意なプライマリキー MD5 ハッシュ値を生成
-                import hashlib
                 section_id = hashlib.md5(f"{acc_no}|{section_name}".encode()).hexdigest()
 
                 conn.execute(
@@ -228,6 +228,122 @@ class EdgarStorage:
                 WHERE numeric_value IS NOT NULL
             """)
             logger.info(f"Ingested {len(df)} financial facts for {ticker}")
+
+    def save_filings_batch(self, filings_data: list[tuple[dict, dict]]) -> int:
+        """
+        複数の提出書類を一括で保存します。
+
+        Args:
+            filings_data: (metadata, sections) のタプルのリスト
+
+        Returns:
+            保存に成功した件数
+        """
+        if not filings_data:
+            return 0
+
+        saved_count = 0
+        with duckdb.connect(self.db_path) as conn:
+            for metadata, sections in filings_data:
+                try:
+                    self._validate_filing(metadata, sections)
+
+                    acc_no = metadata.get("accessionNumber")
+                    ticker = metadata.get("ticker")
+                    metadata_json = json.dumps(metadata)
+
+                    # filings テーブルにメタデータを登録
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO filings (
+                            accession_number, ticker, cik, form, filing_date, metadata, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                        (
+                            acc_no,
+                            ticker,
+                            metadata.get("cik"),
+                            metadata.get("form"),
+                            metadata.get("filingDate"),
+                            metadata_json,
+                        ),
+                    )
+
+                    # 各セクションの本文を filing_sections にインサート
+                    for section_name, content in sections.items():
+                        if not content:
+                            continue
+                        section_id = hashlib.md5(f"{acc_no}|{section_name}".encode()).hexdigest()
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO filing_sections (
+                                section_id, accession_number, section_name, content_md, updated_at
+                            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                            (section_id, acc_no, section_name, content),
+                        )
+
+                    saved_count += 1
+                except DataIntegrityError as e:
+                    logger.warning(f"Skipping filing due to validation error: {e}")
+                except Exception as e:
+                    logger.error(f"Error saving filing {metadata.get('accessionNumber')}: {e}")
+
+        logger.info(f"Batch saved {saved_count}/{len(filings_data)} filings")
+        return saved_count
+
+    def save_facts_batch(self, facts_data: list[tuple[str, str, pd.DataFrame]]) -> int:
+        """
+        複数のファクトを一括で保存します。
+
+        Args:
+            facts_data: (ticker, accession_number, facts_df) のタプルのリスト
+
+        Returns:
+            保存に成功した件数
+        """
+        if not facts_data:
+            return 0
+
+        saved_count = 0
+        with duckdb.connect(self.db_path) as conn:
+            for ticker, accession_number, df in facts_data:
+                try:
+                    self._validate_facts(ticker, accession_number, df)
+
+                    # 結合識別用の一時カラム追加
+                    df["ticker"] = ticker
+                    df["accession_number"] = accession_number
+
+                    conn.execute("""
+                        INSERT OR REPLACE INTO company_facts (
+                            fact_id, accession_number, ticker, concept, label, value, unit,
+                            fiscal_year, fiscal_period, period_start, period_end, period_instant
+                        )
+                        SELECT
+                            md5(concat_ws('|', ticker, accession_number, concept, period_start, period_end, period_instant)) as fact_id,
+                            accession_number,
+                            ticker,
+                            concept,
+                            label,
+                            CAST(numeric_value AS DOUBLE) as value,
+                            unit as unit,
+                            CAST(fiscal_year AS INTEGER) as fiscal_year,
+                            fiscal_period,
+                            CAST(period_start AS DATE) as period_start,
+                            CAST(period_end AS DATE) as period_end,
+                            CAST(period_instant AS DATE) as period_instant
+                        FROM df
+                        WHERE numeric_value IS NOT NULL
+                    """)
+                    saved_count += 1
+                except DataIntegrityError as e:
+                    logger.warning(f"Skipping facts due to validation error: {e}")
+                except Exception as e:
+                    logger.error(f"Error saving facts for {ticker} ({accession_number}): {e}")
+
+        logger.info(f"Batch saved facts for {saved_count}/{len(facts_data)} filings")
+        return saved_count
 
     def filing_exists(self, accession_number: str) -> bool:
         """指定された受付番号の書類メタデータが、すでにデータベースに登録されているか確認します。"""
