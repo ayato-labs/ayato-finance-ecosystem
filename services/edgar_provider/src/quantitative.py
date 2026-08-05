@@ -97,10 +97,23 @@ class EdgarQuantitative:
                 length = row.get("period_length")
                 if pd.isna(length):
                     return None
+
+                # period_end の月から四半期を判定（より正確）
+                period_end = row.get("period_end")
+                if pd.notna(period_end) and hasattr(period_end, "month"):
+                    month = period_end.month
+                    if month in [1, 2, 3]:
+                        return "Q1"
+                    elif month in [4, 5, 6]:
+                        return "Q2"
+                    elif month in [7, 8, 9]:
+                        return "Q3"
+                    else:  # 10, 11, 12
+                        return "FY"
+
+                # フォールバック: 期間長で判定
                 if length <= 100:  # ~3ヶ月
-                    # 四半期の判定は period_end の月で行うのが正確だが、
-                    # 簡易的に期間長で判定
-                    return "Q"
+                    return "Q1"
                 elif length <= 200:  # ~6ヶ月
                     return "Q2"
                 elif length <= 300:  # ~9ヶ月
