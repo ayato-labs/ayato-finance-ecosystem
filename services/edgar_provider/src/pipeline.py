@@ -75,7 +75,7 @@ async def sync_recent_us_filings(
                     if not needs_full_sync and not needs_facts_repair:
                         daily_skipped += 1
                         skipped_tickers.append(f"{ticker} ({filing_date})")
-                        logger.debug(
+                        logger.info(
                             f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                         )
                         continue
@@ -231,7 +231,7 @@ async def process_us_tickers(
                 if not needs_full_sync and not needs_facts_repair:
                     skipped_count += 1
                     skipped_filings.append(f"{filing_date} ({acc_no})")
-                    logger.debug(
+                    logger.info(
                         f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                     )
                     continue
