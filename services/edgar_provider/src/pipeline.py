@@ -1,5 +1,4 @@
 import asyncio
-import gc
 from datetime import date, timedelta
 
 import requests
@@ -102,9 +101,6 @@ async def sync_recent_us_filings(
                             logger.error(
                                 f"Facts integrity check failed | acc_no={acc_no} | error={e}"
                             )
-
-                    # メモリ節約のため定期的にガーベジコレクションを明示的に呼び出し
-                    gc.collect()
                 except Exception:
                     logger.exception(f"Error processing US filing | acc_no={acc_no}")
         except Exception:
@@ -180,8 +176,6 @@ async def process_us_tickers(
                         storage.save_facts(ticker, acc_no, facts_df)
                     except DataIntegrityError as e:
                         logger.error(f"Facts integrity check failed | ticker={ticker} | error={e}")
-
-                gc.collect()
         except Exception:
             logger.exception(f"Failed to process ticker | ticker={ticker}")
 
@@ -210,6 +204,5 @@ async def repair_all_missing_facts(storage: EdgarStorage):
                 logger.warning(f"No facts found during repair for {acc_no}")
 
             await asyncio.sleep(0.1)
-            gc.collect()
         except Exception:
             logger.exception(f"Failed to repair facts for {acc_no}")
