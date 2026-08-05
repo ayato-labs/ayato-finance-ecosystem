@@ -7,9 +7,6 @@ from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from loguru import logger
 from markdownify import markdownify as md
 
-# Increase recursion limit for complex SEC documents
-sys.setrecursionlimit(5000)
-
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
@@ -108,31 +105,37 @@ class EdgarParser:
 
     def _preprocess_html(self, html_content: str) -> BeautifulSoup:
         """HTMLの無駄な装飾タグや属性情報を削除し、構造をプレーンに整えパース効率を向上させます。"""
-        soup = BeautifulSoup(html_content, "lxml")
-        # スタイルを持たない単なるラッパー用の汎用タグを展開（unwrap）して中身のテキストだけを露出
-        for tag in soup(["span", "font", "div"]):
-            if not tag.attrs:
-                tag.unwrap()
+        # 複雑なSECドキュメントの処理のために一時的にリカッションリミットを増加
+        original_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(5000)
+            soup = BeautifulSoup(html_content, "lxml")
+            # スタイルを持たない単なるラッパー用の汎用タグを展開（unwrap）して中身のテキストだけを露出
+            for tag in soup(["span", "font", "div"]):
+                if not tag.attrs:
+                    tag.unwrap()
 
-        # HTMLタグのインラインCSSスタイルやクラス名などをすべて破棄（Markdown変換の出力を綺麗にするため）
-        for tag in soup.find_all(True):
-            for attr in [
-                "style",
-                "class",
-                "id",
-                "width",
-                "height",
-                "border",
-                "cellspacing",
-                "cellpadding",
-            ]:
-                if attr in tag.attrs:
-                    del tag.attrs[attr]
+            # HTMLタグのインラインCSSスタイルやクラス名などをすべて破棄（Markdown変換の出力を綺麗にするため）
+            for tag in soup.find_all(True):
+                for attr in [
+                    "style",
+                    "class",
+                    "id",
+                    "width",
+                    "height",
+                    "border",
+                    "cellspacing",
+                    "cellpadding",
+                ]:
+                    if attr in tag.attrs:
+                        del tag.attrs[attr]
 
-        # iXBRL（Inline XBRL）のカスタム名前空間タグ（ix:nonFraction等）をプレーンに展開
-        for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
-            ix_tag.unwrap()
-        return soup
+            # iXBRL（Inline XBRL）のカスタム名前空間タグ（ix:nonFraction等）をプレーンに展開
+            for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
+                ix_tag.unwrap()
+            return soup
+        finally:
+            sys.setrecursionlimit(original_limit)
 
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
         """プレーン化した HTML 要素を GitHub 互換形式のマークダウンテキストに一括変換します。"""
