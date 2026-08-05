@@ -3,6 +3,7 @@ import os
 from datetime import date, timedelta
 
 import requests
+from dotenv import load_dotenv
 from loguru import logger
 
 from .fetcher import EdgarFetcher
@@ -10,7 +11,10 @@ from .parser import EdgarParser
 from .quantitative import EdgarQuantitative
 from .storage import EdgarStorage
 
-# バッチサイズ（環境変数で設定可能）
+# .env ファイルから環境変数を読み込み
+load_dotenv()
+
+# バッチサイズ（.envファイルで設定可能）
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
 
 
