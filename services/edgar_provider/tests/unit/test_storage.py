@@ -1,0 +1,243 @@
+"""Unit tests for EdgarStorage class."""
+
+import tempfile
+from pathlib import Path
+
+import duckdb
+import pandas as pd
+import pytest
+from src.storage import DataIntegrityError, EdgarStorage
+
+
+class TestEdgarStorage:
+    """EdgarStorage クラスのユニットテスト。"""
+
+    def setup_method(self):
+        """各テストメソッドの前に実行されるセットアップ。"""
+        # 一時的なディレクトリにテスト用DBを作成
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = str(Path(self.temp_dir) / "test.duckdb")
+        self.storage = EdgarStorage(db_path=self.db_path)
+
+    def teardown_method(self):
+        """各テストメソッドの後に実行されるクリーンアップ。"""
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_init_creates_database(self):
+        """データベース作成のテスト。"""
+        assert Path(self.db_path).exists()
+
+    def test_init_creates_tables(self):
+        """テーブル作成のテスト。"""
+        with duckdb.connect(self.db_path) as conn:
+            tables = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+            table_names = [t[0] for t in tables]
+            assert "filings" in table_names
+            assert "filing_sections" in table_names
+            assert "company_facts" in table_names
+
+    def test_validate_filing_success(self):
+        """メタデータバリデーション成功テスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000001",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Business content here." * 10}
+        # 例外が発生しなければ成功
+        self.storage._validate_filing(metadata, sections)
+
+    def test_validate_filing_missing_fields(self):
+        """必須フィールド欠落時のバリデーションエラーテスト。"""
+        metadata = {"accessionNumber": "0001234567-26-000001"}
+        sections = {"business": "Content"}
+
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_filing(metadata, sections)
+        assert "Missing metadata fields" in str(excinfo.value)
+
+    def test_validate_filing_empty_sections(self):
+        """空セクション時のバリデーションエラーテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000001",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {}
+
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_filing(metadata, sections)
+        assert "Sections are empty" in str(excinfo.value)
+
+    def test_validate_filing_sparse_content(self):
+        """内容が薄すぎる場合のバリデーションエラーテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000001",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Short"}
+
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_filing(metadata, sections)
+        assert "too sparse" in str(excinfo.value)
+
+    def test_validate_facts_success(self):
+        """ファクトDataFrameバリデーション成功テスト。"""
+        df = pd.DataFrame(
+            {
+                "concept": ["Revenue", "NetIncome"],
+                "numeric_value": [1000000, 200000],
+            }
+        )
+        # 例外が発生しなければ成功
+        self.storage._validate_facts("AAPL", "0001234567-26-000001", df)
+
+    def test_validate_facts_empty_dataframe(self):
+        """空DataFrame時のバリデーションエラーテスト。"""
+        df = pd.DataFrame()
+
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_facts("AAPL", "0001234567-26-000001", df)
+        assert "empty" in str(excinfo.value)
+
+    def test_validate_facts_none_dataframe(self):
+        """None DataFrame時のバリデーションエラーテスト。"""
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_facts("AAPL", "0001234567-26-000001", None)
+        assert "empty" in str(excinfo.value)
+
+    def test_validate_facts_missing_columns(self):
+        """必須カラム欠落時のバリデーションエラーテスト。"""
+        df = pd.DataFrame({"wrong_column": [1, 2, 3]})
+
+        with pytest.raises(DataIntegrityError) as excinfo:
+            self.storage._validate_facts("AAPL", "0001234567-26-000001", df)
+        assert "Missing columns" in str(excinfo.value)
+
+    def test_save_filing(self):
+        """提出書類保存のテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000001",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+            "cik": "0000320193",
+        }
+        sections = {
+            "business": "Apple Inc. designs, manufactures, and markets smartphones." * 5,
+            "risk_factors": "The company faces various risks including market competition." * 5,
+        }
+
+        self.storage.save_filing(metadata, sections)
+
+        # 保存されたことを確認
+        assert self.storage.filing_exists("0001234567-26-000001")
+
+    def test_filing_exists(self):
+        """提出書類存在チェックのテスト。"""
+        # 存在しない場合
+        assert not self.storage.filing_exists("nonexistent")
+
+        # 保存後に存在する場合
+        metadata = {
+            "accessionNumber": "0001234567-26-000002",
+            "ticker": "MSFT",
+            "form": "10-Q",
+            "filingDate": "2026-03-01",
+        }
+        sections = {"mda": "Management discussion and analysis content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        assert self.storage.filing_exists("0001234567-26-000002")
+
+    def test_facts_exist(self):
+        """ファクト存在チェックのテスト。"""
+        # 存在しない場合
+        assert not self.storage.facts_exist("nonexistent")
+
+        # ファクトを保存
+        metadata = {
+            "accessionNumber": "0001234567-26-000003",
+            "ticker": "GOOGL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Alphabet Inc. business description." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        facts_df = pd.DataFrame(
+            {
+                "concept": ["Revenue", "NetIncome"],
+                "label": ["Revenue", "Net Income"],
+                "numeric_value": [300000000, 50000000],
+                "unit": ["USD", "USD"],
+                "fiscal_year": [2025, 2025],
+                "fiscal_period": ["FY", "FY"],
+                "period_start": ["2025-01-01", "2025-01-01"],
+                "period_end": ["2025-12-31", "2025-12-31"],
+                "period_instant": [None, None],
+            }
+        )
+        self.storage.save_facts("GOOGL", "0001234567-26-000003", facts_df)
+
+        assert self.storage.facts_exist("0001234567-26-000003")
+
+    def test_get_stats(self):
+        """統計情報取得のテスト。"""
+        # データを保存
+        for i in range(3):
+            metadata = {
+                "accessionNumber": f"0001234567-26-0000{i+10}",
+                "ticker": "TEST",
+                "form": "10-K",
+                "filingDate": f"2026-0{i+1}-01",
+            }
+            sections = {"business": f"Business content for filing {i}." * 10}
+            self.storage.save_filing(metadata, sections)
+
+        stats = self.storage.get_stats()
+        assert stats["total_filings"] == 3
+        assert len(stats["ticker_stats"]) == 1
+        assert stats["ticker_stats"][0]["ticker"] == "TEST"
+        assert stats["ticker_stats"][0]["count"] == 3
+
+    def test_get_filings_by_ticker(self):
+        """ティッカー別提出書類取得のテスト。"""
+        # データを保存
+        metadata = {
+            "accessionNumber": "0001234567-26-000020",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Apple business content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        result = self.storage.get_filings_by_ticker("AAPL")
+        assert len(result) == 1
+        assert result[0][0] == "AAPL"  # ticker
+
+    def test_get_accession_numbers_needing_repair(self):
+        """修復が必要な受付番号取得のテスト。"""
+        # メタデータのみ保存（ファクトなし）
+        metadata = {
+            "accessionNumber": "0001234567-26-000030",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Business content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        targets = self.storage.get_accession_numbers_needing_repair()
+        assert len(targets) == 1
+        assert targets[0][0] == "0001234567-26-000030"
+        assert targets[0][1] == "AAPL"

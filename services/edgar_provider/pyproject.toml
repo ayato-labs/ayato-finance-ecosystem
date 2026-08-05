@@ -14,6 +14,7 @@ dependencies = [
     "lxml",
     "edgartools",
     "pandas",
+    "python-dotenv",
 ]
 
 [project.scripts]
@@ -24,6 +25,35 @@ edgar-provider = "main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP", "PL", "RUF"]
+ignore = [
+    "PLR0913",
+    "PLR0912",
+    "PLR0915",
+    "PLR2004",
+    "PLC0415",
+    "E402",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "E501",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
