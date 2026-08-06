@@ -412,4 +412,32 @@ class TestEdgarStorage:
         assert self.storage.filing_exists_batch([]) == set()
         assert self.storage.facts_exist_batch([]) == set()
 
+    def test_checkpoint_and_vacuum(self):
+        """checkpoint および vacuum メソッドの実行テスト。"""
+        # 例外が発生せずに正常終了することを検証
+        self.storage.checkpoint()
+        self.storage.vacuum()
+
+    def test_migrate_db_schema(self):
+        """旧スキーマからのマイグレーション動作テスト。"""
+        old_db_path = str(Path(self.temp_dir) / "old.duckdb")
+        with duckdb.connect(old_db_path) as conn:
+            # metadata カラムがない旧 filings テーブルを作成
+            conn.execute("""
+                CREATE TABLE filings (
+                    accession_number VARCHAR PRIMARY KEY,
+                    ticker VARCHAR,
+                    cik VARCHAR,
+                    form VARCHAR,
+                    filing_date DATE,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        # EdgarStorage で初期化を行うことで自動マイグレーションが走る
+        old_storage = EdgarStorage(db_path=old_db_path)
+        with duckdb.connect(old_db_path) as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info('filings')").fetchall()}
+            assert "metadata" in cols
+
+
 

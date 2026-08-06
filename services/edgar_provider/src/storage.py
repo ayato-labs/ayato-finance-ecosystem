@@ -62,6 +62,9 @@ class EdgarStorage:
             conn.execute(f"SET threads={threads}")
             conn.execute(f"SET checkpoint_threshold='{checkpoint_threshold}'")
 
+            # 既存スキーマとの整合性チェックおよび自動マイグレーションの実行
+            self._migrate_db_schema(conn)
+
             # Schema-as-Code (schema.sql) から DDL を実行して一元管理
             if schema_sql_path.exists():
                 sql_content = schema_sql_path.read_text(encoding="utf-8")
@@ -81,7 +84,57 @@ class EdgarStorage:
                 CREATE INDEX IF NOT EXISTS idx_edgar_sections_lookup
                 ON filing_sections (accession_number, section_name)
             """)
-            logger.info(f"Initialized DuckDB at {self.db_path}")
+
+            # WALの統合と最適化
+            conn.execute("CHECKPOINT")
+            logger.info(f"Initialized and optimized DuckDB at {self.db_path}")
+
+    def _migrate_db_schema(self, conn: duckdb.DuckDBPyConnection):
+        """
+        既存データベースのテーブルカラム構成を判定し、古いスキーマからの自動マイグレーション（カラム追加等）を補正実行します。
+        """
+        try:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                ).fetchall()
+            }
+
+            # filings テーブルのカラム検証
+            if "filings" in tables:
+                filings_cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info('filings')").fetchall()
+                }
+                if "metadata" not in filings_cols:
+                    conn.execute("ALTER TABLE filings ADD COLUMN metadata JSON")
+                    logger.info("Migrated filings table: Added metadata column")
+
+            # company_facts テーブルのカラム検証
+            if "company_facts" in tables:
+                facts_cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info('company_facts')").fetchall()
+                }
+                if "period_instant" not in facts_cols:
+                    conn.execute("ALTER TABLE company_facts ADD COLUMN period_instant DATE")
+                    logger.info("Migrated company_facts table: Added period_instant column")
+
+        except Exception as e:
+            logger.warning(f"Schema migration check produced warning: {e}")
+
+    def checkpoint(self):
+        """データベースの変更内容を書き込み、WALを統合してストレージ容量を整理します。"""
+        with duckdb.connect(self.db_path) as conn:
+            conn.execute("CHECKPOINT")
+            logger.info(f"Executed CHECKPOINT for {self.db_path}")
+
+    def vacuum(self):
+        """未使用領域を開放し、データベースファイルをコンパクト化します。"""
+        with duckdb.connect(self.db_path) as conn:
+            conn.execute("VACUUM")
+            logger.info(f"Executed VACUUM for {self.db_path}")
 
     def _validate_filing(self, metadata: dict, sections: dict):
         """
