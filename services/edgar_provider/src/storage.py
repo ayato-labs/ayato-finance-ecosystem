@@ -136,6 +136,74 @@ class EdgarStorage:
             conn.execute("VACUUM")
             logger.info(f"Executed VACUUM for {self.db_path}")
 
+    def rebuild_db(self) -> tuple[int, int]:
+        """
+        既存データベースの内容を一時的な新DBに移行・高密度圧縮で再構築し、
+        安全に元のデータベースファイルと差し替えることで物理ファイルサイズを最小化します。
+
+        Returns:
+            tuple[int, int]: (元サイズ(Bytes), 移行後サイズ(Bytes))
+        """
+        orig_path = Path(self.db_path)
+        if not orig_path.exists():
+            logger.warning(f"Database path {self.db_path} does not exist for rebuild.")
+            return (0, 0)
+
+        orig_size = orig_path.stat().st_size
+        temp_path = orig_path.with_name(orig_path.name + ".rebuild.tmp")
+        backup_path = orig_path.with_name(orig_path.name + ".bak")
+
+        if temp_path.exists():
+            temp_path.unlink()
+
+        logger.info(f"Starting database rebuild to compact storage | original_size={orig_size / (1024*1024):.2f} MB")
+
+        try:
+            # 新しいDBを作成してスキーマを準備
+            new_storage = EdgarStorage(db_path=str(temp_path))
+
+            # 元DBからデータを一括コピー
+            with duckdb.connect(str(temp_path)) as conn_new:
+                conn_new.execute(f"ATTACH '{orig_path}' AS old_db (READ_ONLY)")
+
+                logger.info("Migrating filings table...")
+                conn_new.execute("INSERT OR IGNORE INTO filings SELECT * FROM old_db.filings")
+
+                logger.info("Migrating filing_sections table...")
+                conn_new.execute("INSERT OR IGNORE INTO filing_sections SELECT * FROM old_db.filing_sections")
+
+                logger.info("Migrating company_facts table...")
+                conn_new.execute("INSERT OR IGNORE INTO company_facts SELECT * FROM old_db.company_facts")
+
+                conn_new.execute("DETACH old_db")
+                conn_new.execute("CHECKPOINT")
+                conn_new.execute("VACUUM")
+
+            new_size = temp_path.stat().st_size
+
+            # バックアップの作成とアトミック置換
+            if backup_path.exists():
+                backup_path.unlink()
+            orig_path.rename(backup_path)
+            temp_path.rename(orig_path)
+            backup_path.unlink()  # 成功したらバックアップを消去
+
+            logger.success(
+                f"Database rebuild completed successfully! | "
+                f"Original: {orig_size / (1024*1024):.2f} MB -> "
+                f"New: {new_size / (1024*1024):.2f} MB "
+                f"(Reduced by {((orig_size - new_size) / orig_size) * 100:.1f}%)"
+            )
+            return (orig_size, new_size)
+
+        except Exception as e:
+            logger.error(f"Failed to rebuild database: {e}")
+            if temp_path.exists():
+                temp_path.unlink()
+            if backup_path.exists() and not orig_path.exists():
+                backup_path.rename(orig_path)
+            raise e
+
     def _validate_filing(self, metadata: dict, sections: dict):
         """
         保存処理を実行する前に、受け取ったメタデータおよび定性テキストセクションの最小限の整合性検証を行います。

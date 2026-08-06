@@ -30,6 +30,12 @@ def main():
     # Stats command
     subparsers.add_parser("stats", help="Show database statistics")
 
+    # Optimize command
+    subparsers.add_parser("optimize", help="Execute CHECKPOINT and VACUUM on database")
+
+    # Rebuild command
+    subparsers.add_parser("rebuild", help="Rebuild database into new compressed storage to reclaim space")
+
     args = parser.parse_args()
 
     user_agent = os.environ.get("USER_AGENT", "edgar-provider/1.0 (contact: admin@example.com)")
@@ -48,6 +54,13 @@ def main():
         print(f"Total filings: {stats['total_filings']}")
         for s in stats["ticker_stats"]:
             print(f"- {s['ticker']}: {s['count']} filings (Latest: {s['latest_filing']})")
+    elif args.command == "optimize":
+        storage.checkpoint()
+        storage.vacuum()
+        print("Database optimization (CHECKPOINT & VACUUM) completed.")
+    elif args.command == "rebuild":
+        orig_size, new_size = storage.rebuild_db()
+        print(f"Database rebuild completed. Original: {orig_size / (1024*1024):.2f} MB -> New: {new_size / (1024*1024):.2f} MB")
     else:
         parser.print_help()
 

@@ -418,6 +418,22 @@ class TestEdgarStorage:
         self.storage.checkpoint()
         self.storage.vacuum()
 
+    def test_rebuild_db(self):
+        """rebuild_db メソッドによるDBコンパクト再構築のテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000099",
+            "ticker": "REBUILD",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Rebuild test content." * 20}
+        self.storage.save_filing(metadata, sections)
+
+        orig_size, new_size = self.storage.rebuild_db()
+        assert orig_size > 0
+        assert new_size > 0
+        assert self.storage.filing_exists("0001234567-26-000099")
+
     def test_migrate_db_schema(self):
         """旧スキーマからのマイグレーション動作テスト。"""
         old_db_path = str(Path(self.temp_dir) / "old.duckdb")
