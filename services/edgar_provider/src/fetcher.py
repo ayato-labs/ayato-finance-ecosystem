@@ -187,17 +187,18 @@ class EdgarFetcher:
             return None
 
         recent = subs["filings"]["recent"]
-        # 受付番号が一致する項目を線形探索
-        for i in range(len(recent["accessionNumber"])):
-            if recent["accessionNumber"][i] == accession_number:
-                return {
-                    "accessionNumber": recent["accessionNumber"][i],
-                    "filingDate": recent["filingDate"][i],
-                    "form": recent["form"][i],
-                    "primaryDocument": recent["primaryDocument"][i],
-                    "primaryDocDescription": recent["primaryDocDescription"][i],
-                }
-        return None
+        acc_numbers = recent.get("accessionNumber", [])
+        try:
+            i = acc_numbers.index(accession_number)
+            return {
+                "accessionNumber": recent["accessionNumber"][i],
+                "filingDate": recent["filingDate"][i],
+                "form": recent["form"][i],
+                "primaryDocument": recent["primaryDocument"][i],
+                "primaryDocDescription": recent["primaryDocDescription"][i],
+            }
+        except ValueError:
+            return None
 
     def fetch_filing_content(self, cik: str, accession_number: str, primary_document: str) -> str | None:
         """
