@@ -139,6 +139,11 @@ async def sync_recent_us_filings(
                 else:
                     pending_entries.append((entry, ticker, acc_no, filing_date, needs_full_sync, needs_facts_repair))
 
+            logger.info(
+                f"Diff sync status | date={target_date} | total_found={len(filings)} | "
+                f"to_process={len(pending_entries)} | skipped={daily_skipped} (already synced)"
+            )
+
             # 並列ダウンロード用のセマフォ（SEC制限遵守: 最大8並列）
             semaphore = asyncio.Semaphore(8)
 
@@ -225,6 +230,7 @@ async def process_us_tickers(
 
             skipped_filings = []
             skipped_facts = []
+            pending_target_filings = []
 
             for filing in target_filings:
                 acc_no = filing["accessionNumber"]
@@ -237,11 +243,15 @@ async def process_us_tickers(
                 if not needs_full_sync and not needs_facts_repair:
                     skipped_count += 1
                     skipped_filings.append(f"{filing_date} ({acc_no})")
-                    logger.debug(
-                        f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
-                    )
-                    continue
+                else:
+                    pending_target_filings.append((filing, acc_no, filing_date, needs_full_sync, needs_facts_repair))
 
+            logger.info(
+                f"Diff sync status | ticker={ticker} | total_in_range={len(target_filings)} | "
+                f"to_process={len(pending_target_filings)} | skipped={skipped_count} (already synced)"
+            )
+
+            for filing, acc_no, filing_date, needs_full_sync, needs_facts_repair in pending_target_filings:
                 if needs_facts_repair:
                     skipped_facts.append(f"{filing_date} ({acc_no})")
 
