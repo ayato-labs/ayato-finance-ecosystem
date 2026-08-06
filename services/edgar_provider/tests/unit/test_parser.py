@@ -88,19 +88,19 @@ class TestEdgarParser:
         html = """
         <html>
         <body>
-        <h1># Item 1. Business</h1>
+        <h1>Item 1. Business</h1>
         <p>This is the business section content.</p>
-        <h1># Item 1A. Risk Factors</h1>
+        <h1>Item 1A. Risk Factors</h1>
         <p>These are the risk factors.</p>
-        <h1># Item 7. Management's Discussion and Analysis</h1>
+        <h1>Item 7. Management's Discussion and Analysis</h1>
         <p>MD&A content here.</p>
         </body>
         </html>
         """
         result = self.parser.extract_all_sections(html, "10-K")
         assert isinstance(result, dict)
-        # 少なくとも1つのセクションが抽出されるはず
-        assert len(result) >= 0
+        assert "business" in result
+        assert "business section content" in result["business"]
 
     def test_extract_sections_10q(self):
         """10-Qフォームのセクション抽出テスト。"""
