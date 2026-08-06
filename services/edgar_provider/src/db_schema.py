@@ -148,6 +148,83 @@ def resolve_sql_type(
     return "VARCHAR"
 
 
+def _process_schema_class(schema_cls: Any) -> tuple[list[str], list[str]]:
+    """単一 Schema クラスから (sql_statements, markdown_sections) を生成します。"""
+    config = getattr(schema_cls, "SQLConfig", None)
+    table_names = []
+    if config:
+        if hasattr(config, "table_names"):
+            table_names = config.table_names
+        elif hasattr(config, "table_name"):
+            table_names = [config.table_name]
+
+    if not table_names:
+        table_names = [schema_cls.__name__.lower().replace("schema", "")]
+
+    primary_keys = getattr(config, "primary_key", [])
+    unique_constraints = getattr(config, "unique_constraints", [])
+    type_overrides = getattr(config, "type_overrides", {})
+
+    fields_ddl = []
+    md_fields_table = [
+        "| Column | Type | Default | Description |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+
+    for name, field in schema_cls.model_fields.items():
+        sql_type = resolve_sql_type(field.annotation, name, type_overrides)
+        constraints = []
+        if name in primary_keys and len(primary_keys) == 1:
+            constraints.append("PRIMARY KEY")
+
+        default_val = "NULL"
+        sql_extra = field.json_schema_extra or {}
+        if "sql_default" in sql_extra:
+            default_val = sql_extra["sql_default"]
+            constraints.append(f"DEFAULT {default_val}")
+        elif field.default is not None and field.default != ...:
+            if isinstance(field.default, (int, float, bool)):
+                default_val = str(field.default).upper()
+                constraints.append(f"DEFAULT {default_val}")
+            elif isinstance(field.default, str):
+                default_val = f"'{field.default}'"
+                constraints.append(f"DEFAULT {default_val}")
+
+        field_ddl = f"{name} {sql_type}"
+        if constraints:
+            field_ddl += " " + " ".join(constraints)
+        fields_ddl.append(field_ddl)
+
+        desc = field.description or "No description provided."
+        md_fields_table.append(f"| `{name}` | **{sql_type}** | `{default_val}` | {desc} |")
+
+    for uq in unique_constraints:
+        fields_ddl.append(f"UNIQUE ({', '.join(uq)})")
+    if len(primary_keys) > 1:
+        fields_ddl.append(f"PRIMARY KEY ({', '.join(primary_keys)})")
+
+    sql_stmts = []
+    md_secs = []
+    for table_name in table_names:
+        ddl = f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
+        ddl += ",\n".join(f"    {line}" for line in fields_ddl)
+        ddl += "\n);"
+        sql_stmts.append(ddl)
+
+        md_sec = f"\n## Table: `{table_name}`\n\n"
+        md_sec += f"**Description**: {schema_cls.__doc__ or 'No description provided.'}\n\n"
+        if primary_keys:
+            md_sec += f"- **Primary Key**: `{', '.join(primary_keys)}`\n"
+        if unique_constraints:
+            md_sec += "- **Unique Constraints**:\n"
+            for uq in unique_constraints:
+                md_sec += f"  - `({', '.join(uq)})`\n"
+        md_sec += "\n" + "\n".join(md_fields_table) + "\n"
+        md_secs.append(md_sec)
+
+    return sql_stmts, md_secs
+
+
 def generate_schema_files(output_dir: Path):
     """
     本番データ配置ディレクトリに対して、定義された Schema-as-Code から
@@ -162,85 +239,15 @@ def generate_schema_files(output_dir: Path):
     ]
 
     sql_statements = []
-    markdown_sections = []
-    markdown_sections.append(
+    markdown_sections = [
         "# database_design.md\n\nThis document describes the schema of the SEC EDGAR Provider DuckDB database."
-    )
+    ]
 
     for schema_cls in schemas:
-        config = getattr(schema_cls, "SQLConfig", None)
-        table_names = []
-        if config:
-            if hasattr(config, "table_names"):
-                table_names = config.table_names
-            elif hasattr(config, "table_name"):
-                table_names = [config.table_name]
+        stmts, md_secs = _process_schema_class(schema_cls)
+        sql_statements.extend(stmts)
+        markdown_sections.extend(md_secs)
 
-        if not table_names:
-            table_names = [schema_cls.__name__.lower().replace("schema", "")]
-
-        primary_keys = getattr(config, "primary_key", [])
-        unique_constraints = getattr(config, "unique_constraints", [])
-        type_overrides = getattr(config, "type_overrides", {})
-
-        fields_ddl = []
-        md_fields_table = [
-            "| Column | Type | Default | Description |",
-            "| :--- | :--- | :--- | :--- |",
-        ]
-
-        # Pydantic フィールド群から SQL カラム宣言と MD 設計書を自動生成
-        for name, field in schema_cls.model_fields.items():
-            sql_type = resolve_sql_type(field.annotation, name, type_overrides)
-            constraints = []
-            if name in primary_keys and len(primary_keys) == 1:
-                constraints.append("PRIMARY KEY")
-
-            default_val = "NULL"
-            sql_extra = field.json_schema_extra or {}
-            if "sql_default" in sql_extra:
-                default_val = sql_extra["sql_default"]
-                constraints.append(f"DEFAULT {default_val}")
-            elif field.default is not None and field.default != ...:
-                if isinstance(field.default, (int, float, bool)):
-                    default_val = str(field.default).upper()
-                    constraints.append(f"DEFAULT {default_val}")
-                elif isinstance(field.default, str):
-                    default_val = f"'{field.default}'"
-                    constraints.append(f"DEFAULT {default_val}")
-
-            field_ddl = f"{name} {sql_type}"
-            if constraints:
-                field_ddl += " " + " ".join(constraints)
-            fields_ddl.append(field_ddl)
-
-            desc = field.description or "No description provided."
-            md_fields_table.append(f"| `{name}` | **{sql_type}** | `{default_val}` | {desc} |")
-
-        # ユニークキーや複合主キーの制約追加
-        for uq in unique_constraints:
-            fields_ddl.append(f"UNIQUE ({', '.join(uq)})")
-        if len(primary_keys) > 1:
-            fields_ddl.append(f"PRIMARY KEY ({', '.join(primary_keys)})")
-
-        for table_name in table_names:
-            ddl = f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
-            ddl += ",\n".join(f"    {line}" for line in fields_ddl)
-            ddl += "\n);"
-            sql_statements.append(ddl)
-
-            md_sec = f"\n## Table: `{table_name}`\n\n"
-            md_sec += f"**Description**: {schema_cls.__doc__ or 'No description provided.'}\n\n"
-            if primary_keys:
-                md_sec += f"- **Primary Key**: `{', '.join(primary_keys)}`\n"
-            if unique_constraints:
-                md_sec += "- **Unique Constraints**:\n"
-                for uq in unique_constraints:
-                    md_sec += f"  - `({', '.join(uq)})`\n"
-            md_sec += "\n" + "\n".join(md_fields_table) + "\n"
-            markdown_sections.append(md_sec)
-
-    # schema.sql と database_design.md を指定フォルダに書き出し
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "schema.sql").write_text("\n\n".join(sql_statements) + "\n", encoding="utf-8")
