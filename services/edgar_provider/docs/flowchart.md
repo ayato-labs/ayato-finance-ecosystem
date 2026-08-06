@@ -7,13 +7,14 @@ SEC EDGAR 提出書類の差分同期・修復ロジックの全体フローを�
 
 ## 1. 全体構成
 
-3つのエントリポイントから同一の差分判定ロジックが共有されます。
+4つのエントリポイントから同一の差分判定ロジックが共有されます。
 
 ```
 CLI (main.py)
   ├── sync       → sync_recent_us_filings()   # Daily Index ベルク同期
   ├── ticker     → process_us_tickers()        # ティッカー個別同期
-  └── repair-facts → repair_all_missing_facts() # 欠損Facts自動修復
+  ├── repair-facts → repair_all_missing_facts() # 欠損Facts自動修復
+  └── stats      → storage.get_stats()         # DB統計情報表示
 ```
 
 ---
@@ -52,11 +53,14 @@ graph TD
         FS4 -- Yes --> FS5["パース: extract_all_sections (定性テキスト抽出)"]
         FS5 --> FS6{"sections があるか?"}
         FS6 -- No --> FSDel
-        FS6 -- Yes --> FS7["filings_buffer に追加"]
-        FS7 --> FS8{"buffer >= BATCH_SIZE?"}
-        FS8 -- No --> FSDel2(["後述のFacts処理へ"])
-        FS8 -- Yes --> FS9["save_filings_batch + bufferクリア"]
-        FS9 --> FSDel2
+        FS6 -- Yes --> FS7["データ整合性検証: _validate_filing"]
+        FS7 --> FS8{"バリデーション成功?"}
+        FS8 -- No --> FSDel
+        FS8 -- Yes --> FS9["filings_buffer に追加"]
+        FS9 --> FS10{"buffer >= BATCH_SIZE?"}
+        FS10 -- No --> FSDel2(["後述のFacts処理へ"])
+        FS10 -- Yes --> FS11["save_filings_batch + bufferクリア"]
+        FS11 --> FSDel2
         FSDel --> FSDel2
     end
 
@@ -64,11 +68,15 @@ graph TD
         direction TB
         FR1["EdgarQuantitative.extract_facts (XBRLから財務数値を抽出)"] --> FR2{"DataFrame が空でないか?"}
         FR2 -- No --> FR3(["Facts なし - スキップ"])
-        FR2 -- Yes --> FR4["facts_buffer に追加"]
-        FR4 --> FR5{"buffer >= BATCH_SIZE?"}
-        FR5 -- No --> FR6(["処理終了"])
-        FR5 -- Yes --> FR7["save_facts_batch + bufferクリア"]
-        FR7 --> FR6
+        FR2 -- Yes --> FR3a["_derive_fiscal_period (会計四半期決定)"]
+        FR3a --> FR4["_validate_facts (データ整合性検証)"]
+        FR4 --> FR5{"バリデーション成功?"}
+        FR5 -- No --> FR3
+        FR5 -- Yes --> FR6["facts_buffer に追加"]
+        FR6 --> FR7{"buffer >= BATCH_SIZE?"}
+        FR7 -- No --> FR8(["処理終了"])
+        FR7 -- Yes --> FR9["save_facts_batch + bufferクリア"]
+        FR9 --> FR8
     end
 
     FullSyncPath --> FactsRepairPath
@@ -186,7 +194,11 @@ graph TD
 
     ExtractFacts --> FactsEmpty{"DataFrame が空か?"}
     FactsEmpty -- Yes --> WarnNoFacts["WARNING: Facts なし"]
-    FactsEmpty -- No --> AppendBuffer["facts_buffer に追加"]
+    FactsEmpty -- No --> DerivePeriod["_derive_fiscal_period (会計四半期決定)"]
+    DerivePeriod --> ValidateFacts["_validate_facts (データ整合性検証)"]
+    ValidateFacts --> ValidCheck{"バリデーション成功?"}
+    ValidCheck -- No --> WarnNoFacts
+    ValidCheck -- Yes --> AppendBuffer["facts_buffer に追加"]
 
     AppendBuffer --> CheckBatch{"buffer >= BATCH_SIZE?"}
     CheckBatch -- No --> SleepWait["0.1s 待機"]
@@ -197,6 +209,8 @@ graph TD
     WarnNoFacts --> SleepWait
 
     style ExtractFacts fill:#e1f5fe,stroke:#01579b
+    style DerivePeriod fill:#e1f5fe,stroke:#01579b
+    style ValidateFacts fill:#e1f5fe,stroke:#01579b
     style FlushBatch fill:#c8e6c9,stroke:#2e7d32
 ```
 
@@ -243,12 +257,103 @@ graph TD
 | `facts_exist(acc_no)` | `company_facts` | 財務数値データの存在有無 |
 | `get_accession_numbers_needing_repair()` | `filings LEFT JOIN company_facts` | メタデータはあるが Facts が欠落 |
 
+### テーブル定義
+
+**1. `filings` テーブル**
+```sql
+CREATE TABLE filings (
+    accession_number VARCHAR PRIMARY KEY,
+    ticker VARCHAR,
+    cik VARCHAR,
+    form VARCHAR,           -- "10-K", "10-Q"
+    filing_date DATE,
+    metadata JSON,          -- SECメタデータ全体
+    updated_at TIMESTAMP
+);
+```
+
+**2. `filing_sections` テーブル**
+```sql
+CREATE TABLE filing_sections (
+    section_id VARCHAR PRIMARY KEY,  -- MD5(accession_number|section_name)
+    accession_number VARCHAR,
+    section_name VARCHAR,
+    content_md TEXT,                  -- セクション本文
+    updated_at TIMESTAMP
+);
+```
+
+**3. `company_facts` テーブル**
+```sql
+CREATE TABLE company_facts (
+    fact_id VARCHAR PRIMARY KEY,  -- MD5(ticker|accession_number|concept|period_start|period_end|period_instant)
+    accession_number VARCHAR,
+    ticker VARCHAR,
+    concept VARCHAR,              -- XBRL概念名
+    label VARCHAR,
+    value DOUBLE,                 -- 数値
+    unit VARCHAR,
+    fiscal_year INTEGER,
+    fiscal_period VARCHAR,        -- "Q1", "Q2", "Q3", "Q4", "FY"
+    period_start DATE,
+    period_end DATE,
+    period_instant DATE
+);
+```
+
+### インデックス
+
+| インデックス名 | 対象カラム | 用途 |
+|---|---|---|
+| `idx_edgar_facts_lookup` | (ticker, concept, period_end) | 財務データ検索用 |
+| `idx_edgar_sections_lookup` | (accession_number, section_name) | セクション検索用 |
+
 ---
 
 ## 8. エラーハンドリング方針
 
-- **個別書類の例外**: `try/except` で catching し、ログ出力後に次の書類へ処理を継続
-- **日付単位の例外**: `try/except` で catching し、ログ出力後に次の日付へ処理を継続
-- **SEC レート制限**: `asyncio.sleep(0.11)` で1秒10リクエストを遵守
-- **HTTP エラー**: ステータスコードが 200 以外の場合、ダウンロードをスキップ
-- **メタデータ解決失敗**: `resolve_filing_metadata` が `None` を返した場合、その書類をスキップ
+| レベル | 方法 | 例 |
+|--------|------|-----|
+| ネットワークエラー | 指数バックオフリトライ | `_request_with_retry()`（max_retries=5） |
+| レート制限（429） | 指数バックオフ + ランダムウェイト | `(2^attempt) + random(0,1)` |
+| データ整合性エラー | `DataIntegrityError`例外 | `_validate_filing()`, `_validate_facts()` |
+| 個別書類処理エラー | 例外キャッチ+ログ+continue | pipeline.py内のループ処理 |
+| バッチ保存エラー | 個別キャッチ+スキップ | `save_filings_batch()`内のtry-except |
+| HTTPエラー（200以外） | ダウンロードスキップ | `fetch_filing_content()` |
+| メタデータ解決失敗 | その書類をスキップ | `resolve_filing_metadata()` |
+
+### データ整合性検証
+
+**`_validate_filing()`**: 書類メタデータとセクションの検証
+- 必須フィールドチェック: `accessionNumber`, `ticker`, `form`, `filingDate`
+- セクション空チェック
+- テキスト量チェック: 合計100文字以上
+
+**`_validate_facts()`**: 財務数値データの検証
+- DataFrame空チェック
+- 必須カラムチェック: `concept`, `numeric_value`
+
+### SEC API制限への対応
+
+1. **リクエスト間隔制御**
+   - sync/ticker: `asyncio.sleep(0.11)` （約9リクエスト/秒）
+   - repair-facts: `asyncio.sleep(0.1)` （10リクエスト/秒）
+
+2. **User-Agent設定**（SEC規約準拠）
+   ```
+   USER_AGENT="edgar-provider/1.0 (contact: admin@example.com)"
+   ```
+
+---
+
+## 9. 環境変数設定
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `BATCH_SIZE` | 10 | バッチバッファサイズ |
+| `USER_AGENT` | "edgar-provider/1.0 (contact: admin@example.com)" | SEC User-Agent |
+| `SEC_IDENTITY` | "UnknownAdmin admin@example.com" | SEC連絡先 |
+| `EDGAR_DATA_DIR` | "finance/data/edgar/edgar.duckdb" | DuckDBパス |
+| `DUCKDB_MEMORY_LIMIT` | 2GB | DuckDBメモリ制限 |
+| `DUCKDB_THREADS` | 4 | DuckDB並列スレッド数 |
+| `DUCKDB_CHECKPOINT_THRESHOLD` | 1GB | チェックポイント閾値 |
