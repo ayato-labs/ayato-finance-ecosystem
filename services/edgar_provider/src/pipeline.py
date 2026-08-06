@@ -28,25 +28,32 @@ async def _download_and_buffer_filing(
     storage: EdgarStorage,
     filings_buffer: list[tuple[dict, dict]],
 ):
-    """HTML本文をダウンロードおよびパースし、filings_bufferに格納します。必要に応じてバッチ保存を実行します。"""
-    filing = await asyncio.to_thread(fetcher.resolve_filing_metadata, ticker, acc_no)
-    if not filing:
-        return
-
-    doc_name = filing["primaryDocument"]
+    """HTML本文をダウンロードおよびパースし、filings_bufferに格納します。二重通信を行わず直接URLから取得します。"""
+    doc_name = entry_or_filing.get("primaryDocument")
+    if not doc_name:
+        filing = await asyncio.to_thread(fetcher.resolve_filing_metadata, ticker, acc_no)
+        if not filing:
+            return
+        doc_name = filing["primaryDocument"]
+        form_type = filing.get("form", "unknown")
+    else:
+        form_type = entry_or_filing.get("form", "unknown")
 
     logger.info(
-        f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={entry_or_filing.get('form', 'unknown')}"
+        f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={form_type}"
     )
     content = await asyncio.to_thread(fetcher.fetch_filing_content, cik, acc_no, doc_name)
     await asyncio.sleep(0.11)
 
     if content:
-        sections = parser.extract_all_sections(content, filing["form"])
+        sections = parser.extract_all_sections(content, form_type)
         if sections:
-            filing_metadata = filing.copy()
+            filing_metadata = entry_or_filing.copy()
             filing_metadata["ticker"] = ticker
             filing_metadata["cik"] = cik
+            filing_metadata["accessionNumber"] = acc_no
+            filing_metadata["filingDate"] = filing_date
+            filing_metadata["form"] = form_type
             filings_buffer.append((filing_metadata, sections))
 
             if len(filings_buffer) >= BATCH_SIZE:
@@ -113,42 +120,48 @@ async def sync_recent_us_filings(
             existing_facts_set = storage.facts_exist_batch(all_acc_nos)
 
             skipped_tickers = []
+            pending_entries = []
 
             for entry in filings:
-                try:
-                    acc_no = entry["accessionNumber"]
-                    ticker = entry.get("ticker", "UNKNOWN")
-                    filing_date = entry.get("filingDate", "unknown")
+                acc_no = entry.get("accessionNumber")
+                ticker = entry.get("ticker", "UNKNOWN")
+                filing_date = entry.get("filingDate", "unknown")
 
-                    if ticker == "UNKNOWN":
-                        logger.debug(f"Skipping unknown ticker | acc_no={acc_no}")
-                        continue
+                if ticker == "UNKNOWN" or not acc_no:
+                    continue
 
-                    # メモリ内 Set 判定 ($O(1)$ 高速検索)
-                    needs_full_sync = acc_no not in existing_filings_set
-                    needs_facts_repair = not needs_full_sync and acc_no not in existing_facts_set
+                needs_full_sync = acc_no not in existing_filings_set
+                needs_facts_repair = not needs_full_sync and acc_no not in existing_facts_set
 
-                    if not needs_full_sync and not needs_facts_repair:
-                        daily_skipped += 1
-                        skipped_tickers.append(f"{ticker} ({filing_date})")
-                        logger.debug(
-                            f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
+                if not needs_full_sync and not needs_facts_repair:
+                    daily_skipped += 1
+                    skipped_tickers.append(f"{ticker} ({filing_date})")
+                else:
+                    pending_entries.append((entry, ticker, acc_no, filing_date, needs_full_sync, needs_facts_repair))
+
+            # 並列ダウンロード用のセマフォ（SEC制限遵守: 最大8並列）
+            semaphore = asyncio.Semaphore(8)
+
+            async def _process_entry(entry_item):
+                nonlocal daily_processed
+                entry, ticker, acc_no, filing_date, needs_full_sync, needs_facts_repair = entry_item
+                async with semaphore:
+                    try:
+                        if needs_full_sync:
+                            cik = entry["cik"].lstrip("0")
+                            await _download_and_buffer_filing(
+                                entry, ticker, acc_no, filing_date, cik, fetcher, parser, storage, filings_buffer
+                            )
+
+                        await _extract_and_buffer_facts(
+                            ticker, acc_no, filing_date, needs_facts_repair, storage, facts_buffer
                         )
-                        continue
+                        daily_processed += 1
+                    except Exception:
+                        logger.exception(f"Error processing US filing | acc_no={acc_no} | filing_date={filing_date}")
 
-                    if needs_full_sync:
-                        cik = entry["cik"].lstrip("0")
-                        await _download_and_buffer_filing(
-                            entry, ticker, acc_no, filing_date, cik, fetcher, parser, storage, filings_buffer
-                        )
-
-                    await _extract_and_buffer_facts(
-                        ticker, acc_no, filing_date, needs_facts_repair, storage, facts_buffer
-                    )
-                    daily_processed += 1
-
-                except Exception:
-                    logger.exception(f"Error processing US filing | acc_no={acc_no} | filing_date={filing_date}")
+            if pending_entries:
+                await asyncio.gather(*[_process_entry(item) for item in pending_entries])
 
             logger.info(
                 f"Completed daily sync | date={target_date} | processed={daily_processed} | skipped={daily_skipped}"
