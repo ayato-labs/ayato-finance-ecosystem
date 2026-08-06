@@ -202,7 +202,8 @@ class EdgarStorage:
         """
         self._validate_facts(ticker, accession_number, df)
 
-        # 結合識別用の一時カラム追加
+        # 結合識別用の一時カラム追加（呼び出し元のデータ変質を防ぐためディープコピーを作成）
+        df = df.copy()
         df["ticker"] = ticker
         df["accession_number"] = accession_number
 
@@ -287,7 +288,8 @@ class EdgarStorage:
                 try:
                     self._validate_facts(ticker, accession_number, df)
 
-                    # 結合識別用の一時カラム追加
+                    # 結合識別用の一時カラム追加（呼び出し元のデータ変質を防ぐためディープコピーを作成）
+                    df = df.copy()
                     df["ticker"] = ticker
                     df["accession_number"] = accession_number
 
