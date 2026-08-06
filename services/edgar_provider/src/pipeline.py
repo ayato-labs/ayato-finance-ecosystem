@@ -106,6 +106,12 @@ async def sync_recent_us_filings(
                 continue
 
             logger.info(f"Found filings in daily index | date={target_date} | count={len(filings)}")
+
+            # 全受付番号の一括判定用リスト作成とバルクDB照会
+            all_acc_nos = [e["accessionNumber"] for e in filings if e.get("accessionNumber")]
+            existing_filings_set = storage.filing_exists_batch(all_acc_nos)
+            existing_facts_set = storage.facts_exist_batch(all_acc_nos)
+
             skipped_tickers = []
 
             for entry in filings:
@@ -118,13 +124,14 @@ async def sync_recent_us_filings(
                         logger.debug(f"Skipping unknown ticker | acc_no={acc_no}")
                         continue
 
-                    needs_full_sync = not storage.filing_exists(acc_no)
-                    needs_facts_repair = not needs_full_sync and not storage.facts_exist(acc_no)
+                    # メモリ内 Set 判定 ($O(1)$ 高速検索)
+                    needs_full_sync = acc_no not in existing_filings_set
+                    needs_facts_repair = not needs_full_sync and acc_no not in existing_facts_set
 
                     if not needs_full_sync and not needs_facts_repair:
                         daily_skipped += 1
                         skipped_tickers.append(f"{ticker} ({filing_date})")
-                        logger.info(
+                        logger.debug(
                             f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                         )
                         continue
@@ -148,7 +155,7 @@ async def sync_recent_us_filings(
             )
             if skipped_tickers:
                 logger.info(
-                    f"Skipped tickers (already synced) | date={target_date} | count={len(skipped_tickers)} | tickers={', '.join(skipped_tickers[:10])}{'...' if len(skipped_tickers) > 10 else ''}"
+                    f"Skipped filings (already synced) | date={target_date} | count={len(skipped_tickers)} | sample={', '.join(skipped_tickers[:5])}{'...' if len(skipped_tickers) > 5 else ''}"
                 )
         except Exception:
             logger.exception(f"Failed to process US index | date={target_date}")
@@ -198,6 +205,11 @@ async def process_us_tickers(
                 f"in_range={len(target_filings)} | threshold={threshold_date}"
             )
 
+            # バルク一括照会
+            target_acc_nos = [f["accessionNumber"] for f in target_filings if f.get("accessionNumber")]
+            existing_filings_set = storage.filing_exists_batch(target_acc_nos)
+            existing_facts_set = storage.facts_exist_batch(target_acc_nos)
+
             skipped_filings = []
             skipped_facts = []
 
@@ -205,13 +217,14 @@ async def process_us_tickers(
                 acc_no = filing["accessionNumber"]
                 filing_date = filing.get("filingDate", "unknown")
 
-                needs_full_sync = not storage.filing_exists(acc_no)
-                needs_facts_repair = not needs_full_sync and not storage.facts_exist(acc_no)
+                # メモリ内 Set 判定 ($O(1)$ 高速検索)
+                needs_full_sync = acc_no not in existing_filings_set
+                needs_facts_repair = not needs_full_sync and acc_no not in existing_facts_set
 
                 if not needs_full_sync and not needs_facts_repair:
                     skipped_count += 1
                     skipped_filings.append(f"{filing_date} ({acc_no})")
-                    logger.info(
+                    logger.debug(
                         f"Skipping (already synced) | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date}"
                     )
                     continue
