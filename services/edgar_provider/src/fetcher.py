@@ -162,10 +162,11 @@ class EdgarFetcher:
                     acc_no = filename.split("/")[-1].replace(".txt", "")
                     doc_name = filename.split("/")[-1]  # プライマリドキュメント名のフォールバック用
 
+                    ticker = self.get_ticker_from_cik(cik) or "UNKNOWN"
                     results.append(
                         {
                             "cik": cik,
-                            "ticker": self.get_ticker_from_cik(cik),
+                            "ticker": ticker,
                             "form": form_type,
                             "filingDate": parts[3],
                             "accessionNumber": acc_no,
@@ -196,6 +197,19 @@ class EdgarFetcher:
                     "primaryDocument": recent["primaryDocument"][i],
                     "primaryDocDescription": recent["primaryDocDescription"][i],
                 }
+        return None
+
+    def fetch_filing_content(self, cik: str, accession_number: str, primary_document: str) -> str | None:
+        """
+        指定された CIK, accessionNumber, primaryDocument を元に、
+        SECから提出書類の本文（HTML等）を取得します。
+        """
+        acc_no_clean = accession_number.replace("-", "")
+        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{primary_document}"
+        logger.debug(f"Downloading filing content | url={url}")
+        response = self._request_with_retry(url)
+        if response and response.status_code == 200:
+            return response.text
         return None
 
     def get_latest_submissions(self, ticker: str) -> dict | None:

@@ -2,7 +2,6 @@ import asyncio
 import os
 from datetime import date, timedelta
 
-import requests
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -35,17 +34,15 @@ async def _download_and_buffer_filing(
         return
 
     doc_name = filing["primaryDocument"]
-    acc_no_clean = acc_no.replace("-", "")
-    url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_no_clean}/{doc_name}"
 
     logger.info(
         f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={entry_or_filing.get('form', 'unknown')}"
     )
-    resp = await asyncio.to_thread(requests.get, url, headers=fetcher.headers, timeout=30)
+    content = await asyncio.to_thread(fetcher.fetch_filing_content, cik, acc_no, doc_name)
     await asyncio.sleep(0.11)
 
-    if resp.status_code == 200:
-        sections = parser.extract_all_sections(resp.text, filing["form"])
+    if content:
+        sections = parser.extract_all_sections(content, filing["form"])
         if sections:
             filing_metadata = filing.copy()
             filing_metadata["ticker"] = ticker
@@ -56,7 +53,6 @@ async def _download_and_buffer_filing(
                 logger.info(f"Flushing filings buffer | count={len(filings_buffer)} | ticker={ticker}")
                 storage.save_filings_batch(filings_buffer)
                 filings_buffer.clear()
-    del resp
 
 
 async def _extract_and_buffer_facts(
@@ -115,10 +111,10 @@ async def sync_recent_us_filings(
             for entry in filings:
                 try:
                     acc_no = entry["accessionNumber"]
-                    ticker = entry.get("ticker")
+                    ticker = entry.get("ticker", "UNKNOWN")
                     filing_date = entry.get("filingDate", "unknown")
 
-                    if not ticker or ticker == "UNKNOWN":
+                    if ticker == "UNKNOWN":
                         logger.debug(f"Skipping unknown ticker | acc_no={acc_no}")
                         continue
 
