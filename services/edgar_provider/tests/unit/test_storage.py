@@ -345,3 +345,35 @@ class TestEdgarStorage:
         saved_count = self.storage.save_filings_batch(filings_data)
         assert saved_count == 1
         assert self.storage.filing_exists("0001234567-26-000060")
+
+    def test_save_facts_does_not_mutate_input_df(self):
+        """save_facts が呼び出し元の DataFrame を破壊的に変更しないことを検証。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000070",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Apple business content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        facts_df = pd.DataFrame(
+            {
+                "concept": ["Revenue"],
+                "label": ["Revenue"],
+                "numeric_value": [1000.0],
+                "unit": ["USD"],
+                "fiscal_year": [2025],
+                "fiscal_period": ["FY"],
+                "period_start": ["2025-01-01"],
+                "period_end": ["2025-12-31"],
+                "period_instant": [None],
+            }
+        )
+
+        original_cols = list(facts_df.columns)
+        self.storage.save_facts("AAPL", "0001234567-26-000070", facts_df)
+        assert list(facts_df.columns) == original_cols
+        assert "ticker" not in facts_df.columns
+        assert "accession_number" not in facts_df.columns
+

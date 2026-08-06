@@ -182,3 +182,35 @@ class TestEdgarFetcher:
 
         result = self.fetcher.filter_relevant_filings({})
         assert result == []
+
+    @patch.object(EdgarFetcher, "_request_with_retry")
+    def test_fetch_filing_content(self, mock_retry):
+        """書類本文取得のテスト。"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "<html>Filing Content</html>"
+        mock_retry.return_value = mock_response
+
+        content = self.fetcher.fetch_filing_content("0000320193", "0000320193-26-000001", "aapl-20260101.htm")
+        assert content == "<html>Filing Content</html>"
+        mock_retry.assert_called_once_with(
+            "https://www.sec.gov/Archives/edgar/data/0000320193/000032019326000001/aapl-20260101.htm"
+        )
+
+    @patch.object(EdgarFetcher, "_request_with_retry")
+    def test_list_daily_filings_ticker_fallback(self, mock_retry):
+        """list_daily_filings で CIK からティッカーがひけない場合に 'UNKNOWN' が割り当てられるテスト。"""
+        idx_content = (
+            "Header Line 1\nHeader Line 2\n---\n"
+            "0000999999|COMPANY NAME|10-K|2026-01-01|edgar/data/999999/0000999999-26-000001.txt\n"
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = idx_content
+        mock_retry.return_value = mock_response
+
+        filings = self.fetcher.list_daily_filings(date(2026, 1, 1))
+        assert len(filings) == 1
+        assert filings[0]["ticker"] == "UNKNOWN"
+
+
