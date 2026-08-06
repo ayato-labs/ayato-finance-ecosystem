@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -321,11 +322,14 @@ class EdgarStorage:
             """
             return conn.execute(query).fetchall()
 
-    def get_filings_by_ticker(self, ticker: str):
+    def get_filings_by_ticker(
+        self, ticker: str
+    ) -> list[tuple[str, str, Any, Any, Any, Any]]:
         """
         特定のティッカーの書類一覧を取得します。
-        後方互換性を保つため、内部で filing_sections テーブルと JOIN し、
-        旧スキーマと同じように sections（JSONオブジェクト）型をシミュレート構成して結果を返します。
+
+        Returns:
+            タプルのリスト: (ticker, form, filing_date, sections_json, metadata_json, updated_at)
         """
         with duckdb.connect(self.db_path) as conn:
             query = """
