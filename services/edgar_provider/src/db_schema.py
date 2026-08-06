@@ -48,7 +48,8 @@ class FilingSectionSchema(BaseDbSchema):
     section_id: str = Field(..., description="セクションの一意のハッシュ値 (プライマリキー、MD5形式)")
     accession_number: str = Field(..., description="対応する提出書類の受付番号 (filingsテーブルへの外部キー)")
     section_name: str = Field(..., description="セクション章名 (例: mda, business, risk_factors)")
-    content_md: str = Field(..., description="HTMLからパースおよび抽出された生のマークダウン形式テキスト本文")
+    content_md: str | None = Field(None, description="HTMLからパースおよび抽出された生のマークダウン形式テキスト本文 (Parquetにオフロードされた場合はNULL)")
+    parquet_path: str | None = Field(None, description="外部Parquetファイルへの相対パス")
     updated_at: dt.datetime = Field(
         default_factory=dt.datetime.now,
         description="データベースレコード挿入/更新日時",

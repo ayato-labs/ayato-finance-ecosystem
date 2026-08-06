@@ -121,8 +121,91 @@ class EdgarStorage:
                     conn.execute("ALTER TABLE company_facts ADD COLUMN period_instant DATE")
                     logger.info("Migrated company_facts table: Added period_instant column")
 
+            # filing_sections テーブルのカラム検証（parquet_path 追加）
+            if "filing_sections" in tables:
+                sections_cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info('filing_sections')").fetchall()
+                }
+                if "parquet_path" not in sections_cols:
+                    conn.execute("ALTER TABLE filing_sections ADD COLUMN parquet_path VARCHAR")
+                    logger.info("Migrated filing_sections table: Added parquet_path column")
+
+            # filing_sections_view の作成（透過的照会用）
+            conn.execute("""
+                CREATE VIEW IF NOT EXISTS filing_sections_view AS
+                SELECT
+                    section_id,
+                    accession_number,
+                    section_name,
+                    COALESCE(content_md, '') AS content_md,
+                    parquet_path,
+                    updated_at
+                FROM filing_sections
+            """)
+
         except Exception as e:
             logger.warning(f"Schema migration check produced warning: {e}")
+
+    def migrate_to_parquet(self) -> int:
+        """
+        ADR-0009: filing_sections に格納されている content_md テキスト本文を
+        外部の ZSTD 圧縮 Parquet ファイルに抽出・オフロードし、DBサイズを最小化します。
+        
+        Returns:
+            int: オフロードされたセクション数
+        """
+        sections_dir = Path(self.db_path).parent / "sections"
+        sections_dir.mkdir(parents=True, exist_ok=True)
+
+        offloaded_count = 0
+        with duckdb.connect(self.db_path) as conn:
+            # content_md が NULL でなく存在するレコードを取得
+            rows = conn.execute("""
+                SELECT section_id, accession_number, section_name, content_md
+                FROM filing_sections
+                WHERE content_md IS NOT NULL AND content_md != ''
+            """).fetchall()
+
+            if not rows:
+                logger.info("No text content in DB to offload to Parquet.")
+                return 0
+
+            logger.info(f"Starting Parquet offload for {len(rows)} sections...")
+
+            # アクセッション番号ごとにグループ化して Parquet 化
+            acc_groups: dict[str, list[dict]] = {}
+            for sid, acc_no, sname, content in rows:
+                if acc_no not in acc_groups:
+                    acc_groups[acc_no] = []
+                acc_groups[acc_no].append({
+                    "section_id": sid,
+                    "accession_number": acc_no,
+                    "section_name": sname,
+                    "content_md": content,
+                })
+
+            for acc_no, items in acc_groups.items():
+                df = pd.DataFrame(items)
+                parquet_rel_path = f"sections/{acc_no}.parquet"
+                parquet_abs_path = sections_dir / f"{acc_no}.parquet"
+
+                # ZSTD 圧縮を適用した Parquet ファイルを生成
+                df.to_parquet(parquet_abs_path, compression="zstd", index=False)
+
+                # DBの content_md を NULL に更新し、parquet_path を設定
+                conn.execute("""
+                    UPDATE filing_sections
+                    SET content_md = NULL, parquet_path = ?
+                    WHERE accession_number = ?
+                """, (parquet_rel_path, acc_no))
+                offloaded_count += len(items)
+
+            conn.execute("CHECKPOINT")
+            conn.execute("VACUUM")
+
+        logger.success(f"Successfully offloaded {offloaded_count} sections to Parquet files.")
+        return offloaded_count
 
     def checkpoint(self):
         """データベースの変更内容を書き込み、WALを統合してストレージ容量を整理します。"""

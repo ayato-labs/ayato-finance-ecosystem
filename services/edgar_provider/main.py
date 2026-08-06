@@ -36,6 +36,9 @@ def main():
     # Rebuild command
     subparsers.add_parser("rebuild", help="Rebuild database into new compressed storage to reclaim space")
 
+    # Offload Parquet command
+    subparsers.add_parser("offload-parquet", help="Offload text sections to ZSTD compressed Parquet files (ADR-0009)")
+
     args = parser.parse_args()
 
     user_agent = os.environ.get("USER_AGENT", "edgar-provider/1.0 (contact: admin@example.com)")
@@ -61,6 +64,9 @@ def main():
     elif args.command == "rebuild":
         orig_size, new_size = storage.rebuild_db()
         print(f"Database rebuild completed. Original: {orig_size / (1024*1024):.2f} MB -> New: {new_size / (1024*1024):.2f} MB")
+    elif args.command == "offload-parquet":
+        count = storage.migrate_to_parquet()
+        print(f"Parquet offload completed. {count} sections offloaded.")
     else:
         parser.print_help()
 

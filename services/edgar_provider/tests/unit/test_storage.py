@@ -434,6 +434,24 @@ class TestEdgarStorage:
         assert new_size > 0
         assert self.storage.filing_exists("0001234567-26-000099")
 
+    def test_migrate_to_parquet(self):
+        """migrate_to_parquet メソッドによる定性テキストのParquet外部化テスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000100",
+            "ticker": "PARQUET",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Parquet offload test content." * 20}
+        self.storage.save_filing(metadata, sections)
+
+        offloaded_count = self.storage.migrate_to_parquet()
+        assert offloaded_count == 1
+
+        # Parquetファイルが実際に生成されたことを検証
+        parquet_file = Path(self.db_path).parent / "sections" / "0001234567-26-000100.parquet"
+        assert parquet_file.exists()
+
     def test_migrate_db_schema(self):
         """旧スキーマからのマイグレーション動作テスト。"""
         old_db_path = str(Path(self.temp_dir) / "old.duckdb")
