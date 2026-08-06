@@ -116,3 +116,11 @@ class TestEdgarParser:
         """
         result = self.parser.extract_all_sections(html, "10-Q")
         assert isinstance(result, dict)
+
+    def test_recursion_error_fallback(self):
+        """深層ネストおよび異形タグが含まれるケースでの代替フォールバック処理テスト。"""
+        deep_nesting = "".join([f"<a{i}>" for i in range(500)]) + "Deep Content" + "".join([f"</a{i}>" for i in range(500)])
+        result = self.parser.extract_all_sections(f"<html><body><h1>Item 1. Business</h1>{deep_nesting}</body></html>", "10-K")
+        assert isinstance(result, dict)
+        assert "business" in result
+        assert "Deep Content" in result["business"]

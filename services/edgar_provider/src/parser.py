@@ -105,17 +105,23 @@ class EdgarParser:
 
     def _preprocess_html(self, html_content: str) -> BeautifulSoup:
         """HTMLの無駄な装飾タグや属性情報を削除し、構造をプレーンに整えパース効率を向上させます。"""
-        # 複雑なSECドキュメントの処理のために一時的にリカッションリミットを増加
         original_limit = sys.getrecursionlimit()
         try:
-            sys.setrecursionlimit(5000)
+            sys.setrecursionlimit(20000)
             soup = BeautifulSoup(html_content, "lxml")
+            
             # スタイルを持たない単なるラッパー用の汎用タグを展開（unwrap）して中身のテキストだけを露出
             for tag in soup(["span", "font", "div"]):
                 if not tag.attrs:
                     tag.unwrap()
 
-            # HTMLタグのインラインCSSスタイルやクラス名などをすべて破棄（Markdown変換の出力を綺麗にするため）
+            # 無効なアルファベット+数字の組み合わせのカスタム難読化タグや過剰ネストタグをアンラップ
+            valid_tags = {"html", "head", "body", "table", "tr", "td", "th", "tbody", "thead", "tfoot", "div", "span", "font", "p", "a", "b", "i", "u", "s", "strong", "em", "h1", "h2", "h3", "h4", "h5", "h6", "img", "br", "hr", "li", "ul", "ol"}
+            for tag in soup.find_all(lambda t: t.name and (":" in t.name or re.match(r"^[a-z0-9]{3,}$", t.name))):
+                if tag.name not in valid_tags:
+                    tag.unwrap()
+
+            # HTMLタグのインラインCSSスタイルやクラス名などをすべて破棄
             for tag in soup.find_all(True):
                 for attr in [
                     "style",
@@ -130,22 +136,27 @@ class EdgarParser:
                     if attr in tag.attrs:
                         del tag.attrs[attr]
 
-            # iXBRL（Inline XBRL）のカスタム名前空間タグ（ix:nonFraction等）をプレーンに展開
-            for ix_tag in soup.find_all(lambda t: t.name.startswith("ix:")):
-                ix_tag.unwrap()
             return soup
         finally:
             sys.setrecursionlimit(original_limit)
 
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
         """プレーン化した HTML 要素を GitHub 互換形式のマークダウンテキストに一括変換します。"""
-        return md(
-            str(soup),
-            heading_style="ATX",
-            bullets="-",
-            strip=["script", "style", "head"],
-            table_conversion="github",
-        )
+        original_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(20000)
+            return md(
+                str(soup),
+                heading_style="ATX",
+                bullets="-",
+                strip=["script", "style", "head"],
+                table_conversion="github",
+            )
+        except (RecursionError, Exception) as e:
+            logger.warning(f"Markdown conversion fell back to text extraction due to recursion depth or parsing issue: {e}")
+            return soup.get_text(separator="\n\n")
+        finally:
+            sys.setrecursionlimit(original_limit)
 
     def extract_all_sections(self, html_content: str, form_type: str) -> dict[str, str]:
         """
