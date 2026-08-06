@@ -196,40 +196,43 @@ class EdgarStorage:
             acc_no = metadata.get("accessionNumber")
             logger.success(f"Saved filing and sections for {ticker} ({acc_no}) to DuckDB")
 
+    def _insert_facts_df(
+        self, conn: duckdb.DuckDBPyConnection, ticker: str, accession_number: str, df: pd.DataFrame
+    ):
+        """単一の Facts DataFrame を検証し DB に登録します。"""
+        self._validate_facts(ticker, accession_number, df)
+        df_copy = df.copy()
+        df_copy["ticker"] = ticker
+        df_copy["accession_number"] = accession_number
+
+        conn.execute("""
+            INSERT OR REPLACE INTO company_facts (
+                fact_id, accession_number, ticker, concept, label, value, unit,
+                fiscal_year, fiscal_period, period_start, period_end, period_instant
+            )
+            SELECT
+                md5(concat_ws('|', ticker, accession_number, concept, period_start, period_end, period_instant)) as fact_id,
+                accession_number,
+                ticker,
+                concept,
+                label,
+                CAST(numeric_value AS DOUBLE) as value,
+                unit as unit,
+                CAST(fiscal_year AS INTEGER) as fiscal_year,
+                fiscal_period,
+                CAST(period_start AS DATE) as period_start,
+                CAST(period_end AS DATE) as period_end,
+                CAST(period_instant AS DATE) as period_instant
+            FROM df_copy
+            WHERE numeric_value IS NOT NULL
+        """)
+
     def save_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
         """
         XBRLデータから抽出された企業の財務数値データ（定量Facts）を保存します。
         """
-        self._validate_facts(ticker, accession_number, df)
-
-        # 結合識別用の一時カラム追加（呼び出し元のデータ変質を防ぐためディープコピーを作成）
-        df = df.copy()
-        df["ticker"] = ticker
-        df["accession_number"] = accession_number
-
         with duckdb.connect(self.db_path) as conn:
-            # 各数値データ項目に対し、一意のハッシュキー（MD5）を生成して登録
-            conn.execute("""
-                INSERT OR REPLACE INTO company_facts (
-                    fact_id, accession_number, ticker, concept, label, value, unit,
-                    fiscal_year, fiscal_period, period_start, period_end, period_instant
-                )
-                SELECT
-                    md5(concat_ws('|', ticker, accession_number, concept, period_start, period_end, period_instant)) as fact_id,
-                    accession_number,
-                    ticker,
-                    concept,
-                    label,
-                    CAST(numeric_value AS DOUBLE) as value,
-                    unit as unit,
-                    CAST(fiscal_year AS INTEGER) as fiscal_year,
-                    fiscal_period,
-                    CAST(period_start AS DATE) as period_start,
-                    CAST(period_end AS DATE) as period_end,
-                    CAST(period_instant AS DATE) as period_instant
-                FROM df
-                WHERE numeric_value IS NOT NULL
-            """)
+            self._insert_facts_df(conn, ticker, accession_number, df)
             logger.info(f"Ingested {len(df)} financial facts for {ticker}")
 
     def save_filings_batch(self, filings_data: list[tuple[dict, dict]]) -> int:
@@ -286,34 +289,7 @@ class EdgarStorage:
         with duckdb.connect(self.db_path) as conn:
             for i, (ticker, accession_number, df) in enumerate(facts_data, 1):
                 try:
-                    self._validate_facts(ticker, accession_number, df)
-
-                    # 結合識別用の一時カラム追加（呼び出し元のデータ変質を防ぐためディープコピーを作成）
-                    df = df.copy()
-                    df["ticker"] = ticker
-                    df["accession_number"] = accession_number
-
-                    conn.execute("""
-                        INSERT OR REPLACE INTO company_facts (
-                            fact_id, accession_number, ticker, concept, label, value, unit,
-                            fiscal_year, fiscal_period, period_start, period_end, period_instant
-                        )
-                        SELECT
-                            md5(concat_ws('|', ticker, accession_number, concept, period_start, period_end, period_instant)) as fact_id,
-                            accession_number,
-                            ticker,
-                            concept,
-                            label,
-                            CAST(numeric_value AS DOUBLE) as value,
-                            unit as unit,
-                            CAST(fiscal_year AS INTEGER) as fiscal_year,
-                            fiscal_period,
-                            CAST(period_start AS DATE) as period_start,
-                            CAST(period_end AS DATE) as period_end,
-                            CAST(period_instant AS DATE) as period_instant
-                        FROM df
-                        WHERE numeric_value IS NOT NULL
-                    """)
+                    self._insert_facts_df(conn, ticker, accession_number, df)
                     saved_count += 1
 
                     # 進捗ログ（10%ごと）
