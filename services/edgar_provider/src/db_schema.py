@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any, ClassVar
 
+from loguru import logger
 from pydantic import BaseModel, Field
 
 # =====================================================================
@@ -255,4 +256,4 @@ def generate_schema_files(output_dir: Path):
             "\n".join(markdown_sections) + "\n", encoding="utf-8"
         )
     except Exception as e:
-        print(f"Warning: Failed to auto-update SEC EDGAR schema files: {e}")
+        logger.warning(f"Failed to auto-update SEC EDGAR schema files: {e}")
