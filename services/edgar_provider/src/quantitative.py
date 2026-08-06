@@ -9,8 +9,11 @@ from loguru import logger
 # .env ファイルから環境変数を読み込み
 load_dotenv()
 
-# SECが要求するアイデンティティ（連絡先メールアドレス）の設定
-sec_identity = os.getenv("SEC_IDENTITY", "ayato-labs ayato-labs@example.com")
+# SECが要求するアイデンティティ（連絡先メールアドレス）の設定 (.env ファイル経由)
+sec_identity = os.getenv("SEC_IDENTITY")
+if not sec_identity:
+    logger.warning("SEC_IDENTITY is not set in environment or .env file. Please set SEC_IDENTITY in .env.")
+    sec_identity = "UnknownAdmin admin@example.com"
 set_identity(sec_identity)
 
 # Rawファイルをローカルに重複して持たせないポリシー（ADR-0004）に準拠するため、ディスクキャッシュを無効化
@@ -35,7 +38,9 @@ def _get_currency_from_units(unit_ref: Any, units: Any) -> str | None:
 
 
 def _derive_fiscal_period(row: Any) -> str | None:
-    """period_type, period_end の月, および期間長から会計四半期 (Q1/Q2/Q3/FY) を決定します。"""
+    """
+    period_type, period_end の月, および期間長から会計四半期 (Q1/Q2/Q3/FY) を決定します。
+    """
     if row["period_type"] == "instant":
         return "FY"
 
@@ -43,23 +48,32 @@ def _derive_fiscal_period(row: Any) -> str | None:
     if pd.isna(length):
         return None
 
-    period_end = row.get("period_end")
-    if pd.notna(period_end) and hasattr(period_end, "month"):
-        month = period_end.month
-        if month in (1, 2, 3):
-            return "Q1"
-        if month in (4, 5, 6):
-            return "Q2"
-        if month in (7, 8, 9):
-            return "Q3"
+    # 1年（通期: 350日〜375日程度）
+    if length >= 350:
         return "FY"
 
-    if length <= 100:
+    # 1四半期（80日〜105日程度）
+    if length <= 105:
+        period_end = row.get("period_end")
+        if pd.notna(period_end) and hasattr(period_end, "month"):
+            month = period_end.month
+            if month in (1, 2, 3, 4):
+                return "Q1"
+            if month in (5, 6, 7):
+                return "Q2"
+            if month in (8, 9, 10):
+                return "Q3"
+            return "Q4"
         return "Q1"
+
+    # 半期（160日〜200日程度）
     if length <= 200:
         return "Q2"
-    if length <= 300:
+
+    # 9ヶ月（250日〜290日程度）
+    if length <= 290:
         return "Q3"
+
     return "FY"
 
 
