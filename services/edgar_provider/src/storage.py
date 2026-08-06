@@ -333,17 +333,22 @@ class EdgarStorage:
         """
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT f.ticker, f.form, f.filing_date,
-                       (
-                           SELECT json_group_object(s.section_name, s.content_md)
-                           FROM filing_sections s
-                           WHERE s.accession_number = f.accession_number
-                       ) as sections,
-                       f.metadata, f.updated_at
-                FROM filings f WHERE f.ticker = ? ORDER BY f.filing_date DESC
+                SELECT
+                    f.ticker,
+                    f.form,
+                    f.filing_date,
+                    (
+                        SELECT json_group_object(s.section_name, s.content_md)
+                        FROM filing_sections s
+                        WHERE s.accession_number = f.accession_number
+                    ) AS sections,
+                    f.metadata,
+                    f.updated_at
+                FROM filings f
+                WHERE f.ticker = ?
+                ORDER BY f.filing_date DESC
             """
-            res = conn.execute(query, (ticker.upper(),)).fetchall()
-            return res
+            return conn.execute(query, (ticker.upper(),)).fetchall()
 
     def get_stats(self):
         """保存されている全データの統計情報（総書類数、銘柄ごとの書類取得数など）を取得します。"""
