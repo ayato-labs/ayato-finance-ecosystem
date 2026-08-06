@@ -377,3 +377,39 @@ class TestEdgarStorage:
         assert "ticker" not in facts_df.columns
         assert "accession_number" not in facts_df.columns
 
+    def test_filing_and_facts_exists_batch(self):
+        """一括存在チェックメソッドのテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000080",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "Business content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        facts_df = pd.DataFrame(
+            {
+                "concept": ["Revenue"],
+                "label": ["Revenue"],
+                "numeric_value": [100.0],
+                "unit": ["USD"],
+                "fiscal_year": [2025],
+                "fiscal_period": ["FY"],
+                "period_start": ["2025-01-01"],
+                "period_end": ["2025-12-31"],
+                "period_instant": [None],
+            }
+        )
+        self.storage.save_facts("AAPL", "0001234567-26-000080", facts_df)
+
+        existing_filings = self.storage.filing_exists_batch(["0001234567-26-000080", "nonexistent"])
+        assert existing_filings == {"0001234567-26-000080"}
+
+        existing_facts = self.storage.facts_exist_batch(["0001234567-26-000080", "nonexistent"])
+        assert existing_facts == {"0001234567-26-000080"}
+
+        assert self.storage.filing_exists_batch([]) == set()
+        assert self.storage.facts_exist_batch([]) == set()
+
+

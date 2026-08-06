@@ -94,28 +94,14 @@ class TestEdgarQuantitative:
 
     def test_derive_fiscal_period(self):
         """決算期間の導出ロジックのテスト。"""
-        # 実際のメソッドは内部関数だが、ロジックをテスト
-        def derive_fiscal_period(period_type, length):
-            if period_type == "instant":
-                return "FY"
-            if pd.isna(length):
-                return None
-            if length <= 100:
-                return "Q"
-            elif length <= 200:
-                return "Q2"
-            elif length <= 300:
-                return "Q3"
-            else:
-                return "FY"
+        from src.quantitative import _derive_fiscal_period
 
-        # テストケース
-        assert derive_fiscal_period("instant", None) == "FY"
-        assert derive_fiscal_period("duration", 90) == "Q"
-        assert derive_fiscal_period("duration", 180) == "Q2"
-        assert derive_fiscal_period("duration", 270) == "Q3"
-        assert derive_fiscal_period("duration", 365) == "FY"
-        assert derive_fiscal_period("duration", None) is None
+        assert _derive_fiscal_period({"period_type": "instant"}) == "FY"
+        assert _derive_fiscal_period({"period_type": "duration", "period_length": 90}) == "Q1"
+        assert _derive_fiscal_period({"period_type": "duration", "period_length": 180}) == "Q2"
+        assert _derive_fiscal_period({"period_type": "duration", "period_length": 270}) == "Q3"
+        assert _derive_fiscal_period({"period_type": "duration", "period_length": 365}) == "FY"
+        assert _derive_fiscal_period({"period_type": "duration", "period_length": None}) is None
 
     def test_env_identity_loading(self):
         """環境変数SEC_IDENTITYの読み込みテスト。"""
