@@ -18,11 +18,7 @@ set_identity(sec_identity)
 
 # Rawファイルをローカルに重複して持たせないポリシー（ADR-0004）に準拠するため、ディスクキャッシュを無効化
 httpclient.CACHE_DIRECTORY = None
-# 接続プールや不要なHTTPクライアントインスタンスを明示的にクローズ
-if hasattr(httpclient, "close_clients"):
-    httpclient.close_clients()
-elif hasattr(httpclient, "close_client"):
-    httpclient.close_client()
+httpclient.close_clients()
 
 
 def _get_currency_from_units(unit_ref: Any, units: Any) -> str | None:

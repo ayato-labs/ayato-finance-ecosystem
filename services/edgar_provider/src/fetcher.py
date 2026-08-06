@@ -157,10 +157,9 @@ class EdgarFetcher:
                 cik = parts[0].zfill(10)
                 form_type = parts[2]
                 if form_type in target_forms:
-                    # ファイルパスの形式: edgar/data/1023731/0001023731-26-000041.txt
                     filename = parts[4]
-                    acc_no = filename.split("/")[-1].replace(".txt", "")
-                    doc_name = filename.split("/")[-1]  # プライマリドキュメント名のフォールバック用
+                    acc_no_txt = filename.split("/")[-1]
+                    acc_no = acc_no_txt.replace(".txt", "")
 
                     ticker = self.get_ticker_from_cik(cik) or "UNKNOWN"
                     results.append(
@@ -170,7 +169,7 @@ class EdgarFetcher:
                             "form": form_type,
                             "filingDate": parts[3],
                             "accessionNumber": acc_no,
-                            "primaryDocument": doc_name,
+                            "primaryDocument": acc_no_txt,
                         }
                     )
 
