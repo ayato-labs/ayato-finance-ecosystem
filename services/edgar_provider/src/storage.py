@@ -167,13 +167,25 @@ class EdgarStorage:
                 conn_new.execute(f"ATTACH '{orig_path}' AS old_db (READ_ONLY)")
 
                 logger.info("Migrating filings table...")
-                conn_new.execute("INSERT OR IGNORE INTO filings SELECT * FROM old_db.filings")
+                filings_target_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('filings')").fetchall()]
+                filings_source_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('old_db.filings')").fetchall()]
+                common_filings_cols = [c for c in filings_target_cols if c in filings_source_cols]
+                cols_str = ", ".join(common_filings_cols)
+                conn_new.execute(f"INSERT OR IGNORE INTO filings ({cols_str}) SELECT {cols_str} FROM old_db.filings")
 
                 logger.info("Migrating filing_sections table...")
-                conn_new.execute("INSERT OR IGNORE INTO filing_sections SELECT * FROM old_db.filing_sections")
+                sections_target_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('filing_sections')").fetchall()]
+                sections_source_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('old_db.filing_sections')").fetchall()]
+                common_sections_cols = [c for c in sections_target_cols if c in sections_source_cols]
+                cols_str = ", ".join(common_sections_cols)
+                conn_new.execute(f"INSERT OR IGNORE INTO filing_sections ({cols_str}) SELECT {cols_str} FROM old_db.filing_sections")
 
                 logger.info("Migrating company_facts table...")
-                conn_new.execute("INSERT OR IGNORE INTO company_facts SELECT * FROM old_db.company_facts")
+                facts_target_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('company_facts')").fetchall()]
+                facts_source_cols = [r[1] for r in conn_new.execute("PRAGMA table_info('old_db.company_facts')").fetchall()]
+                common_facts_cols = [c for c in facts_target_cols if c in facts_source_cols]
+                cols_str = ", ".join(common_facts_cols)
+                conn_new.execute(f"INSERT OR IGNORE INTO company_facts ({cols_str}) SELECT {cols_str} FROM old_db.company_facts")
 
                 conn_new.execute("DETACH old_db")
                 conn_new.execute("CHECKPOINT")
