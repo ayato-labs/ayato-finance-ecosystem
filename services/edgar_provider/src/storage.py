@@ -148,50 +148,52 @@ class EdgarStorage:
                 f"Missing columns in facts DataFrame: {', '.join(missing_cols)}"
             )
 
-    def save_filing(self, metadata: dict, sections: dict):
-        """
-        パースされた定性情報をデータベースの「filings」と「filing_sections」に分割保存（UPSERT）します。
-        """
+    def _insert_single_filing(self, conn: duckdb.DuckDBPyConnection, metadata: dict, sections: dict):
+        """単一の提出書類（メタデータおよび各セクション本文）を DB に保存します。"""
         self._validate_filing(metadata, sections)
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
         metadata_json = json.dumps(metadata)
 
-        with duckdb.connect(self.db_path) as conn:
-            # 1. filings テーブル（メタデータ）にメタデータを登録（UPSERT）
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO filings (
+                accession_number, ticker, cik, form, filing_date, metadata, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+            (
+                acc_no,
+                ticker,
+                metadata.get("cik"),
+                metadata.get("form"),
+                metadata.get("filingDate"),
+                metadata_json,
+            ),
+        )
+
+        for section_name, content in sections.items():
+            if not content:
+                continue
+            # 受付番号と章名から一意なプライマリキー MD5 ハッシュ値を生成（非暗号用途）
+            section_id = hashlib.md5(f"{acc_no}|{section_name}".encode(), usedforsecurity=False).hexdigest()
             conn.execute(
                 """
-                INSERT OR REPLACE INTO filings (
-                    accession_number, ticker, cik, form, filing_date, metadata, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT OR REPLACE INTO filing_sections (
+                    section_id, accession_number, section_name, content_md, updated_at
+                ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
-                (
-                    acc_no,
-                    ticker,
-                    metadata.get("cik"),
-                    metadata.get("form"),
-                    metadata.get("filingDate"),
-                    metadata_json,
-                ),
+                (section_id, acc_no, section_name, content),
             )
 
-            # 2. 各セクションの本文を1セクション=1レコードとして filing_sections にインサート
-            for section_name, content in sections.items():
-                if not content:
-                    continue
-                # 受付番号と章名から一意なプライマリキー MD5 ハッシュ値を生成
-                section_id = hashlib.md5(f"{acc_no}|{section_name}".encode()).hexdigest()
-
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO filing_sections (
-                        section_id, accession_number, section_name, content_md, updated_at
-                    ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                    (section_id, acc_no, section_name, content),
-                )
-
+    def save_filing(self, metadata: dict, sections: dict):
+        """
+        パースされた定性情報をデータベースの「filings」と「filing_sections」に分割保存（UPSERT）します。
+        """
+        with duckdb.connect(self.db_path) as conn:
+            self._insert_single_filing(conn, metadata, sections)
+            ticker = metadata.get("ticker")
+            acc_no = metadata.get("accessionNumber")
             logger.success(f"Saved filing and sections for {ticker} ({acc_no}) to DuckDB")
 
     def save_facts(self, ticker: str, accession_number: str, df: pd.DataFrame):
@@ -249,46 +251,9 @@ class EdgarStorage:
         with duckdb.connect(self.db_path) as conn:
             for i, (metadata, sections) in enumerate(filings_data, 1):
                 try:
-                    self._validate_filing(metadata, sections)
-
-                    acc_no = metadata.get("accessionNumber")
-                    ticker = metadata.get("ticker")
-                    metadata_json = json.dumps(metadata)
-
-                    # filings テーブルにメタデータを登録
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO filings (
-                            accession_number, ticker, cik, form, filing_date, metadata, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """,
-                        (
-                            acc_no,
-                            ticker,
-                            metadata.get("cik"),
-                            metadata.get("form"),
-                            metadata.get("filingDate"),
-                            metadata_json,
-                        ),
-                    )
-
-                    # 各セクションの本文を filing_sections にインサート
-                    for section_name, content in sections.items():
-                        if not content:
-                            continue
-                        section_id = hashlib.md5(f"{acc_no}|{section_name}".encode()).hexdigest()
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO filing_sections (
-                                section_id, accession_number, section_name, content_md, updated_at
-                            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        """,
-                            (section_id, acc_no, section_name, content),
-                        )
-
+                    self._insert_single_filing(conn, metadata, sections)
                     saved_count += 1
 
-                    # 進捗ログ（10%ごと）
                     if i % progress_interval == 0 or i == total:
                         logger.info(f"Saving filings progress | {i}/{total} ({i*100//total}%)")
 
