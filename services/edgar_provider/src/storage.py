@@ -121,7 +121,7 @@ class EdgarStorage:
                     conn.execute("ALTER TABLE company_facts ADD COLUMN period_instant DATE")
                     logger.info("Migrated company_facts table: Added period_instant column")
 
-            # filing_sections テーブルのカラム検証（parquet_path 追加）
+            # filing_sections テーブルのカラム検証（parquet_path 追加）および View の作成
             if "filing_sections" in tables:
                 sections_cols = {
                     row[1]
@@ -131,18 +131,18 @@ class EdgarStorage:
                     conn.execute("ALTER TABLE filing_sections ADD COLUMN parquet_path VARCHAR")
                     logger.info("Migrated filing_sections table: Added parquet_path column")
 
-            # filing_sections_view の作成（透過的照会用）
-            conn.execute("""
-                CREATE VIEW IF NOT EXISTS filing_sections_view AS
-                SELECT
-                    section_id,
-                    accession_number,
-                    section_name,
-                    COALESCE(content_md, '') AS content_md,
-                    parquet_path,
-                    updated_at
-                FROM filing_sections
-            """)
+                # filing_sections_view の作成（透過的照会用）
+                conn.execute("""
+                    CREATE VIEW IF NOT EXISTS filing_sections_view AS
+                    SELECT
+                        section_id,
+                        accession_number,
+                        section_name,
+                        COALESCE(content_md, '') AS content_md,
+                        parquet_path,
+                        updated_at
+                    FROM filing_sections
+                """)
 
         except Exception as e:
             logger.warning(f"Schema migration check produced warning: {e}")
