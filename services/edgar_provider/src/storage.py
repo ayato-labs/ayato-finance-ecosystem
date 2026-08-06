@@ -49,9 +49,10 @@ class EdgarStorage:
         # データベースと同じディレクトリに SQL 定義ファイルおよび設計書 markdown を自動生成出力
         generate_schema_files(Path(self.db_path).parent)
 
+        schema_sql_path = Path(self.db_path).parent / "schema.sql"
+
         with duckdb.connect(self.db_path) as conn:
             # DuckDB の接続最適化オプション（メモリ制限、マルチスレッド並列処理等）を設定
-            # 環境変数から設定値を読み込み、デフォルト値を使用
             memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "2GB")
             threads = int(os.getenv("DUCKDB_THREADS", "4"))
             checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
@@ -60,48 +61,13 @@ class EdgarStorage:
             conn.execute(f"SET threads={threads}")
             conn.execute(f"SET checkpoint_threshold='{checkpoint_threshold}'")
 
-            # 1. filings テーブル（書類の基本メタデータ）の定義
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS filings (
-                    accession_number VARCHAR PRIMARY KEY,
-                    ticker VARCHAR,
-                    cik VARCHAR,
-                    form VARCHAR,
-                    filing_date DATE,
-                    metadata JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # 2. filing_sections テーブル（定性テキスト本文のセクション分割保存用）の定義
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS filing_sections (
-                    section_id VARCHAR PRIMARY KEY,
-                    accession_number VARCHAR,
-                    section_name VARCHAR,
-                    content_md VARCHAR,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # 3. company_facts テーブル（抽出された定量数値データ）の定義
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS company_facts (
-                    fact_id VARCHAR PRIMARY KEY,
-                    accession_number VARCHAR,
-                    ticker VARCHAR,
-                    concept VARCHAR,
-                    label VARCHAR,
-                    value DOUBLE,
-                    unit VARCHAR,
-                    fiscal_year INTEGER,
-                    fiscal_period VARCHAR,
-                    period_start DATE,
-                    period_end DATE,
-                    period_instant DATE,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            # Schema-as-Code (schema.sql) から DDL を実行して一元管理
+            if schema_sql_path.exists():
+                sql_content = schema_sql_path.read_text(encoding="utf-8")
+                for statement in sql_content.split(";\n\n"):
+                    statement = statement.strip()
+                    if statement:
+                        conn.execute(statement)
 
             # 財務データの照会速度向上のための複合インデックスの作成
             conn.execute("""
@@ -312,6 +278,16 @@ class EdgarStorage:
             ).fetchone()
             return res[0] > 0
 
+    def filing_exists_batch(self, accession_numbers: list[str]) -> set[str]:
+        """指定された受付番号リストのうち、データベースに登録済みのものを一括返却します。"""
+        if not accession_numbers:
+            return set()
+        with duckdb.connect(self.db_path) as conn:
+            placeholders = ", ".join(["?"] * len(accession_numbers))
+            query = f"SELECT accession_number FROM filings WHERE accession_number IN ({placeholders})"
+            rows = conn.execute(query, accession_numbers).fetchall()
+            return {r[0] for r in rows}
+
     def facts_exist(self, accession_number: str) -> bool:
         """指定された受付番号に対応する財務数値（定量データ）が、すでに登録されているか確認します。"""
         with duckdb.connect(self.db_path) as conn:
@@ -319,6 +295,16 @@ class EdgarStorage:
                 "SELECT COUNT(*) FROM company_facts WHERE accession_number = ?", (accession_number,)
             ).fetchone()
             return res[0] > 0
+
+    def facts_exist_batch(self, accession_numbers: list[str]) -> set[str]:
+        """指定された受付番号リストのうち、財務数値データが登録済みのものを一括返却します。"""
+        if not accession_numbers:
+            return set()
+        with duckdb.connect(self.db_path) as conn:
+            placeholders = ", ".join(["?"] * len(accession_numbers))
+            query = f"SELECT DISTINCT accession_number FROM company_facts WHERE accession_number IN ({placeholders})"
+            rows = conn.execute(query, accession_numbers).fetchall()
+            return {r[0] for r in rows}
 
     def get_accession_numbers_needing_repair(self) -> list[tuple[str, str]]:
         """
