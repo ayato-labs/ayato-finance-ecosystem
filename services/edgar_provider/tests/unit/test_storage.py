@@ -141,6 +141,20 @@ class TestEdgarStorage:
         # 保存されたことを確認
         assert self.storage.filing_exists("0001234567-26-000001")
 
+    def test_save_filing_compact_date_format(self):
+        """YYYYMMDD 形式の日付文字列が YYYY-MM-DD に正規化されて保存されるテスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000098",
+            "ticker": "AAPL",
+            "form": "10-K",
+            "filingDate": "20260805",
+            "cik": "0000320193",
+        }
+        sections = {"business": "Apple Inc. compact date content." * 5}
+        self.storage.save_filing(metadata, sections)
+
+        assert self.storage.filing_exists("0001234567-26-000098")
+
     def test_filing_exists(self):
         """提出書類存在チェックのテスト。"""
         # 存在しない場合

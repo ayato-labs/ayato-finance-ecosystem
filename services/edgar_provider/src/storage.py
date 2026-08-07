@@ -337,6 +337,14 @@ class EdgarStorage:
 
         acc_no = metadata.get("accessionNumber")
         ticker = metadata.get("ticker")
+        raw_date = metadata.get("filingDate") or metadata.get("filing_date")
+        
+        # YYYYMMDD 形式（8桁数字）を YYYY-MM-DD 形式へ正規化
+        if isinstance(raw_date, str) and len(raw_date) == 8 and raw_date.isdigit():
+            filing_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+        else:
+            filing_date = raw_date
+
         metadata_json = json.dumps(metadata)
 
         conn.execute(
@@ -350,7 +358,7 @@ class EdgarStorage:
                 ticker,
                 metadata.get("cik"),
                 metadata.get("form"),
-                metadata.get("filingDate"),
+                filing_date,
                 metadata_json,
             ),
         )
