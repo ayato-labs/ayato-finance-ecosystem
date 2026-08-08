@@ -59,6 +59,34 @@ async def _facts_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
         queue.task_done()
 
 
+async def _parse_worker(
+    parser: EdgarParser,
+    raw_queue: asyncio.Queue,
+    filings_queue: asyncio.Queue,
+):
+    """バックグラウンドで raw HTML をポップし、パースして filings_queue に投入する Worker タスク。"""
+    while True:
+        item = await raw_queue.get()
+        if item is None:  # 終了シグナル
+            raw_queue.task_done()
+            break
+
+        entry_or_filing, ticker, acc_no, filing_date, form_type, content = item
+        try:
+            sections = await asyncio.to_thread(parser.extract_all_sections, content, form_type)
+            if sections:
+                filing_metadata = entry_or_filing.copy()
+                filing_metadata["ticker"] = ticker
+                filing_metadata["accessionNumber"] = acc_no
+                filing_metadata["filingDate"] = filing_date
+                filing_metadata["form"] = form_type
+                await filings_queue.put((filing_metadata, sections))
+        except Exception:
+            logger.exception(f"Error parsing filing sections | acc_no={acc_no}")
+        finally:
+            raw_queue.task_done()
+
+
 async def _download_and_queue_filing(
     entry_or_filing: dict,
     ticker: str,
@@ -66,10 +94,9 @@ async def _download_and_queue_filing(
     filing_date: str,
     cik: str,
     fetcher: EdgarFetcher,
-    parser: EdgarParser,
-    filings_queue: asyncio.Queue,
+    raw_queue: asyncio.Queue,
 ):
-    """HTML本文をダウンロードおよびパースし、非ブロッキングで Queue に投入します。"""
+    """HTML本文をダウンロードし、パースを待たずに即座に raw_queue に投入します。"""
     doc_name = entry_or_filing.get("primaryDocument")
     if not doc_name:
         filing = await asyncio.to_thread(fetcher.resolve_filing_metadata, ticker, acc_no)
@@ -84,19 +111,10 @@ async def _download_and_queue_filing(
         f"Downloading | ticker={ticker} | acc_no={acc_no} | filing_date={filing_date} | form={form_type}"
     )
     content = await asyncio.to_thread(fetcher.fetch_filing_content, cik, acc_no, doc_name)
-    await asyncio.sleep(0.11)
+    await asyncio.sleep(0.11)  # SEC レート制限（最大10 req/sec）遵守のためのウェイター
 
     if content:
-        sections = parser.extract_all_sections(content, form_type)
-        if sections:
-            filing_metadata = entry_or_filing.copy()
-            filing_metadata["ticker"] = ticker
-            filing_metadata["cik"] = cik
-            filing_metadata["accessionNumber"] = acc_no
-            filing_metadata["filingDate"] = filing_date
-            filing_metadata["form"] = form_type
-            # DB書き込みを待たずに非ブロッキングで Queue に投入 (Producer)
-            await filings_queue.put((filing_metadata, sections))
+        await raw_queue.put((entry_or_filing, ticker, acc_no, filing_date, form_type, content))
 
 
 async def _extract_and_queue_facts(
@@ -105,6 +123,7 @@ async def _extract_and_queue_facts(
     filing_date: str,
     needs_facts_repair: bool,
     facts_queue: asyncio.Queue,
+    storage: EdgarStorage | None = None,
 ):
     """財務数値Factsデータを抽出し、非ブロッキングで Queue に投入します。"""
     if needs_facts_repair:
@@ -116,6 +135,9 @@ async def _extract_and_queue_facts(
     if not facts_df.empty:
         # DB書き込みを待たずに非ブロッキングで Queue に投入 (Producer)
         await facts_queue.put((ticker, acc_no, facts_df))
+    elif storage:
+        # Facts が 0 件だった場合でも、チェック済みフラグを記録して次回以降の再評価を防止
+        await asyncio.to_thread(storage.mark_facts_checked, acc_no)
 
 
 async def sync_recent_us_filings(
@@ -128,10 +150,15 @@ async def sync_recent_us_filings(
     today = date.today()
     threshold_date = (today - timedelta(days=days)).isoformat()
 
+    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     filings_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     facts_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
 
-    # バックグラウンドの DB 消費者タスクを起動
+    # バックグラウンドの Worker 及び DB 消費者タスクを起動
+    parse_workers = [
+        asyncio.create_task(_parse_worker(parser, raw_queue, filings_queue))
+        for _ in range(4)  # 4並列パースワーカー
+    ]
     filings_consumer_task = asyncio.create_task(_filings_db_consumer(storage, filings_queue))
     facts_consumer_task = asyncio.create_task(_facts_db_consumer(storage, facts_queue))
 
@@ -193,15 +220,17 @@ async def sync_recent_us_filings(
                             if needs_full_sync:
                                 cik = entry["cik"].lstrip("0")
                                 await _download_and_queue_filing(
-                                    entry, ticker, acc_no, filing_date, cik, fetcher, parser, filings_queue
+                                    entry, ticker, acc_no, filing_date, cik, fetcher, raw_queue
                                 )
 
-                            await _extract_and_queue_facts(
-                                ticker, acc_no, filing_date, needs_facts_repair, facts_queue
-                            )
+                            if acc_no not in existing_facts_set:
+                                await _extract_and_queue_facts(
+                                    ticker, acc_no, filing_date, needs_facts_repair, facts_queue, storage
+                                )
                             daily_processed += 1
                         except Exception:
                             logger.exception(f"Error processing US filing | acc_no={acc_no} | filing_date={filing_date}")
+
 
                 if pending_entries:
                     await asyncio.gather(*[_process_entry(item) for item in pending_entries])
@@ -216,7 +245,11 @@ async def sync_recent_us_filings(
             except Exception:
                 logger.exception(f"Failed to process US index | date={target_date}")
     finally:
-        # Producer 完了後、キューにセンチネル値を投入して Consumer をフラッシュ & クローズ
+        # Producer 完了後、センチネル値を投入して Worker 及び Consumer をフラッシュ & クローズ
+        for _ in range(len(parse_workers)):
+            await raw_queue.put(None)
+        await asyncio.gather(*parse_workers)
+
         await filings_queue.put(None)
         await facts_queue.put(None)
         await asyncio.gather(filings_consumer_task, facts_consumer_task)
@@ -231,9 +264,14 @@ async def process_us_tickers(
     指定された特定のティッカーシンボル群（個別指定）について、
     直近指定日数分の提出書類をピンポイントで同期・収集します。
     """
+    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     filings_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     facts_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
 
+    parse_workers = [
+        asyncio.create_task(_parse_worker(parser, raw_queue, filings_queue))
+        for _ in range(4)
+    ]
     filings_consumer_task = asyncio.create_task(_filings_db_consumer(storage, filings_queue))
     facts_consumer_task = asyncio.create_task(_facts_db_consumer(storage, facts_queue))
 
@@ -297,12 +335,13 @@ async def process_us_tickers(
                     if needs_full_sync:
                         cik = fetcher.get_cik(ticker).lstrip("0")
                         await _download_and_queue_filing(
-                            filing, ticker, acc_no, filing_date, cik, fetcher, parser, filings_queue
+                            filing, ticker, acc_no, filing_date, cik, fetcher, raw_queue
                         )
 
-                    await _extract_and_queue_facts(
-                        ticker, acc_no, filing_date, needs_facts_repair, facts_queue
-                    )
+                    if acc_no not in existing_facts_set:
+                        await _extract_and_queue_facts(
+                            ticker, acc_no, filing_date, needs_facts_repair, facts_queue, storage
+                        )
                     processed_count += 1
 
                 logger.info(
@@ -319,6 +358,10 @@ async def process_us_tickers(
             except Exception:
                 logger.exception(f"Failed to process ticker | ticker={ticker}")
     finally:
+        for _ in range(len(parse_workers)):
+            await raw_queue.put(None)
+        await asyncio.gather(*parse_workers)
+
         await filings_queue.put(None)
         await facts_queue.put(None)
         await asyncio.gather(filings_consumer_task, facts_consumer_task)
@@ -352,10 +395,12 @@ async def repair_all_missing_facts(storage: EdgarStorage):
                     facts_buffer.clear()
             else:
                 logger.warning(f"No facts found during repair for {acc_no}")
+                storage.mark_facts_checked(acc_no)
 
             await asyncio.sleep(0.1)
         except Exception:
             logger.exception(f"Failed to repair facts for {acc_no}")
+
 
     # 残りのバッファを一括書き込み
     if facts_buffer:
