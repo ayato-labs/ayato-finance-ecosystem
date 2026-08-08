@@ -124,3 +124,12 @@ class TestEdgarParser:
         assert isinstance(result, dict)
         assert "business" in result
         assert "Deep Content" in result["business"]
+
+    def test_extract_sections_fallback_full_text(self):
+        """特定のItem見出しが存在しない場合に full_text フォールバックセクションが抽出されるテスト。"""
+        html = "<html><body><h1>Non-standard Header</h1><p>General report content without standard items.</p></body></html>"
+        result = self.parser.extract_all_sections(html, "10-K")
+        assert isinstance(result, dict)
+        assert "full_text" in result
+        assert "General report content" in result["full_text"]
+

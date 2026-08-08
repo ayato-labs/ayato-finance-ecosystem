@@ -207,4 +207,10 @@ class EdgarParser:
             extracted_content = "\n".join(lines[start_idx:end_idx])
             sections_found[key] = self.clean_text(extracted_content)
 
+        if not sections_found or all(not content for content in sections_found.values()):
+            cleaned_full = self.clean_text(full_markdown)
+            if cleaned_full:
+                sections_found["full_text"] = cleaned_full
+
         return sections_found
+
