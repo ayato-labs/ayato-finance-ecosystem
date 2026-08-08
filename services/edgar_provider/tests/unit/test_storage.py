@@ -487,5 +487,29 @@ class TestEdgarStorage:
             cols = {r[1] for r in conn.execute("PRAGMA table_info('filings')").fetchall()}
             assert "metadata" in cols
 
+    def test_mark_facts_checked(self):
+        """facts_checked フラグの付与と存在チェック結果の連携テスト。"""
+        metadata = {
+            "accessionNumber": "0001234567-26-000200",
+            "ticker": "NOFACTS",
+            "form": "10-Q",
+            "filingDate": "2026-01-01",
+        }
+        sections = {"business": "No facts filing content." * 10}
+        self.storage.save_filing(metadata, sections)
+
+        # 保存当初は facts_exist も get_accession_numbers_needing_repair にもヒット
+        assert not self.storage.facts_exist("0001234567-26-000200")
+        assert any(acc == "0001234567-26-000200" for acc, _ in self.storage.get_accession_numbers_needing_repair())
+
+        # facts_checked フラグをマーク
+        self.storage.mark_facts_checked("0001234567-26-000200")
+
+        # マーク後は facts_exist および facts_exist_batch が True / ヒットし、repair 対象から除外される
+        assert self.storage.facts_exist("0001234567-26-000200")
+        assert self.storage.facts_exist_batch(["0001234567-26-000200"]) == {"0001234567-26-000200"}
+        assert not any(acc == "0001234567-26-000200" for acc, _ in self.storage.get_accession_numbers_needing_repair())
+
+
 
 

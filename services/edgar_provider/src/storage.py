@@ -513,38 +513,98 @@ class EdgarStorage:
             rows = conn.execute(query, accession_numbers).fetchall()
             return {r[0] for r in rows}
 
+    def mark_facts_checked(self, accession_number: str):
+        """指定された受付番号の書類メタデータに facts_checked = true を設定します。"""
+        self.mark_facts_checked_batch([accession_number])
+
+    def mark_facts_checked_batch(self, accession_numbers: list[str]):
+        """指定された受付番号リストの書類メタデータに facts_checked = true を設定します。"""
+        if not accession_numbers:
+            return
+        with duckdb.connect(self.db_path) as conn:
+            for acc_no in accession_numbers:
+                row = conn.execute("SELECT metadata FROM filings WHERE accession_number = ?", (acc_no,)).fetchone()
+                if row and row[0]:
+                    try:
+                        meta = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                        if not isinstance(meta, dict):
+                            meta = {}
+                    except Exception:
+                        meta = {}
+                    meta["facts_checked"] = True
+                    meta_str = json.dumps(meta)
+                    conn.execute("UPDATE filings SET metadata = ? WHERE accession_number = ?", (meta_str, acc_no))
+
     def facts_exist(self, accession_number: str) -> bool:
-        """指定された受付番号に対応する財務数値（定量データ）が、すでに登録されているか確認します。"""
+        """指定された受付番号に対応する財務数値（定量データ）が、すでに登録されているか（または確認済みか）確認します。"""
         with duckdb.connect(self.db_path) as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM company_facts WHERE accession_number = ?", (accession_number,)
             ).fetchone()
-            return res[0] > 0
+            if res[0] > 0:
+                return True
+            row = conn.execute(
+                "SELECT metadata FROM filings WHERE accession_number = ?", (accession_number,)
+            ).fetchone()
+            if row and row[0]:
+                try:
+                    meta = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    if isinstance(meta, dict) and (meta.get("facts_checked") or meta.get("has_facts") is False):
+                        return True
+                except Exception:
+                    pass
+            return False
 
     def facts_exist_batch(self, accession_numbers: list[str]) -> set[str]:
-        """指定された受付番号リストのうち、財務数値データが登録済みのものを一括返却します。"""
+        """指定された受付番号リストのうち、財務数値データが登録済み（または確認済み）のものを一括返却します。"""
         if not accession_numbers:
             return set()
         with duckdb.connect(self.db_path) as conn:
             placeholders = ", ".join(["?"] * len(accession_numbers))
-            query = f"SELECT DISTINCT accession_number FROM company_facts WHERE accession_number IN ({placeholders})"
-            rows = conn.execute(query, accession_numbers).fetchall()
-            return {r[0] for r in rows}
+            query_facts = f"SELECT DISTINCT accession_number FROM company_facts WHERE accession_number IN ({placeholders})"
+            rows_facts = conn.execute(query_facts, accession_numbers).fetchall()
+            found = {r[0] for r in rows_facts}
+
+            query_filings = f"SELECT accession_number, metadata FROM filings WHERE accession_number IN ({placeholders})"
+            rows_filings = conn.execute(query_filings, accession_numbers).fetchall()
+            for acc_no, meta_val in rows_filings:
+                if acc_no in found:
+                    continue
+                if meta_val:
+                    try:
+                        meta = json.loads(meta_val) if isinstance(meta_val, str) else meta_val
+                        if isinstance(meta, dict) and (meta.get("facts_checked") or meta.get("has_facts") is False):
+                            found.add(acc_no)
+                    except Exception:
+                        pass
+            return found
 
     def get_accession_numbers_needing_repair(self) -> list[tuple[str, str]]:
         """
         スマートリペア機能（データ不完全性の修復）用メソッド。
-        定性テキストは保存されているが、対応する定量Facts数値が欠落している受付番号の一覧を返します。
+        定性テキストは保存されているが、対応する定量Facts数値が欠落しており、かつFactsチェックが未完了の受付番号一覧を返します。
         """
         with duckdb.connect(self.db_path) as conn:
             query = """
-                SELECT f.accession_number, f.ticker
+                SELECT f.accession_number, f.ticker, f.metadata
                 FROM filings f
                 LEFT JOIN (SELECT DISTINCT accession_number FROM company_facts) c
                 ON f.accession_number = c.accession_number
                 WHERE c.accession_number IS NULL
             """
-            return conn.execute(query).fetchall()
+            rows = conn.execute(query).fetchall()
+            results = []
+            for acc_no, ticker, meta_val in rows:
+                if meta_val:
+                    try:
+                        meta = json.loads(meta_val) if isinstance(meta_val, str) else meta_val
+                        if isinstance(meta, dict) and (meta.get("facts_checked") or meta.get("has_facts") is False):
+                            continue
+                    except Exception:
+                        pass
+                results.append((acc_no, ticker))
+            return results
+
 
     def get_filings_by_ticker(
         self, ticker: str
