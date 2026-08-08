@@ -17,6 +17,9 @@ def setup_logger(log_dir: str = "logs", app_name: str = "app"):
     # Clear existing handlers
     logger.remove()
 
+    # Bind a default stage so the console format never raises KeyError
+    logger.configure(extra={"stage": "default"})
+
     logger_configured = logger.bind(stage="main")
 
     # 1. Console handler (Human-friendly)
