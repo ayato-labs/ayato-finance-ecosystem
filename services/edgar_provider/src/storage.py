@@ -46,7 +46,7 @@ class EdgarStorage:
         最適化オプションを一元適用して返却します。
         """
         conn = duckdb.connect(self.db_path)
-        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "8GB")
+        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "2GB")
         threads = int(os.getenv("DUCKDB_THREADS", "4"))
         checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
         temp_dir = Path(self.db_path).parent / ".tmp"
@@ -406,7 +406,7 @@ class EdgarStorage:
         """
         パースされた定性情報をデータベースの「filings」と「filing_sections」に分割保存（UPSERT）します。
         """
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             self._insert_single_filing(conn, metadata, sections)
             ticker = metadata.get("ticker")
             acc_no = metadata.get("accessionNumber")
@@ -447,7 +447,7 @@ class EdgarStorage:
         """
         XBRLデータから抽出された企業の財務数値データ（定量Facts）を保存します。
         """
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             self._insert_facts_df(conn, ticker, accession_number, df)
             logger.info(f"Ingested {len(df)} financial facts for {ticker}")
 
@@ -468,7 +468,7 @@ class EdgarStorage:
         total = len(filings_data)
         progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
 
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for i, (metadata, sections) in enumerate(filings_data, 1):
                 try:
                     self._insert_single_filing(conn, metadata, sections)
@@ -502,7 +502,7 @@ class EdgarStorage:
         total = len(facts_data)
         progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
 
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for i, (ticker, accession_number, df) in enumerate(facts_data, 1):
                 try:
                     self._insert_facts_df(conn, ticker, accession_number, df)
@@ -522,7 +522,7 @@ class EdgarStorage:
 
     def filing_exists(self, accession_number: str) -> bool:
         """指定された受付番号の書類メタデータが、すでにデータベースに登録されているか確認します。"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM filings WHERE accession_number = ?", (accession_number,)
             ).fetchone()
@@ -532,7 +532,7 @@ class EdgarStorage:
         """指定された受付番号リストのうち、データベースに登録済みのものを一括返却します。"""
         if not accession_numbers:
             return set()
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             placeholders = ", ".join(["?"] * len(accession_numbers))
             query = f"SELECT accession_number FROM filings WHERE accession_number IN ({placeholders})"
             rows = conn.execute(query, accession_numbers).fetchall()
@@ -546,7 +546,7 @@ class EdgarStorage:
         """指定された受付番号リストの書類メタデータに facts_checked = true を設定します。"""
         if not accession_numbers:
             return
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for acc_no in accession_numbers:
                 row = conn.execute("SELECT metadata FROM filings WHERE accession_number = ?", (acc_no,)).fetchone()
                 if row and row[0]:
@@ -562,7 +562,7 @@ class EdgarStorage:
 
     def facts_exist(self, accession_number: str) -> bool:
         """指定された受付番号に対応する財務数値（定量データ）が、すでに登録されているか（または確認済みか）確認します。"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             res = conn.execute(
                 "SELECT COUNT(*) FROM company_facts WHERE accession_number = ?", (accession_number,)
             ).fetchone()
@@ -584,7 +584,7 @@ class EdgarStorage:
         """指定された受付番号リストのうち、財務数値データが登録済み（または確認済み）のものを一括返却します。"""
         if not accession_numbers:
             return set()
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             placeholders = ", ".join(["?"] * len(accession_numbers))
             query_facts = f"SELECT DISTINCT accession_number FROM company_facts WHERE accession_number IN ({placeholders})"
             rows_facts = conn.execute(query_facts, accession_numbers).fetchall()
@@ -609,7 +609,7 @@ class EdgarStorage:
         スマートリペア機能（データ不完全性の修復）用メソッド。
         定性テキストは保存されているが、対応する定量Facts数値が欠落しており、かつFactsチェックが未完了の受付番号一覧を返します。
         """
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             query = """
                 SELECT f.accession_number, f.ticker, f.metadata
                 FROM filings f
@@ -640,7 +640,7 @@ class EdgarStorage:
         Returns:
             タプルのリスト: (ticker, form, filing_date, sections_json, metadata_json, updated_at)
         """
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             query = """
                 SELECT
                     f.ticker,
@@ -661,7 +661,7 @@ class EdgarStorage:
 
     def get_stats(self):
         """保存されている全データの統計情報（総書類数、銘柄ごとの書類取得数など）を取得します。"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             query = """
                 SELECT ticker, COUNT(*) as count, MAX(filing_date) as latest
                 FROM filings GROUP BY ticker ORDER BY count DESC
