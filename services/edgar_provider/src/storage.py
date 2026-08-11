@@ -40,6 +40,29 @@ class EdgarStorage:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    def _get_connection(self) -> duckdb.DuckDBPyConnection:
+        """
+        DuckDB 接続を生成し、メモリ制限・スレッド数・一時ディレクトリ・挿入順序保存オフ等の
+        最適化オプションを一元適用して返却します。
+        """
+        conn = duckdb.connect(self.db_path)
+        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "8GB")
+        threads = int(os.getenv("DUCKDB_THREADS", "4"))
+        checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
+        temp_dir = Path(self.db_path).parent / ".tmp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            conn.execute(f"SET memory_limit='{memory_limit}'")
+            conn.execute(f"SET threads={threads}")
+            conn.execute(f"SET checkpoint_threshold='{checkpoint_threshold}'")
+            conn.execute(f"SET temp_directory='{temp_dir.as_posix()}'")
+            conn.execute("SET preserve_insertion_order=false")
+        except Exception as e:
+            logger.warning(f"Failed to set DuckDB pragma options: {e}")
+
+        return conn
+
     def _init_db(self):
         """
         データベースの初期化、Schema-as-Code に基づくスキーマファイルの自動出力、
@@ -52,16 +75,7 @@ class EdgarStorage:
 
         schema_sql_path = Path(self.db_path).parent / "schema.sql"
 
-        with duckdb.connect(self.db_path) as conn:
-            # DuckDB の接続最適化オプション（メモリ制限、マルチスレッド並列処理等）を設定
-            memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "2GB")
-            threads = int(os.getenv("DUCKDB_THREADS", "4"))
-            checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
-
-            conn.execute(f"SET memory_limit='{memory_limit}'")
-            conn.execute(f"SET threads={threads}")
-            conn.execute(f"SET checkpoint_threshold='{checkpoint_threshold}'")
-
+        with self._get_connection() as conn:
             # 既存スキーマとの整合性チェックおよび自動マイグレーションの実行
             self._migrate_db_schema(conn)
 
@@ -86,7 +100,10 @@ class EdgarStorage:
             """)
 
             # WALの統合と最適化
-            conn.execute("CHECKPOINT")
+            try:
+                conn.execute("CHECKPOINT")
+            except Exception as e:
+                logger.warning(f"Initial CHECKPOINT failed during _init_db: {e}")
             logger.info(f"Initialized and optimized DuckDB at {self.db_path}")
 
     def _migrate_db_schema(self, conn: duckdb.DuckDBPyConnection):
@@ -159,7 +176,7 @@ class EdgarStorage:
         sections_dir.mkdir(parents=True, exist_ok=True)
 
         offloaded_count = 0
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # content_md が NULL でなく存在するレコードを取得
             rows = conn.execute("""
                 SELECT section_id, accession_number, section_name, content_md
@@ -201,7 +218,10 @@ class EdgarStorage:
                 """, (parquet_rel_path, acc_no))
                 offloaded_count += len(items)
 
-            conn.execute("CHECKPOINT")
+            try:
+                conn.execute("CHECKPOINT")
+            except Exception as e:
+                logger.warning(f"CHECKPOINT during parquet migration produced warning: {e}")
             conn.execute("VACUUM")
 
         logger.success(f"Successfully offloaded {offloaded_count} sections to Parquet files.")
@@ -209,13 +229,18 @@ class EdgarStorage:
 
     def checkpoint(self):
         """データベースの変更内容を書き込み、WALを統合してストレージ容量を整理します。"""
-        with duckdb.connect(self.db_path) as conn:
-            conn.execute("CHECKPOINT")
-            logger.info(f"Executed CHECKPOINT for {self.db_path}")
+        try:
+            with self._get_connection() as conn:
+                conn.execute("CHECKPOINT")
+                logger.info(f"Executed CHECKPOINT for {self.db_path}")
+        except Exception as e:
+            logger.warning(f"Executed CHECKPOINT encountered warning or non-fatal error: {e}")
 
     def vacuum(self):
         """未使用領域を開放し、データベースファイルをコンパクト化します。"""
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
+            conn.execute("VACUUM")
+            logger.info(f"Executed VACUUM for {self.db_path}")
             conn.execute("VACUUM")
             logger.info(f"Executed VACUUM for {self.db_path}")
 

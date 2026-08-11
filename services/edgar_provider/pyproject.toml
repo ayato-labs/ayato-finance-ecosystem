@@ -1,6 +1,6 @@
 [project]
 name = "edgar_provider"
-version = "0.1.5"
+version = "0.1.6"
 description = "SEC EDGAR Data Provider"
 authors = [
     { name = "ayato-labs", email = "ayato-labs@example.com" }
