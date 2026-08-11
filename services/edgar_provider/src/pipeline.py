@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import os
 from datetime import date, timedelta
 
@@ -13,8 +14,8 @@ from .storage import EdgarStorage
 # .env ファイルから環境変数を読み込み
 load_dotenv()
 
-# バッチサイズ（.envファイルで設定可能）
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
+# バッチサイズ（.envファイルで設定可能、デフォルトは即時フラッシュの 1）
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1"))
 
 
 async def _filings_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
@@ -28,6 +29,7 @@ async def _filings_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
                 log.info(f"Flushing final filings buffer | count={len(buffer)}")
                 await asyncio.to_thread(storage.save_filings_batch, buffer)
                 buffer.clear()
+                gc.collect()
             queue.task_done()
             break
 
@@ -36,6 +38,7 @@ async def _filings_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
             log.info(f"Flushing filings buffer | count={len(buffer)}")
             await asyncio.to_thread(storage.save_filings_batch, list(buffer))
             buffer.clear()
+            gc.collect()
         queue.task_done()
 
 
@@ -50,6 +53,7 @@ async def _facts_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
                 log.info(f"Flushing final facts buffer | count={len(buffer)}")
                 await asyncio.to_thread(storage.save_facts_batch, buffer)
                 buffer.clear()
+                gc.collect()
             queue.task_done()
             break
 
@@ -58,6 +62,7 @@ async def _facts_db_consumer(storage: EdgarStorage, queue: asyncio.Queue):
             log.info(f"Flushing facts buffer | count={len(buffer)}")
             await asyncio.to_thread(storage.save_facts_batch, list(buffer))
             buffer.clear()
+            gc.collect()
         queue.task_done()
 
 
@@ -155,9 +160,9 @@ async def sync_recent_us_filings(
     today = date.today()
     threshold_date = (today - timedelta(days=days)).isoformat()
 
-    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    filings_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    facts_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
+    filings_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
+    facts_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
 
     # バックグラウンドの Worker 及び DB 消費者タスクを起動
     parse_workers = [
@@ -170,6 +175,13 @@ async def sync_recent_us_filings(
     logger.info(f"Starting sync | days={days} | threshold_date={threshold_date}")
 
     background_tasks: set[asyncio.Task] = set()
+    facts_semaphore = asyncio.Semaphore(4)
+
+    async def _throttled_extract_facts(t_ticker: str, t_acc_no: str, t_filing_date: str, t_needs_repair: bool):
+        async with facts_semaphore:
+            await _extract_and_queue_facts(
+                t_ticker, t_acc_no, t_filing_date, t_needs_repair, facts_queue, storage
+            )
 
     try:
         for i in range(days):
@@ -231,10 +243,10 @@ async def sync_recent_us_filings(
                                 )
 
                             if acc_no not in existing_facts_set:
-                                # Facts 抽出を非同期バックグラウンドタスクとして起動し、ダウンロードループをブロックしない
+                                # Facts 抽出をセマフォで同時実行数制御したバックグラウンドタスクとして起動
                                 task = asyncio.create_task(
-                                    _extract_and_queue_facts(
-                                        ticker, acc_no, filing_date, needs_facts_repair, facts_queue, storage
+                                    _throttled_extract_facts(
+                                        ticker, acc_no, filing_date, needs_facts_repair
                                     )
                                 )
                                 background_tasks.add(task)
@@ -268,6 +280,7 @@ async def sync_recent_us_filings(
         await filings_queue.put(None)
         await facts_queue.put(None)
         await asyncio.gather(filings_consumer_task, facts_consumer_task)
+        gc.collect()
 
     logger.info("Sync completed")
 
@@ -279,9 +292,9 @@ async def process_us_tickers(
     指定された特定のティッカーシンボル群（個別指定）について、
     直近指定日数分の提出書類をピンポイントで同期・収集します。
     """
-    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    filings_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    facts_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    raw_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
+    filings_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
+    facts_queue: asyncio.Queue = asyncio.Queue(maxsize=20)
 
     parse_workers = [
         asyncio.create_task(_parse_worker(parser, raw_queue, filings_queue))
@@ -294,6 +307,13 @@ async def process_us_tickers(
     logger.info(f"Processing tickers | count={len(tickers)} | threshold_date={threshold_date}")
 
     background_tasks: set[asyncio.Task] = set()
+    facts_semaphore = asyncio.Semaphore(4)
+
+    async def _throttled_ticker_facts(t_ticker: str, t_acc_no: str, t_filing_date: str, t_needs_repair: bool):
+        async with facts_semaphore:
+            await _extract_and_queue_facts(
+                t_ticker, t_acc_no, t_filing_date, t_needs_repair, facts_queue, storage
+            )
 
     try:
         for ticker in tickers:
@@ -357,8 +377,8 @@ async def process_us_tickers(
 
                     if acc_no not in existing_facts_set:
                         task = asyncio.create_task(
-                            _extract_and_queue_facts(
-                                ticker, acc_no, filing_date, needs_facts_repair, facts_queue, storage
+                            _throttled_ticker_facts(
+                                ticker, acc_no, filing_date, needs_facts_repair
                             )
                         )
                         background_tasks.add(task)
@@ -388,6 +408,7 @@ async def process_us_tickers(
         await filings_queue.put(None)
         await facts_queue.put(None)
         await asyncio.gather(filings_consumer_task, facts_consumer_task)
+        gc.collect()
 
     logger.info("Ticker processing completed")
 
