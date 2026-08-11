@@ -46,7 +46,7 @@ class EdgarStorage:
         最適化オプションを一元適用して返却します。
         """
         conn = duckdb.connect(self.db_path)
-        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "2GB")
+        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
         threads = int(os.getenv("DUCKDB_THREADS", "4"))
         checkpoint_threshold = os.getenv("DUCKDB_CHECKPOINT_THRESHOLD", "1GB")
         temp_dir = Path(self.db_path).parent / ".tmp"
@@ -468,7 +468,8 @@ class EdgarStorage:
         total = len(filings_data)
         progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
 
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             for i, (metadata, sections) in enumerate(filings_data, 1):
                 try:
                     self._insert_single_filing(conn, metadata, sections)
@@ -481,6 +482,18 @@ class EdgarStorage:
                     logger.warning(f"Skipping filing due to validation error: {e}")
                 except Exception as e:
                     logger.error(f"Error saving filing {metadata.get('accessionNumber')}: {e}")
+                    if "invalidated" in str(e).lower() or "fatal" in str(e).lower() or "memory" in str(e).lower():
+                        logger.warning("Re-opening invalidated DuckDB connection...")
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        conn = self._get_connection()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
         logger.info(f"Batch saved {saved_count}/{total} filings")
         return saved_count
@@ -502,7 +515,8 @@ class EdgarStorage:
         total = len(facts_data)
         progress_interval = max(1, total // 10)  # 10%ごとに進捗ログ
 
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             for i, (ticker, accession_number, df) in enumerate(facts_data, 1):
                 try:
                     self._insert_facts_df(conn, ticker, accession_number, df)
@@ -516,6 +530,18 @@ class EdgarStorage:
                     logger.warning(f"Skipping facts due to validation error: {e}")
                 except Exception as e:
                     logger.error(f"Error saving facts for {ticker} ({accession_number}): {e}")
+                    if "invalidated" in str(e).lower() or "fatal" in str(e).lower() or "memory" in str(e).lower():
+                        logger.warning("Re-opening invalidated DuckDB connection...")
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        conn = self._get_connection()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
         logger.info(f"Batch saved facts for {saved_count}/{total} filings")
         return saved_count
